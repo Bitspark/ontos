@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ontos — byte-layout specification sheet</title>
+<meta name="description" content="ontos: a value model with two constructors and one canonical spelling per value. Its public surface is a frozen two-tag byte string, produced identically in Go, Rust, TypeScript and Python, and installed from npmjs, crates.io and the Go module proxy.">
+<style>
+:root{
+  --stock:#f3f0e7;
+  --ink:#16150f;
+  --rule:#b8b09a;
+  --wash:#e6e1d1;
+  --seal:#8f2e1d;
+
+  --mod:36px;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Charter,Cambria,Georgia,serif;
+  --mono:"Cascadia Mono",Consolas,"SF Mono",Menlo,"DejaVu Sans Mono","Liberation Mono",monospace;
+}
+
+*{box-sizing:border-box}
+html{background:var(--stock)}
+body{
+  margin:0;
+  background:var(--stock);
+  color:var(--ink);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:24px;
+  -webkit-font-smoothing:antialiased;
+}
+.sheet{max-width:1224px;margin:0 auto;padding:0 36px 96px}
+
+/* ---------- primitives ---------- */
+.mono{font-family:var(--mono)}
+.sc{
+  font-family:var(--mono);
+  text-transform:uppercase;
+  letter-spacing:.16em;
+  font-size:11px;
+  line-height:12px;
+  color:var(--rule);
+}
+.sc-ink{color:var(--ink)}
+.seal{color:var(--seal)}
+a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
+a:hover{border-bottom-color:var(--ink)}
+hr.hair{border:0;border-top:1px solid var(--rule);margin:0}
+hr.heavy{border:0;border-top:2px solid var(--ink);margin:0}
+
+/* ---------- masthead ---------- */
+.masthead{padding:60px 0 0}
+.masthead-top{
+  display:flex;justify-content:space-between;align-items:baseline;
+  gap:24px;flex-wrap:wrap;padding-bottom:10px;
+}
+.wordmark{display:flex;align-items:center;gap:18px}
+.wordmark h1{
+  font-family:var(--serif);
+  font-size:64px;line-height:60px;font-weight:400;
+  margin:0;letter-spacing:-.01em;
+}
+.greek{font-size:19px;line-height:24px;color:var(--rule);font-style:italic}
+.stamp{
+  font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--seal);
+  border:1px solid var(--seal);padding:6px 10px;white-space:nowrap;
+}
+.standfirst{
+  font-size:23px;line-height:33px;margin:22px 0 26px;max-width:36em;
+}
+.standfirst b{font-weight:400;border-bottom:2px solid var(--seal)}
+.masthead-meta{
+  display:flex;gap:36px;flex-wrap:wrap;padding:12px 0 14px;
+}
+.masthead-meta div{display:flex;flex-direction:column;gap:5px}
+.masthead-meta .v{font-family:var(--mono);font-size:14px;line-height:16px}
+/* The attach route belongs in the first viewport: the README's own install block,
+   one ruled register row per registry. A command that wraps hangs its continuation,
+   so a wrapped line is never read as a second command. */
+.install{
+  display:grid;grid-template-columns:max-content 1fr;column-gap:22px;row-gap:7px;
+  margin:0 0 20px;padding:12px 0 0;border-top:1px solid var(--rule);
+}
+.install>*{min-width:0}
+.install .sc{line-height:20px;color:#6d6857}
+.install code{
+  display:block;background:none;padding:0 0 0 1.2em;text-indent:-1.2em;
+  font-size:13.5px;line-height:20px;overflow-wrap:break-word;
+}
+.install .p{color:var(--seal)}
+.install .why{grid-column:1 / -1;font-size:15px;line-height:22px;color:#4a463a;margin:6px 0 0;max-width:none}
+/* A package name or a module@version is one token to the reader: a command may wrap
+   between tokens, never inside one. (The span changes nothing that is copied.) */
+.nw{white-space:nowrap}
+
+/* ---------- sections ---------- */
+section{padding:52px 0 0}
+.head{display:flex;align-items:baseline;gap:16px;padding-bottom:6px}
+.head .num{
+  font-family:var(--mono);font-size:12px;letter-spacing:.1em;
+  color:var(--seal);flex:none;
+}
+.head h2{
+  font-family:var(--serif);font-weight:400;
+  font-size:30px;line-height:34px;margin:0;
+}
+.head .tag{margin-left:auto;text-align:right;flex:none}
+.lede{font-size:19px;line-height:29px;max-width:38em;margin:18px 0 0}
+p{margin:16px 0 0;max-width:38em}
+.note{font-size:15px;line-height:23px;color:#4a463a;max-width:40em}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:20px}
+.cols p,.cols .note{max-width:none}
+/* grid/flex children default to min-width:auto and refuse to shrink below their
+   widest child, which blows the page out horizontally instead of letting the
+   inner overflow-x:auto containers scroll. min-width:0 restores shrinking. */
+.cols>*,.attach>div,.foot-grid>div,.masthead-top>*,.wordmark>*{min-width:0}
+
+/* ---------- figures ---------- */
+figure{margin:26px 0 0;border-top:1px solid var(--rule);padding-top:10px}
+figure svg{display:block;width:100%;height:auto;margin-top:8px}
+figcaption{
+  display:flex;gap:14px;align-items:baseline;
+  padding-bottom:4px;
+}
+figcaption .fnum{color:var(--seal);flex:none}
+figcaption .ftxt{
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;
+  font-size:11px;line-height:14px;color:var(--rule);
+}
+/* Every wide figure has a hand-drawn portrait counterpart. Below 900px the
+   landscape plate is not merely small, it is unreadable — a 1080-unit viewBox
+   scaled into 350px renders a 10-unit annotation at under 4px — so the narrow
+   variant is a different drawing of the same fact, not the same drawing shrunk.
+   Exactly one of the pair is in the DOM's accessibility tree at any width. */
+.fig-narrow{display:none}
+@media (max-width:900px){
+  .fig-wide{display:none}
+  .fig-narrow{display:block}
+  /* The portrait plates are drawn for a ~350px column. Left to fill the measure
+     they would scale to 2.3x on a tablet and set their labels larger than the
+     body copy — a figure shouting over the prose it annotates. The cap holds
+     their type at or below body size across the whole band. */
+  .fig-narrow svg{max-width:460px}
+}
+
+/* svg tokens */
+.s-fill{fill:var(--ink)}
+.s-hollow{fill:none;stroke:var(--ink);stroke-width:2}
+.s-wash{fill:var(--wash);stroke:var(--ink);stroke-width:1}
+.s-hair{fill:none;stroke:var(--rule);stroke-width:1}
+.s-lead{fill:none;stroke:var(--ink);stroke-width:1}
+.s-dash{fill:none;stroke:var(--ink);stroke-width:2;stroke-dasharray:6 5}
+.s-seal{fill:var(--seal)}
+.t{font-family:var(--mono);font-size:13px;fill:var(--ink)}
+.t-sm{font-family:var(--mono);font-size:11px;fill:var(--ink)}
+.t-mut{font-family:var(--mono);font-size:11px;fill:#6d6857}
+.t-cap{font-family:var(--mono);font-size:10px;letter-spacing:.14em;fill:#6d6857}
+.t-rev{font-family:var(--mono);font-size:13px;fill:var(--stock)}
+.t-serif{font-family:var(--serif);font-size:15px;fill:var(--ink)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin-top:22px}
+table{border-collapse:collapse;width:100%;min-width:540px}
+/* a table in a half column never gets the full-measure floor — between the narrow
+   breakpoint and a wide desktop the halves are narrower than 540px, and the floor
+   would clip them against a scroll container with no affordance. */
+.cols table{min-width:0}
+th,td{
+  text-align:left;vertical-align:top;
+  padding:9px 14px 9px 0;border-bottom:1px solid var(--rule);
+}
+th{
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;
+  font-size:10px;line-height:14px;color:#6d6857;font-weight:400;
+  border-bottom:2px solid var(--ink);padding-bottom:7px;
+}
+td{font-size:15px;line-height:22px}
+td.m,th.m{font-family:var(--mono);font-size:13px;line-height:21px;white-space:nowrap}
+th.m{font-size:10px;line-height:14px}
+td.mw{font-family:var(--mono);font-size:12.5px;line-height:19px;word-break:normal;overflow-wrap:anywhere}
+.t-embed th:nth-child(1),.t-embed td:nth-child(1){width:9%}
+.t-embed th:nth-child(2),.t-embed td:nth-child(2){width:27%}
+tbody tr:nth-child(even){background:rgba(184,176,154,.16)}
+caption{
+  caption-side:top;text-align:left;
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;
+  font-size:10px;color:#6d6857;padding-bottom:8px;
+}
+
+/* ---------- code ---------- */
+/* The longest transcript line is 1144px wide, so it only ever fitted on a viewport
+   at the sheet's full 1224px measure; anywhere narrower it scrolled out of sight
+   with nothing to say so. Transcripts wrap the way a terminal wraps, at every
+   width, with a hanging indent so a continuation is never read as a new command.
+   At full measure nothing wraps, so the wide reading is unchanged. */
+pre{
+  font-family:var(--mono);font-size:13px;line-height:21px;
+  background:var(--wash);border:1px solid var(--rule);border-left:2px solid var(--ink);
+  padding:14px 16px 14px 2.4em;margin:16px 0 0;
+  white-space:pre-wrap;overflow-wrap:break-word;text-indent:-1.2em;
+}
+pre .c{color:#6d6857}
+pre .p{color:var(--seal)}
+/* text-indent only hangs the FIRST line of a block, so a transcript set as one block
+   hangs its first command and indents every later one. Each logical line is its own
+   block instead: a command that wraps hangs its continuation under itself, and the
+   next command starts back at the margin. */
+pre.lines{white-space:normal;padding-left:16px;text-indent:0}
+pre.lines .ln{display:block;white-space:pre-wrap;padding-left:1.2em;text-indent:-1.2em;overflow-wrap:break-word}
+pre.lines .gap{height:21px}
+/* module paths and package coordinates are long unbreakable tokens; without this
+   a single inline <code> sets the whole document's scroll width. */
+code{font-family:var(--mono);font-size:.93em;background:var(--wash);padding:1px 4px;overflow-wrap:anywhere}
+td code,pre code{background:none;padding:0}
+
+/* ---------- lists ---------- */
+ul.rules{list-style:none;margin:18px 0 0;padding:0;max-width:40em}
+ul.rules li{
+  padding:11px 0 11px 22px;border-bottom:1px solid var(--rule);
+  position:relative;font-size:15.5px;line-height:23px;
+}
+ul.rules li::before{
+  content:"";position:absolute;left:0;top:19px;
+  width:9px;height:9px;background:var(--ink);
+}
+ul.rules li.no::before{background:none;border:1px solid var(--ink)}
+ul.rules b{font-weight:400;border-bottom:1px solid var(--seal)}
+
+/* ---------- attach block ---------- */
+.attach{display:grid;grid-template-columns:1.06fr 1fr 1fr;gap:0;margin-top:24px;border-top:2px solid var(--ink)}
+.attach>div{border-right:1px solid var(--rule);padding:16px 18px 20px}
+.attach>div:last-child{border-right:0}
+.attach h3{
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.16em;
+  font-size:11px;margin:0 0 10px;font-weight:400;color:var(--seal);
+}
+/* a command line that scrolls out of a narrow column is a command line the reader
+   never sees, and there is no scroll affordance here to tell them. Wrap instead,
+   with a hanging indent so a continuation is never mistaken for a second command. */
+.attach pre{
+  margin:0;background:none;border:0;border-left:0;padding:0 0 0 1.2em;
+  font-size:11.5px;line-height:19px;
+  white-space:pre-wrap;overflow-wrap:break-word;text-indent:-1.2em;
+}
+.attach pre.lines{padding:0}
+.attach pre.lines .gap{height:10px}
+.attach p{font-size:14px;line-height:21px;margin-top:12px;color:#4a463a}
+/* Each lane ends in what it printed. The tapes sit on one line across the three
+   columns (margin-top:auto), so "the same ten octets" is read side by side. */
+.attach>div{display:flex;flex-direction:column}
+.attach .emits{margin-top:auto;padding-top:16px}
+.attach .emits .sc{display:block;padding:10px 0 6px;border-top:1px solid var(--rule)}
+.attach .emits svg{display:block;width:100%;max-width:330px;height:auto}
+.attach h3+pre.lines{margin-top:0}
+svg.dep{display:block;width:100%;max-width:420px;height:auto}
+.coords .sc{display:inline-block;min-width:7.6em}
+
+/* ---------- footer ---------- */
+footer{margin-top:64px;border-top:2px solid var(--ink);padding-top:14px}
+.foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;margin-top:18px}
+.foot-grid h4{
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;
+  font-size:10px;font-weight:400;color:#6d6857;margin:0 0 8px;
+}
+.foot-grid ul{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12.5px;line-height:20px}
+.colophon{margin-top:34px;padding-top:12px;border-top:1px solid var(--rule);font-size:13px;line-height:20px;color:#6d6857;max-width:46em}
+
+@media (max-width:900px){
+  /* One column, so the register listings stop being a 560px plate the reader can
+     only see a third of: they shrink to the measure and the monospace cells wrap.
+     A cramped-but-whole table beats a tidy one with its right half off the page. */
+  table{min-width:0}
+  td.m,th.m{white-space:normal;overflow-wrap:break-word}
+  th,td{padding-right:10px}
+  /* The label register is three columns wide, and its middle column is a shape
+     expression that will not fit beside the other two at this measure — squeezed,
+     it sets "decimal" and Tuple(Atom("decimal"), …) as stacked fragments. Each
+     label becomes its own entry instead: name, shape, then the canonical rule. */
+  .t-embed thead{display:none}
+  .t-embed tr{display:block;padding:14px 0;border-bottom:1px solid var(--rule)}
+  .t-embed tbody tr:nth-child(even){background:none}
+  .t-embed td{display:block;border:0;padding:0}
+  /* these must out-specify the desktop percentage widths on the same selectors */
+  .t-embed td:nth-child(1){width:auto;font-size:15px;padding-bottom:5px}
+  .t-embed td:nth-child(2){width:auto;padding-bottom:9px;color:#4a463a}
+  .t-embed td:nth-child(3){font-size:15px;line-height:23px}
+  /* Four columns of identifiers cannot be squeezed into this measure without
+     breaking names mid-token, so the comparison stops being a matrix and becomes
+     one labelled block per operation — the same three readings, stacked. */
+  .t-api thead{display:none}
+  .t-api tr{display:block;padding:12px 0;border-bottom:1px solid var(--rule)}
+  .t-api tbody tr:nth-child(even){background:none}
+  .t-api td{display:block;border:0;padding:0}
+  .t-api td:first-child{font-size:15.5px;padding-bottom:6px}
+  .t-api td[data-lang]{
+    padding-left:44px;position:relative;
+    font-size:12.5px;line-height:20px;white-space:normal;
+  }
+  .t-api td[data-lang]::before{
+    content:attr(data-lang);position:absolute;left:0;top:0;
+    font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;
+    font-size:10px;line-height:20px;color:#6d6857;
+  }
+}
+@media (max-width:880px){
+  .cols{grid-template-columns:1fr;gap:0;row-gap:34px}
+  .attach{grid-template-columns:1fr;border-top:2px solid var(--ink)}
+  .attach>div{border-right:0;border-bottom:1px solid var(--rule)}
+  .foot-grid{grid-template-columns:1fr 1fr}
+  .wordmark h1{font-size:48px;line-height:46px}
+  .standfirst{font-size:20px;line-height:29px}
+  .head h2{font-size:25px;line-height:29px}
+  .head .tag{margin-left:0;width:100%;text-align:left}
+  .head{flex-wrap:wrap}
+  /* a long heading wraps inside its own box beside its number; left to its
+     max-content basis it would jump to a new line and orphan the number above it */
+  .head h2{flex:1 1 0;min-width:0}
+}
+@media (max-width:560px){
+  .sheet{padding:0 20px 64px}
+  .foot-grid{grid-template-columns:1fr}
+  /* the registry label moves above its command, so the command gets the full
+     measure and wraps only between whole tokens */
+  .install{grid-template-columns:1fr;row-gap:3px}
+  .install .sc:not(:first-child){margin-top:9px}
+  .install code{font-size:13px}
+}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<!-- ============================ MASTHEAD ============================ -->
+<header class="masthead">
+  <hr class="heavy">
+  <div class="masthead-top" style="padding-top:20px">
+    <div class="wordmark">
+      <svg width="76" height="76" viewBox="0 0 76 76" aria-hidden="true" style="flex:none">
+        <circle cx="38" cy="38" r="35" class="s-hair"/>
+        <circle cx="38" cy="38" r="26" class="s-hair"/>
+        <circle cx="38" cy="38" r="17" class="s-hair"/>
+        <circle cx="38" cy="38" r="9" class="s-fill"/>
+      </svg>
+      <div>
+        <h1>ontos</h1>
+        <div class="greek">ὄντος — of that which is</div>
+      </div>
+    </div>
+    <div class="stamp">ontos-codec-v1 · frozen</div>
+  </div>
+
+  <p class="standfirst">
+    A value model with <b>two constructors</b> and <b>one canonical spelling</b> per
+    value. Its public surface is not an API — it is a byte string, produced
+    identically by four independent implementations, because the layers above sign
+    and hash those exact bytes.
+  </p>
+
+  <div class="install" role="group" aria-label="Install from the public registries">
+    <span class="sc">npmjs</span><code><span class="p">$ </span>npm install <span class="nw">@bitspark/ontos-core</span> <span class="nw">@bitspark/ontos-codec</span> <span class="nw">@bitspark/ontos-data</span></code>
+    <span class="sc">crates.io</span><code><span class="p">$ </span>cargo add <span class="nw">bitspark-ontos-core</span> <span class="nw">bitspark-ontos-codec</span> <span class="nw">bitspark-ontos-data</span></code>
+    <span class="sc">Go proxy</span><code><span class="p">$ </span>go get <span class="nw">github.com/bitspark/ontos@v0.14.0</span></code>
+    <p class="why">
+      Public registries, no credentials, one version number in every lane.
+      <a href="#attach">§05</a> attaches each lane and runs it.
+    </p>
+  </div>
+
+  <hr class="hair">
+  <div class="masthead-meta">
+    <div><span class="sc">Release</span><span class="v">v0.14.0 · all lanes</span></div>
+    <div><span class="sc">Floor</span><span class="v">L0 — frozen</span></div>
+    <div><span class="sc">Embeddings</span><span class="v">ontos-data v1 — 8 labels</span></div>
+    <div><span class="sc">Faces</span><span class="v">go · rs · ts · py</span></div>
+    <div><span class="sc">License</span><span class="v">Apache-2.0</span></div>
+    <div><span class="sc">Repository</span><span class="v"><a href="https://github.com/Bitspark/ontos">github.com/Bitspark/ontos</a></span></div>
+  </div>
+  <hr class="heavy">
+</header>
+
+<!-- ============================ §00 THE SEAM ============================ -->
+<section>
+  <div class="head">
+    <span class="num">§00</span>
+    <h2>What crosses the boundary</h2>
+    <span class="tag sc">The seam</span>
+  </div>
+
+  <p class="lede">
+    Nothing leaves ontos except bytes. Four implementations exist; none of them is
+    the reference. What they must agree on is not a signature, a class layout, or an
+    error type — it is the exact octets, because <span class="mono">arche</span>
+    takes an Ed25519 signature over them and <span class="mono">logos</span> hashes
+    them into proof-DAG citations. Two cores that encoded the same value differently
+    would make a signature verify in one and fail in the other.
+  </p>
+
+  <figure>
+    <figcaption><span class="fnum sc">Fig. 1</span><span class="ftxt">Four peers, one byte string, two consumers downstream</span></figcaption>
+    <div class="fig-wide">
+    <svg viewBox="0 96 1080 484" role="img" aria-label="Four peer implementations — Go, Rust, TypeScript and Python — each feed the same canonical byte string 01 02 00 03 69 6e 74 00 01 00. Go is published on the Go module proxy, Rust on crates.io and TypeScript on npmjs. The Python face is drawn dashed because it is a source-only validation lane, not a published package. From the byte string two arrows lead down to arche, which signs over the bytes, and logos, which hashes them.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16150f"/>
+        </marker>
+      </defs>
+
+      <!-- four peer faces; the second line is where a consumer gets each one -->
+      <g>
+        <rect x="150" y="112" width="190" height="56" class="s-hollow"/>
+        <text x="245" y="137" class="t" text-anchor="middle">core/go</text>
+        <text x="245" y="155" class="t-mut" text-anchor="middle">Go module proxy</text>
+      </g>
+      <g>
+        <rect x="740" y="112" width="190" height="56" class="s-hollow"/>
+        <text x="835" y="137" class="t" text-anchor="middle">core/rs</text>
+        <text x="835" y="155" class="t-mut" text-anchor="middle">crates.io</text>
+      </g>
+      <g>
+        <rect x="150" y="342" width="190" height="56" class="s-hollow"/>
+        <text x="245" y="367" class="t" text-anchor="middle">core/ts</text>
+        <text x="245" y="385" class="t-mut" text-anchor="middle">npmjs</text>
+      </g>
+      <g>
+        <rect x="740" y="342" width="190" height="56" class="s-dash"/>
+        <text x="835" y="367" class="t" text-anchor="middle">core/py</text>
+        <text x="835" y="385" class="t-mut" text-anchor="middle">source only</text>
+      </g>
+
+      <!-- arrows into the plate -->
+      <path d="M340,150 L418,205" class="s-lead" marker-end="url(#ah)"/>
+      <path d="M740,150 L662,205" class="s-lead" marker-end="url(#ah)"/>
+      <path d="M340,360 L418,305" class="s-lead" marker-end="url(#ah)"/>
+      <path d="M740,360 L662,305" class="s-lead" marker-end="url(#ah)"/>
+
+      <!-- the central plate -->
+      <rect x="330" y="205" width="420" height="100" fill="#e6e1d1" stroke="#16150f" stroke-width="2"/>
+      <text x="540" y="234" class="t-cap" text-anchor="middle">CANONICAL BYTES · ONTOS-CODEC-V1</text>
+      <text x="540" y="266" font-family="Cascadia Mono, Consolas, monospace" font-size="21" fill="#16150f" text-anchor="middle" letter-spacing="1">01 02 00 03 69 6e 74 00 01 00</text>
+      <text x="540" y="290" class="t-mut" text-anchor="middle">one value · exactly one byte string</text>
+
+      <!-- equal-peers note. The span bracket is a hairline and the two upper leaders
+           cross it, which is fine; they must not cross the label, so the label
+           knocks out its own ground the way a drafting callout interrupts a rule. -->
+      <path d="M150,168 L150,190 L930,190 L930,168" class="s-hair"/>
+      <rect x="330" y="170" width="420" height="18" fill="#f3f0e7"/>
+      <text x="540" y="182" class="t-cap" text-anchor="middle">NO FAVORED LANGUAGE — NO IMPLEMENTATION IS THE REFERENCE</text>
+
+      <!-- down to consumers -->
+      <path d="M540,305 L540,438" class="s-lead"/>
+      <path d="M540,438 L330,438 L330,466" class="s-lead" marker-end="url(#ah)"/>
+      <path d="M540,438 L750,438 L750,466" class="s-lead" marker-end="url(#ah)"/>
+
+      <g>
+        <rect x="180" y="468" width="300" height="62" class="s-wash"/>
+        <text x="330" y="492" class="t" text-anchor="middle">arche</text>
+        <text x="330" y="512" class="t-mut" text-anchor="middle">Ed25519 signature over these bytes</text>
+      </g>
+      <g>
+        <rect x="600" y="468" width="300" height="62" class="s-wash"/>
+        <text x="750" y="492" class="t" text-anchor="middle">logos</text>
+        <text x="750" y="512" class="t-mut" text-anchor="middle">proof-DAG citations hash these bytes</text>
+      </g>
+
+      <!-- legend -->
+      <g>
+        <rect x="150" y="556" width="14" height="10" class="s-hollow"/>
+        <text x="172" y="565" class="t-cap">PUBLISHED, PUBLIC REGISTRY</text>
+        <rect x="420" y="556" width="14" height="10" class="s-dash"/>
+        <text x="442" y="565" class="t-cap">SOURCE ONLY — VALIDATION LANE</text>
+        <rect x="690" y="556" width="14" height="10" class="s-wash"/>
+        <text x="712" y="565" class="t-cap">DOWNSTREAM CONSUMER (ANOTHER REPO)</text>
+      </g>
+    </svg>
+    </div>
+
+    <div class="fig-narrow">
+    <svg viewBox="0 0 360 512" role="img" aria-label="Four peer implementations — Go, Rust, TypeScript and Python — each feed the same canonical byte string 01 02 00 03 69 6e 74 00 01 00. Go is published on the Go module proxy, Rust on crates.io and TypeScript on npmjs. The Python face is drawn dashed because it is a source-only validation lane, not a published package. From the byte string two arrows lead down to arche, which signs over the bytes, and logos, which hashes them.">
+      <defs>
+        <marker id="ah1n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16150f"/>
+        </marker>
+      </defs>
+
+      <!-- four faces, 2 x 2 around a central spine: a square has no head of the
+           table, and each face joins the spine by an identical stub -->
+      <g>
+        <rect x="4" y="30" width="160" height="46" class="s-hollow"/>
+        <text x="84" y="52" class="t" text-anchor="middle">core/go</text>
+        <text x="84" y="68" class="t-mut" text-anchor="middle">Go module proxy</text>
+      </g>
+      <g>
+        <rect x="196" y="30" width="160" height="46" class="s-hollow"/>
+        <text x="276" y="52" class="t" text-anchor="middle">core/rs</text>
+        <text x="276" y="68" class="t-mut" text-anchor="middle">crates.io</text>
+      </g>
+      <g>
+        <rect x="4" y="90" width="160" height="46" class="s-hollow"/>
+        <text x="84" y="112" class="t" text-anchor="middle">core/ts</text>
+        <text x="84" y="128" class="t-mut" text-anchor="middle">npmjs</text>
+      </g>
+      <g>
+        <rect x="196" y="90" width="160" height="46" class="s-dash"/>
+        <text x="276" y="112" class="t" text-anchor="middle">core/py</text>
+        <text x="276" y="128" class="t-mut" text-anchor="middle">source only</text>
+      </g>
+
+      <text x="180" y="12" class="t-cap" text-anchor="middle">NO FAVORED LANGUAGE</text>
+      <text x="180" y="24" class="t-cap" text-anchor="middle">NO IMPLEMENTATION IS THE REFERENCE</text>
+
+      <!-- all four join the same spine, by stubs of equal length -->
+      <path d="M164,53 L180,53" class="s-lead"/>
+      <path d="M196,53 L180,53" class="s-lead"/>
+      <path d="M164,113 L180,113" class="s-lead"/>
+      <path d="M196,113 L180,113" class="s-lead"/>
+      <path d="M180,53 L180,178" class="s-lead" marker-end="url(#ah1n)"/>
+
+      <rect x="4" y="180" width="352" height="86" fill="#e6e1d1" stroke="#16150f" stroke-width="2"/>
+      <text x="180" y="202" class="t-cap" text-anchor="middle">CANONICAL BYTES · ONTOS-CODEC-V1</text>
+      <text x="180" y="230" font-family="Cascadia Mono, Consolas, monospace" font-size="15" fill="#16150f" text-anchor="middle">01 02 00 03 69 6e 74 00 01 00</text>
+      <text x="180" y="252" class="t-mut" text-anchor="middle">one value · exactly one byte string</text>
+
+      <!-- down to the two consumers -->
+      <path d="M180,266 L180,292" class="s-lead"/>
+      <path d="M180,292 L60,292 L60,312" class="s-lead" marker-end="url(#ah1n)"/>
+      <path d="M180,292 L300,292 L300,312" class="s-lead" marker-end="url(#ah1n)"/>
+
+      <g>
+        <rect x="4" y="314" width="352" height="52" class="s-wash"/>
+        <text x="180" y="336" class="t" text-anchor="middle">arche</text>
+        <text x="180" y="354" class="t-mut" text-anchor="middle">Ed25519 signature over these bytes</text>
+      </g>
+      <g>
+        <rect x="4" y="376" width="352" height="52" class="s-wash"/>
+        <text x="180" y="398" class="t" text-anchor="middle">logos</text>
+        <text x="180" y="416" class="t-mut" text-anchor="middle">proof-DAG citations hash these bytes</text>
+      </g>
+
+      <!-- legend -->
+      <g>
+        <rect x="4" y="452" width="13" height="10" class="s-hollow"/>
+        <text x="26" y="461" class="t-cap">PUBLISHED, PUBLIC REGISTRY</text>
+        <rect x="4" y="472" width="13" height="10" class="s-dash"/>
+        <text x="26" y="481" class="t-cap">SOURCE ONLY — VALIDATION LANE</text>
+        <rect x="4" y="492" width="13" height="10" class="s-wash"/>
+        <text x="26" y="501" class="t-cap">DOWNSTREAM CONSUMER (ANOTHER REPO)</text>
+      </g>
+    </svg>
+    </div>
+  </figure>
+
+  <div class="cols">
+    <p class="note">
+      <b>What is published.</b> The value-model libraries, to each language's public
+      registry, with no credential needed: core, codec, data and data-json as
+      <code class="nw">@bitspark/ontos-*</code> on npmjs, as <code class="nw">bitspark-ontos-*</code> on
+      crates.io, and as packages of one Go module, <code class="nw">github.com/bitspark/ontos</code>.
+      Every lane carries the same release number. The Python implementation is a
+      stdlib-only validation lane, source only, registered as one more
+      <code>--impl</code> on the conformance harness.
+    </p>
+    <p class="note">
+      <b>What is deliberately not published.</b> The <code>ontos</code> CLI, in every
+      language at once: the TS package is <code>"private": true</code>, the
+      Rust crate is <code>publish = false</code>, the Go build is
+      <code>go install</code>, and the Python lane has no packaging
+      manifest to suppress. Nothing imports the CLI — you run it,
+      you don't depend on it.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ §01 THE FLOOR ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§01</span>
+    <h2>The floor: two constructors, and nothing else</h2>
+    <span class="tag sc">ontos/core · L0 · frozen</span>
+  </div>
+
+  <p class="lede">
+    The set of values <span class="mono">V</span> is the least set closed under two
+    constructors — equivalently the initial algebra
+    <span class="mono">μX. Bytes + List(X)</span>. There is no third kind of value:
+    no nil, no variable, no number, no string, no map, no reference, no label slot.
+  </p>
+
+  <pre class="lines"><span class="ln"><span class="c">-- the whole value set</span></span><span class="ln">Atom(b)              ∈ V    <span class="c">for every finite byte string b</span></span><span class="ln">Tuple(v₀, …, vₙ₋₁)   ∈ V    <span class="c">for every finite n ≥ 0 and all vᵢ ∈ V</span></span><span class="ln gap"></span><span class="ln"><span class="c">-- the whole identity relation</span></span><span class="ln">Atom(b) = Atom(c)              <span class="c">iff  b and c are the same octets</span></span><span class="ln">Tuple(x₀…xₘ₋₁) = Tuple(y₀…yₙ₋₁) <span class="c">iff  m = n and xᵢ = yᵢ, recursively</span></span><span class="ln">Atom(_) ≠ Tuple(_)             <span class="c">always — the constructors are disjoint</span></span></pre>
+
+  <div class="cols">
+    <div>
+      <ul class="rules">
+        <li><b>Finite</b> — finitely many tuples, each of finite arity, atoms of finite length. Nothing infinite or lazy.</li>
+        <li><b>Well-founded</b> — a finite tree, never a graph. No value contains itself.</li>
+        <li><b>Immutable</b> — "modifying" a value produces a different value.</li>
+        <li><b>Closed / context-free</b> — no address, owner, creation time, validity, or provenance travels inside a value.</li>
+        <li><b>Ground</b> — every value is whole. There is no hole, placeholder, or unknown. The variable is precisely what L0 excludes.</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="rules">
+        <li class="no"><b>Atom bytes are uninterpreted</b> — not text, not a number, not a hash, not a key. L0 commits only to which exact octets are present.</li>
+        <li class="no"><b>Order and arity are the value</b> — no implicit flattening, sorting, or de-duplication.</li>
+        <li class="no"><b><span class="mono">Atom("") ≠ Tuple()</span></b> — empty bytes and the empty tuple are different values. Neither is "null."</li>
+        <li class="no"><b>No object identity</b> — no memory address, allocation history, or hidden identity bit. Structure is all there is.</li>
+        <li class="no"><b>Identity is never redefined above</b> — every higher layer inherits it unchanged, and MUST NOT restate it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tw">
+  <table class="t-api">
+    <caption>The same conceptual surface, three naming conventions</caption>
+    <thead><tr><th>Operation</th><th class="m">Go</th><th class="m">Rust</th><th class="m">TypeScript</th></tr></thead>
+    <tbody>
+      <tr><td>construct</td><td class="m" data-lang="go">NewAtom · NewTuple</td><td class="m" data-lang="rs">Value::atom · Value::tuple</td><td class="m" data-lang="ts">atom() · tuple()</td></tr>
+      <tr><td>atom bytes, length</td><td class="m" data-lang="go">Atom.Bytes() · .Len()</td><td class="m" data-lang="rs">Atom::bytes · len</td><td class="m" data-lang="ts">Atom#bytes() · #length</td></tr>
+      <tr><td>children, arity, index</td><td class="m" data-lang="go">Items() · Len() · At(i)</td><td class="m" data-lang="rs">Tuple::items · len · at</td><td class="m" data-lang="ts">items() · length · at()</td></tr>
+      <tr><td>structural equality</td><td class="m" data-lang="go">Equal</td><td class="m" data-lang="rs">PartialEq</td><td class="m" data-lang="ts">equals()</td></tr>
+      <tr><td>diagnostic string</td><td class="m" data-lang="go">String()</td><td class="m" data-lang="rs">Display</td><td class="m" data-lang="ts">toString()</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note" style="margin-top:14px">
+    Per-language extras are documented as intentional, not accidental: TypeScript
+    carries a <code>kind</code> discriminant plus <code>toJSON</code>/<code>toHex</code>
+    because JavaScript has neither Rust enums nor Go interfaces; Rust carries
+    <code>is_atom</code>/<code>as_tuple</code> to classify its closed enum. The Rust
+    core takes <em>no dependencies at all</em> — the frozen floor depends on nothing.
+  </p>
+</section>
+
+<!-- ============================ §02 THE BYTES ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§02</span>
+    <h2>The bytes: two tags, length-prefixed, shortest form</h2>
+    <span class="tag sc">ontos-codec-v1 · frozen · security-critical</span>
+  </div>
+
+  <p class="lede">
+    This is the entire encoding. Not an excerpt — the whole normative byte mapping
+    fits in two lines, and those two lines are immutable: a change ships as
+    <span class="mono">ontos-codec-v2</span> with an explicit migration, never as an
+    edit to v1, because every signature and every hash in the stack above is taken
+    over these bytes. Upgrading ontos therefore never changes the bytes of a value you
+    already store, hash or sign.
+  </p>
+
+  <figure>
+    <figcaption><span class="fnum sc">Fig. 2</span><span class="ftxt">The complete byte mapping, drawn at field width</span></figcaption>
+    <div class="fig-wide">
+    <svg viewBox="0 0 1080 400" role="img" aria-label="Field diagram of the two encoding rules. An Atom encodes as a one-byte tag 0x00, then a uvarint of the byte length, then the exact bytes. A Tuple encodes as a one-byte tag 0x01, then a uvarint of the arity n, then the n children encoded in order, recursively.">
+      <!-- legend, top right (clear of both rows) -->
+      <g>
+        <rect x="884" y="34" width="14" height="14" class="s-fill"/>
+        <text x="906" y="45" class="t-cap">ATOM TAG</text>
+        <rect x="884" y="58" width="14" height="14" class="s-hollow"/>
+        <text x="906" y="69" class="t-cap">TUPLE TAG</text>
+        <path d="M884,86 l-4,0 M884,90 L1020,90" class="s-hair"/>
+        <text x="884" y="106" class="t-cap">VARIABLE-WIDTH</text>
+        <text x="884" y="120" class="t-cap">FIELD</text>
+        <path d="M884,132 l-8,10 l16,11 l-16,11 l8,10" class="s-hair"/>
+      </g>
+
+      <!-- ATOM ROW -->
+      <text x="60" y="42" class="t-cap">ENCODE( ATOM(b) )</text>
+      <text x="260" y="42" class="t-cap">TAG · LENGTH · PAYLOAD — SELF-DELIMITING</text>
+      <!-- tag -->
+      <rect x="60" y="56" width="72" height="58" class="s-fill"/>
+      <text x="96" y="92" class="t-rev" text-anchor="middle" font-size="16">0x00</text>
+      <!-- uvarint -->
+      <rect x="132" y="56" width="216" height="58" class="s-wash"/>
+      <text x="240" y="82" class="t" text-anchor="middle">uvarint( len b )</text>
+      <text x="240" y="101" class="t-mut" text-anchor="middle">1–10 bytes</text>
+      <!-- payload -->
+      <rect x="348" y="56" width="432" height="58" class="s-wash"/>
+      <text x="564" y="82" class="t" text-anchor="middle">b</text>
+      <text x="564" y="101" class="t-mut" text-anchor="middle">the exact octets, uninterpreted</text>
+      <!-- variable-length break marks -->
+      <path d="M336,56 l-8,14 l16,15 l-16,15 l8,14" class="s-hair"/>
+      <path d="M768,56 l-8,14 l16,15 l-16,15 l8,14" class="s-hair"/>
+      <!-- ruler -->
+      <path d="M60,124 L780,124" class="s-hair"/>
+      <path d="M60,124 L60,132 M132,124 L132,132 M348,124 L348,132 M780,124 L780,132" class="s-hair"/>
+      <text x="60" y="146" class="t-mut">offset 0</text>
+      <text x="132" y="146" class="t-mut">1</text>
+      <text x="348" y="146" class="t-mut">1 + |uvarint|</text>
+      <text x="780" y="146" class="t-mut" text-anchor="end">end</text>
+
+      <!-- TUPLE ROW -->
+      <text x="60" y="212" class="t-cap">ENCODE( TUPLE(v₀ … vₙ₋₁) )</text>
+      <text x="300" y="212" class="t-cap">CHILDREN RECURSE — THE SAME TWO RULES</text>
+      <rect x="60" y="226" width="72" height="58" class="s-hollow"/>
+      <text x="96" y="262" class="t" text-anchor="middle" font-size="16">0x01</text>
+      <rect x="132" y="226" width="216" height="58" class="s-wash"/>
+      <text x="240" y="252" class="t" text-anchor="middle">uvarint( n )</text>
+      <text x="240" y="271" class="t-mut" text-anchor="middle">the arity</text>
+      <rect x="348" y="226" width="144" height="58" class="s-wash"/>
+      <text x="420" y="259" class="t" text-anchor="middle">encode(v₀)</text>
+      <rect x="492" y="226" width="144" height="58" class="s-wash"/>
+      <text x="564" y="259" class="t" text-anchor="middle">encode(v₁)</text>
+      <text x="666" y="259" class="t" text-anchor="middle">···</text>
+      <rect x="696" y="226" width="144" height="58" class="s-wash"/>
+      <text x="768" y="259" class="t" text-anchor="middle">encode(vₙ₋₁)</text>
+      <path d="M336,226 l-8,14 l16,15 l-16,15 l8,14" class="s-hair"/>
+      <path d="M60,294 L840,294" class="s-hair"/>
+      <path d="M60,294 L60,302 M132,294 L132,302 M348,294 L348,302 M492,294 L492,302 M696,294 L696,302 M840,294 L840,302" class="s-hair"/>
+      <text x="60" y="316" class="t-mut">offset 0</text>
+      <text x="132" y="316" class="t-mut">1</text>
+      <text x="840" y="316" class="t-mut" text-anchor="end">end</text>
+
+      <!-- footnote strip -->
+      <path d="M60,344 L1020,344" class="s-hair"/>
+      <text x="60" y="366" class="t-sm">uvarint = unsigned LEB128, shortest form. Domain pinned to u64 — at most 10 bytes. The encoding of 0 is the single byte 0x00.</text>
+      <text x="60" y="386" class="t-sm">Length- and arity-prefixed ⇒ self-delimiting ⇒ prefix-free ⇒ a total order over all values exists (§02.2).</text>
+    </svg>
+    </div>
+
+    <div class="fig-narrow">
+    <svg viewBox="0 0 360 484" role="img" aria-label="Field table of the two encoding rules. An Atom encodes as a one-byte tag 0x00 at offset 0, then a uvarint of the byte length at offset 1, then the exact bytes. A Tuple encodes as a one-byte tag 0x01 at offset 0, then a uvarint of the arity n at offset 1, then the n children encoded in order, recursively.">
+      <!-- The landscape plate reads the fields left to right, at byte width. On a
+           narrow page the same fields are read top to bottom, offset first — the
+           register-map form the same datasheets use for a one-column layout. -->
+
+      <text x="0" y="10" class="t-cap">ENCODE( ATOM(b) )</text>
+      <path d="M0,18 L360,18" class="s-hair"/>
+      <text x="0" y="32" class="t-cap">OFFSET</text>
+      <text x="86" y="32" class="t-cap">FIELD</text>
+
+      <text x="0" y="60" class="t-mut">0</text>
+      <rect x="86" y="42" width="70" height="30" class="s-fill"/>
+      <text x="121" y="62" class="t-rev" text-anchor="middle">0x00</text>
+      <text x="166" y="55" class="t-sm">tag</text>
+      <text x="166" y="68" class="t-mut">one byte, atom</text>
+
+      <text x="0" y="96" class="t-mut">1</text>
+      <rect x="86" y="78" width="184" height="30" class="s-wash"/>
+      <text x="178" y="98" class="t" text-anchor="middle">uvarint( len b )</text>
+      <text x="278" y="91" class="t-sm">length</text>
+      <text x="278" y="104" class="t-mut">1–10 bytes</text>
+
+      <text x="0" y="132" class="t-mut">1 + |uvarint|</text>
+      <rect x="86" y="114" width="230" height="30" class="s-wash"/>
+      <text x="201" y="134" class="t" text-anchor="middle">b</text>
+      <path d="M310,114 l-7,10 l14,10 l-14,10 l7,10" class="s-hair"/>
+      <text x="86" y="158" class="t-mut">the exact octets, uninterpreted</text>
+
+      <text x="0" y="196" class="t-cap">ENCODE( TUPLE(v₀ … vₙ₋₁) )</text>
+      <path d="M0,204 L360,204" class="s-hair"/>
+      <text x="0" y="218" class="t-cap">OFFSET</text>
+      <text x="86" y="218" class="t-cap">FIELD</text>
+
+      <text x="0" y="246" class="t-mut">0</text>
+      <rect x="86" y="228" width="70" height="30" class="s-hollow"/>
+      <text x="121" y="248" class="t" text-anchor="middle">0x01</text>
+      <text x="166" y="241" class="t-sm">tag</text>
+      <text x="166" y="254" class="t-mut">one byte, tuple</text>
+
+      <text x="0" y="282" class="t-mut">1</text>
+      <rect x="86" y="264" width="184" height="30" class="s-wash"/>
+      <text x="178" y="284" class="t" text-anchor="middle">uvarint( n )</text>
+      <text x="278" y="277" class="t-sm">arity</text>
+      <text x="278" y="290" class="t-mut">child count</text>
+
+      <text x="0" y="318" class="t-mut">1 + |uvarint|</text>
+      <rect x="86" y="300" width="230" height="30" class="s-wash"/>
+      <text x="201" y="320" class="t" text-anchor="middle">encode(v₀) … encode(vₙ₋₁)</text>
+      <path d="M310,300 l-7,10 l14,10 l-14,10 l7,10" class="s-hair"/>
+      <text x="86" y="354" class="t-mut">n children in order, by these same rules</text>
+
+      <g>
+        <rect x="0" y="378" width="13" height="13" class="s-fill"/>
+        <text x="22" y="388" class="t-cap">ATOM TAG</text>
+        <rect x="140" y="378" width="13" height="13" class="s-hollow"/>
+        <text x="162" y="388" class="t-cap">TUPLE TAG</text>
+      </g>
+
+      <path d="M0,406 L360,406" class="s-hair"/>
+      <text x="0" y="424" class="t-sm">uvarint = unsigned LEB128, shortest form. Domain</text>
+      <text x="0" y="438" class="t-sm">pinned to u64 — at most 10 bytes. The encoding of</text>
+      <text x="0" y="452" class="t-sm">0 is the single byte 0x00. Length- and arity-prefixed</text>
+      <text x="0" y="466" class="t-sm">⇒ self-delimiting ⇒ prefix-free ⇒ a total order over</text>
+      <text x="0" y="480" class="t-sm">all values exists (§02.2).</text>
+    </svg>
+    </div>
+  </figure>
+
+  <div class="cols" style="margin-top:34px">
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">§02.1 &nbsp; The tag set is closed</div>
+      <p class="note" style="margin-top:0">
+        <code>{0x00, 0x01}</code> is the complete tag set. Every other byte is
+        reserved, and a decoder MUST reject it as <code>unknown_tag</code>. In
+        particular <b>there is no variable tag</b> — ontos values are ground and the
+        codec cannot encode a variable. A consumer that needs one (logos's
+        <code>Var</code>) must do it in its own codec, and MUST NOT redefine
+        <code>0x00</code> or <code>0x01</code>.
+      </p>
+      <figure style="padding-top:12px;margin-top:22px">
+      <figcaption><span class="fnum sc">Fig. 3</span><span class="ftxt">The closed tag set — the negative space is the argument</span></figcaption>
+      <svg viewBox="0 0 420 348" role="img" aria-label="A 16 by 16 map of all 256 possible tag bytes. Exactly two cells, 0x00 and 0x01, are marked as defined; the remaining 254 are reserved and must be rejected.">
+        <text x="0" y="12" class="t-cap">TAG BYTE SPACE — 256 CELLS</text>
+        <!-- callout sits directly above columns 0 and 1; no leader needed, and
+             nothing crosses the column-header row -->
+        <rect x="20" y="24" width="14" height="10" fill="#8f2e1d" stroke="#8f2e1d"/>
+        <text x="42" y="33" class="t-sm">0x00 Atom · 0x01 Tuple — every other byte is reserved</text>
+        <g transform="translate(0,18)">
+        <g>
+          <!-- column headers -->
+          <text x="24" y="36" class="t-mut">0</text><text x="42" y="36" class="t-mut">1</text>
+          <text x="60" y="36" class="t-mut">2</text><text x="78" y="36" class="t-mut">3</text>
+          <text x="96" y="36" class="t-mut">4</text><text x="114" y="36" class="t-mut">5</text>
+          <text x="132" y="36" class="t-mut">6</text><text x="150" y="36" class="t-mut">7</text>
+          <text x="168" y="36" class="t-mut">8</text><text x="186" y="36" class="t-mut">9</text>
+          <text x="204" y="36" class="t-mut">A</text><text x="222" y="36" class="t-mut">B</text>
+          <text x="240" y="36" class="t-mut">C</text><text x="258" y="36" class="t-mut">D</text>
+          <text x="276" y="36" class="t-mut">E</text><text x="294" y="36" class="t-mut">F</text>
+        </g>
+        <!-- row labels -->
+        <text x="0" y="55" class="t-mut">00</text><text x="0" y="73" class="t-mut">10</text>
+        <text x="0" y="91" class="t-mut">20</text><text x="0" y="109" class="t-mut">30</text>
+        <text x="0" y="127" class="t-mut">40</text><text x="0" y="145" class="t-mut">50</text>
+        <text x="0" y="163" class="t-mut">60</text><text x="0" y="181" class="t-mut">70</text>
+        <text x="0" y="199" class="t-mut">80</text><text x="0" y="217" class="t-mut">90</text>
+        <text x="0" y="235" class="t-mut">A0</text><text x="0" y="253" class="t-mut">B0</text>
+        <text x="0" y="271" class="t-mut">C0</text><text x="0" y="289" class="t-mut">D0</text>
+        <text x="0" y="307" class="t-mut">E0</text><text x="0" y="325" class="t-mut">F0</text>
+
+        <!-- the 256 cells: rows y = 42 + 18*r, cols x = 20 + 18*c, cell 14x14 -->
+        <g fill="#e6e1d1" stroke="#b8b09a" stroke-width="1">
+          <!-- row 0 handled separately for the two live cells -->
+          <rect x="56" y="42" width="14" height="14"/><rect x="74" y="42" width="14" height="14"/>
+          <rect x="92" y="42" width="14" height="14"/><rect x="110" y="42" width="14" height="14"/>
+          <rect x="128" y="42" width="14" height="14"/><rect x="146" y="42" width="14" height="14"/>
+          <rect x="164" y="42" width="14" height="14"/><rect x="182" y="42" width="14" height="14"/>
+          <rect x="200" y="42" width="14" height="14"/><rect x="218" y="42" width="14" height="14"/>
+          <rect x="236" y="42" width="14" height="14"/><rect x="254" y="42" width="14" height="14"/>
+          <rect x="272" y="42" width="14" height="14"/><rect x="290" y="42" width="14" height="14"/>
+
+          <rect x="20" y="60" width="14" height="14"/><rect x="38" y="60" width="14" height="14"/><rect x="56" y="60" width="14" height="14"/><rect x="74" y="60" width="14" height="14"/><rect x="92" y="60" width="14" height="14"/><rect x="110" y="60" width="14" height="14"/><rect x="128" y="60" width="14" height="14"/><rect x="146" y="60" width="14" height="14"/><rect x="164" y="60" width="14" height="14"/><rect x="182" y="60" width="14" height="14"/><rect x="200" y="60" width="14" height="14"/><rect x="218" y="60" width="14" height="14"/><rect x="236" y="60" width="14" height="14"/><rect x="254" y="60" width="14" height="14"/><rect x="272" y="60" width="14" height="14"/><rect x="290" y="60" width="14" height="14"/>
+          <rect x="20" y="78" width="14" height="14"/><rect x="38" y="78" width="14" height="14"/><rect x="56" y="78" width="14" height="14"/><rect x="74" y="78" width="14" height="14"/><rect x="92" y="78" width="14" height="14"/><rect x="110" y="78" width="14" height="14"/><rect x="128" y="78" width="14" height="14"/><rect x="146" y="78" width="14" height="14"/><rect x="164" y="78" width="14" height="14"/><rect x="182" y="78" width="14" height="14"/><rect x="200" y="78" width="14" height="14"/><rect x="218" y="78" width="14" height="14"/><rect x="236" y="78" width="14" height="14"/><rect x="254" y="78" width="14" height="14"/><rect x="272" y="78" width="14" height="14"/><rect x="290" y="78" width="14" height="14"/>
+          <rect x="20" y="96" width="14" height="14"/><rect x="38" y="96" width="14" height="14"/><rect x="56" y="96" width="14" height="14"/><rect x="74" y="96" width="14" height="14"/><rect x="92" y="96" width="14" height="14"/><rect x="110" y="96" width="14" height="14"/><rect x="128" y="96" width="14" height="14"/><rect x="146" y="96" width="14" height="14"/><rect x="164" y="96" width="14" height="14"/><rect x="182" y="96" width="14" height="14"/><rect x="200" y="96" width="14" height="14"/><rect x="218" y="96" width="14" height="14"/><rect x="236" y="96" width="14" height="14"/><rect x="254" y="96" width="14" height="14"/><rect x="272" y="96" width="14" height="14"/><rect x="290" y="96" width="14" height="14"/>
+          <rect x="20" y="114" width="14" height="14"/><rect x="38" y="114" width="14" height="14"/><rect x="56" y="114" width="14" height="14"/><rect x="74" y="114" width="14" height="14"/><rect x="92" y="114" width="14" height="14"/><rect x="110" y="114" width="14" height="14"/><rect x="128" y="114" width="14" height="14"/><rect x="146" y="114" width="14" height="14"/><rect x="164" y="114" width="14" height="14"/><rect x="182" y="114" width="14" height="14"/><rect x="200" y="114" width="14" height="14"/><rect x="218" y="114" width="14" height="14"/><rect x="236" y="114" width="14" height="14"/><rect x="254" y="114" width="14" height="14"/><rect x="272" y="114" width="14" height="14"/><rect x="290" y="114" width="14" height="14"/>
+          <rect x="20" y="132" width="14" height="14"/><rect x="38" y="132" width="14" height="14"/><rect x="56" y="132" width="14" height="14"/><rect x="74" y="132" width="14" height="14"/><rect x="92" y="132" width="14" height="14"/><rect x="110" y="132" width="14" height="14"/><rect x="128" y="132" width="14" height="14"/><rect x="146" y="132" width="14" height="14"/><rect x="164" y="132" width="14" height="14"/><rect x="182" y="132" width="14" height="14"/><rect x="200" y="132" width="14" height="14"/><rect x="218" y="132" width="14" height="14"/><rect x="236" y="132" width="14" height="14"/><rect x="254" y="132" width="14" height="14"/><rect x="272" y="132" width="14" height="14"/><rect x="290" y="132" width="14" height="14"/>
+          <rect x="20" y="150" width="14" height="14"/><rect x="38" y="150" width="14" height="14"/><rect x="56" y="150" width="14" height="14"/><rect x="74" y="150" width="14" height="14"/><rect x="92" y="150" width="14" height="14"/><rect x="110" y="150" width="14" height="14"/><rect x="128" y="150" width="14" height="14"/><rect x="146" y="150" width="14" height="14"/><rect x="164" y="150" width="14" height="14"/><rect x="182" y="150" width="14" height="14"/><rect x="200" y="150" width="14" height="14"/><rect x="218" y="150" width="14" height="14"/><rect x="236" y="150" width="14" height="14"/><rect x="254" y="150" width="14" height="14"/><rect x="272" y="150" width="14" height="14"/><rect x="290" y="150" width="14" height="14"/>
+          <rect x="20" y="168" width="14" height="14"/><rect x="38" y="168" width="14" height="14"/><rect x="56" y="168" width="14" height="14"/><rect x="74" y="168" width="14" height="14"/><rect x="92" y="168" width="14" height="14"/><rect x="110" y="168" width="14" height="14"/><rect x="128" y="168" width="14" height="14"/><rect x="146" y="168" width="14" height="14"/><rect x="164" y="168" width="14" height="14"/><rect x="182" y="168" width="14" height="14"/><rect x="200" y="168" width="14" height="14"/><rect x="218" y="168" width="14" height="14"/><rect x="236" y="168" width="14" height="14"/><rect x="254" y="168" width="14" height="14"/><rect x="272" y="168" width="14" height="14"/><rect x="290" y="168" width="14" height="14"/>
+          <rect x="20" y="186" width="14" height="14"/><rect x="38" y="186" width="14" height="14"/><rect x="56" y="186" width="14" height="14"/><rect x="74" y="186" width="14" height="14"/><rect x="92" y="186" width="14" height="14"/><rect x="110" y="186" width="14" height="14"/><rect x="128" y="186" width="14" height="14"/><rect x="146" y="186" width="14" height="14"/><rect x="164" y="186" width="14" height="14"/><rect x="182" y="186" width="14" height="14"/><rect x="200" y="186" width="14" height="14"/><rect x="218" y="186" width="14" height="14"/><rect x="236" y="186" width="14" height="14"/><rect x="254" y="186" width="14" height="14"/><rect x="272" y="186" width="14" height="14"/><rect x="290" y="186" width="14" height="14"/>
+          <rect x="20" y="204" width="14" height="14"/><rect x="38" y="204" width="14" height="14"/><rect x="56" y="204" width="14" height="14"/><rect x="74" y="204" width="14" height="14"/><rect x="92" y="204" width="14" height="14"/><rect x="110" y="204" width="14" height="14"/><rect x="128" y="204" width="14" height="14"/><rect x="146" y="204" width="14" height="14"/><rect x="164" y="204" width="14" height="14"/><rect x="182" y="204" width="14" height="14"/><rect x="200" y="204" width="14" height="14"/><rect x="218" y="204" width="14" height="14"/><rect x="236" y="204" width="14" height="14"/><rect x="254" y="204" width="14" height="14"/><rect x="272" y="204" width="14" height="14"/><rect x="290" y="204" width="14" height="14"/>
+          <rect x="20" y="222" width="14" height="14"/><rect x="38" y="222" width="14" height="14"/><rect x="56" y="222" width="14" height="14"/><rect x="74" y="222" width="14" height="14"/><rect x="92" y="222" width="14" height="14"/><rect x="110" y="222" width="14" height="14"/><rect x="128" y="222" width="14" height="14"/><rect x="146" y="222" width="14" height="14"/><rect x="164" y="222" width="14" height="14"/><rect x="182" y="222" width="14" height="14"/><rect x="200" y="222" width="14" height="14"/><rect x="218" y="222" width="14" height="14"/><rect x="236" y="222" width="14" height="14"/><rect x="254" y="222" width="14" height="14"/><rect x="272" y="222" width="14" height="14"/><rect x="290" y="222" width="14" height="14"/>
+          <rect x="20" y="240" width="14" height="14"/><rect x="38" y="240" width="14" height="14"/><rect x="56" y="240" width="14" height="14"/><rect x="74" y="240" width="14" height="14"/><rect x="92" y="240" width="14" height="14"/><rect x="110" y="240" width="14" height="14"/><rect x="128" y="240" width="14" height="14"/><rect x="146" y="240" width="14" height="14"/><rect x="164" y="240" width="14" height="14"/><rect x="182" y="240" width="14" height="14"/><rect x="200" y="240" width="14" height="14"/><rect x="218" y="240" width="14" height="14"/><rect x="236" y="240" width="14" height="14"/><rect x="254" y="240" width="14" height="14"/><rect x="272" y="240" width="14" height="14"/><rect x="290" y="240" width="14" height="14"/>
+          <rect x="20" y="258" width="14" height="14"/><rect x="38" y="258" width="14" height="14"/><rect x="56" y="258" width="14" height="14"/><rect x="74" y="258" width="14" height="14"/><rect x="92" y="258" width="14" height="14"/><rect x="110" y="258" width="14" height="14"/><rect x="128" y="258" width="14" height="14"/><rect x="146" y="258" width="14" height="14"/><rect x="164" y="258" width="14" height="14"/><rect x="182" y="258" width="14" height="14"/><rect x="200" y="258" width="14" height="14"/><rect x="218" y="258" width="14" height="14"/><rect x="236" y="258" width="14" height="14"/><rect x="254" y="258" width="14" height="14"/><rect x="272" y="258" width="14" height="14"/><rect x="290" y="258" width="14" height="14"/>
+          <rect x="20" y="276" width="14" height="14"/><rect x="38" y="276" width="14" height="14"/><rect x="56" y="276" width="14" height="14"/><rect x="74" y="276" width="14" height="14"/><rect x="92" y="276" width="14" height="14"/><rect x="110" y="276" width="14" height="14"/><rect x="128" y="276" width="14" height="14"/><rect x="146" y="276" width="14" height="14"/><rect x="164" y="276" width="14" height="14"/><rect x="182" y="276" width="14" height="14"/><rect x="200" y="276" width="14" height="14"/><rect x="218" y="276" width="14" height="14"/><rect x="236" y="276" width="14" height="14"/><rect x="254" y="276" width="14" height="14"/><rect x="272" y="276" width="14" height="14"/><rect x="290" y="276" width="14" height="14"/>
+          <rect x="20" y="294" width="14" height="14"/><rect x="38" y="294" width="14" height="14"/><rect x="56" y="294" width="14" height="14"/><rect x="74" y="294" width="14" height="14"/><rect x="92" y="294" width="14" height="14"/><rect x="110" y="294" width="14" height="14"/><rect x="128" y="294" width="14" height="14"/><rect x="146" y="294" width="14" height="14"/><rect x="164" y="294" width="14" height="14"/><rect x="182" y="294" width="14" height="14"/><rect x="200" y="294" width="14" height="14"/><rect x="218" y="294" width="14" height="14"/><rect x="236" y="294" width="14" height="14"/><rect x="254" y="294" width="14" height="14"/><rect x="272" y="294" width="14" height="14"/><rect x="290" y="294" width="14" height="14"/>
+          <rect x="20" y="312" width="14" height="14"/><rect x="38" y="312" width="14" height="14"/><rect x="56" y="312" width="14" height="14"/><rect x="74" y="312" width="14" height="14"/><rect x="92" y="312" width="14" height="14"/><rect x="110" y="312" width="14" height="14"/><rect x="128" y="312" width="14" height="14"/><rect x="146" y="312" width="14" height="14"/><rect x="164" y="312" width="14" height="14"/><rect x="182" y="312" width="14" height="14"/><rect x="200" y="312" width="14" height="14"/><rect x="218" y="312" width="14" height="14"/><rect x="236" y="312" width="14" height="14"/><rect x="254" y="312" width="14" height="14"/><rect x="272" y="312" width="14" height="14"/><rect x="290" y="312" width="14" height="14"/>
+        </g>
+
+        <!-- the two live cells -->
+        <rect x="20" y="42" width="14" height="14" fill="#8f2e1d" stroke="#8f2e1d"/>
+        <rect x="38" y="42" width="14" height="14" fill="#8f2e1d" stroke="#8f2e1d"/>
+        <!-- legend -->
+        <g transform="translate(330,60)">
+          <rect x="0" y="0" width="14" height="14" fill="#8f2e1d" stroke="#8f2e1d"/>
+          <text x="0" y="30" class="t-cap">DEFINED</text>
+          <text x="0" y="44" class="t-sm">2</text>
+          <rect x="0" y="64" width="14" height="14" fill="#e6e1d1" stroke="#b8b09a"/>
+          <text x="0" y="94" class="t-cap">RESERVED</text>
+          <text x="0" y="108" class="t-sm">254</text>
+          <text x="0" y="132" class="t-cap">DECODER</text>
+          <text x="0" y="146" class="t-cap">MUST</text>
+          <text x="0" y="160" class="t-cap">REJECT</text>
+        </g>
+        </g>
+      </svg>
+      </figure>
+    </div>
+
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">§02.2 &nbsp; What a conforming codec owes you</div>
+      <ul class="rules" style="margin-top:0">
+        <li><b>Determinism</b> — <span class="mono">encode(v)</span> yields exactly one byte string.</li>
+        <li><b>Round-trip</b> — <span class="mono">decode(encode(v)) = v</span>, for every value.</li>
+        <li><b>Injectivity</b> — distinct values encode to distinct bytes.</li>
+        <li><b>Canonical rejection</b> — a decoder MUST reject any byte string that is not the canonical encoding of some value, so that "valid encoding" and "canonical encoding" coincide. <em>This is what lets a hash over the bytes stand in for the value.</em></li>
+        <li><b>A total order falls out</b> — because the encoding is canonical, injective and prefix-free, lexicographic comparison of encodings totally orders all values. That order is what <span class="mono">map</span> and <span class="mono">set</span> sort by. It is a codec-derived convenience, <em>not</em> part of L0 identity.</li>
+      </ul>
+
+      <div class="tw">
+      <table>
+        <caption>Rejection codes — normative; the human message is not</caption>
+        <thead><tr><th class="m">code</th><th>fires when</th></tr></thead>
+        <tbody>
+          <tr><td class="m">unexpected_eof</td><td>input ends mid-value</td></tr>
+          <tr><td class="m">unknown_tag</td><td>a tag byte outside <code>{0x00, 0x01}</code></td></tr>
+          <tr><td class="m">non_canonical_uvarint</td><td>a uvarint not in shortest form</td></tr>
+          <tr><td class="m">uvarint_overflow</td><td>a uvarint encoding a value ≥ 2<sup>64</sup></td></tr>
+          <tr><td class="m">trailing_bytes</td><td>bytes left after one complete value</td></tr>
+          <tr><td class="m">limit_exceeded</td><td>a documented resource limit — <em>implementation-local</em>, not part of the byte contract; it names the bound that stopped it</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note" style="margin-top:14px">
+        Max decode depth is <b>1024 in all four cores</b> — the one limit that could
+        bite a valid input is harmonized. The host-width ceilings that <em>do</em>
+        differ (2<sup>63</sup>−1 Go, <code>usize::MAX</code> Rust, 2<sup>53</sup>−1
+        TypeScript, none Python) cannot: no core can be handed a buffer longer than its
+        own ceiling, so a length or arity past it declares more bytes than follow. The
+        cores then differ only on <em>which</em> rejection fires for an input that is
+        already truncated everywhere — never on whether it is valid.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ §03 WORKED EXAMPLE ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§03</span>
+    <h2>One value, all the way down</h2>
+    <span class="tag sc">worked example · verified output</span>
+  </div>
+
+  <p class="lede">
+    The integer zero. Ten octets. Read left to right, the tape below is the L0 tree
+    above, and nothing else — no framing, no schema, no version header inside the
+    value.
+  </p>
+
+  <figure>
+    <figcaption><span class="fnum sc">Fig. 4</span><span class="ftxt">int(0) — from the L0 tree to the ten canonical octets</span></figcaption>
+    <div class="fig-wide">
+    <svg viewBox="0 0 1080 520" role="img" aria-label="Decomposition of the value int(0). The L0 tree is a Tuple of arity 2 whose children are Atom of the bytes i-n-t and Atom of the single byte zero. It encodes to the ten octets 01 02 00 03 69 6e 74 00 01 00: byte 0 is the tuple tag, byte 1 the arity 2, bytes 2 to 6 encode the label atom, and bytes 7 to 9 encode the payload atom.">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16150f"/>
+        </marker>
+      </defs>
+
+      <text x="60" y="26" class="t-cap">REGISTER 1 — L0, THE VALUE</text>
+
+      <!-- tree -->
+      <rect x="400" y="50" width="160" height="40" class="s-hollow"/>
+      <text x="480" y="76" class="t" text-anchor="middle">Tuple · arity 2</text>
+      <path d="M480,90 L305,150" class="s-lead"/>
+      <path d="M480,90 L655,150" class="s-lead"/>
+      <rect x="230" y="150" width="150" height="40" class="s-fill"/>
+      <text x="305" y="176" class="t-rev" text-anchor="middle">Atom "int"</text>
+      <rect x="580" y="150" width="150" height="40" class="s-fill"/>
+      <text x="655" y="176" class="t-rev" text-anchor="middle">Atom 0x00</text>
+
+      <!-- L2 reading panel -->
+      <rect x="790" y="40" width="240" height="150" class="s-wash"/>
+      <text x="806" y="62" class="t-cap">REGISTER 2 — L2, THE READING</text>
+      <text x="806" y="92" class="t" font-size="17">int( 0 )</text>
+      <path d="M806,104 L1014,104" class="s-hair"/>
+      <text x="806" y="124" class="t-mut">label atom "int" + payload</text>
+      <text x="806" y="140" class="t-mut">payload = sign byte, then</text>
+      <text x="806" y="156" class="t-mut">big-endian minimal magnitude</text>
+      <text x="806" y="178" class="t-sm">zero is exactly 0x00</text>
+
+      <!-- leaders down to the tape (staggered heights so no two ever cross) -->
+      <path d="M400,70 L150,70 L150,272 L252,272 L252,336" class="s-lead" marker-end="url(#ah2)"/>
+      <path d="M305,190 L305,258 L504,258 L504,336" class="s-lead" marker-end="url(#ah2)"/>
+      <path d="M655,190 L655,244 L792,244 L792,336" class="s-lead" marker-end="url(#ah2)"/>
+
+      <!-- register 3 label, in the left gutter, clear of the leader corridor -->
+      <text x="60" y="346" class="t-cap">REGISTER 3</text>
+      <text x="60" y="360" class="t-cap">ONTOS-CODEC-V1</text>
+      <text x="60" y="374" class="t-cap">CANONICAL</text>
+      <text x="60" y="388" class="t-cap">OCTETS</text>
+
+      <!-- byte tape: 10 cells of 72 from x=180 -->
+      <g>
+        <rect x="180" y="338" width="72" height="52" class="s-hollow"/><text x="216" y="371" class="t" text-anchor="middle" font-size="17">01</text>
+        <rect x="252" y="338" width="72" height="52" class="s-wash"/><text x="288" y="371" class="t" text-anchor="middle" font-size="17">02</text>
+        <rect x="324" y="338" width="72" height="52" class="s-fill"/><text x="360" y="371" class="t-rev" text-anchor="middle" font-size="17">00</text>
+        <rect x="396" y="338" width="72" height="52" class="s-wash"/><text x="432" y="371" class="t" text-anchor="middle" font-size="17">03</text>
+        <rect x="468" y="338" width="72" height="52" class="s-wash"/><text x="504" y="371" class="t" text-anchor="middle" font-size="17">69</text>
+        <rect x="540" y="338" width="72" height="52" class="s-wash"/><text x="576" y="371" class="t" text-anchor="middle" font-size="17">6e</text>
+        <rect x="612" y="338" width="72" height="52" class="s-wash"/><text x="648" y="371" class="t" text-anchor="middle" font-size="17">74</text>
+        <rect x="684" y="338" width="72" height="52" class="s-fill"/><text x="720" y="371" class="t-rev" text-anchor="middle" font-size="17">00</text>
+        <rect x="756" y="338" width="72" height="52" class="s-wash"/><text x="792" y="371" class="t" text-anchor="middle" font-size="17">01</text>
+        <rect x="828" y="338" width="72" height="52" class="s-wash"/><text x="864" y="371" class="t" text-anchor="middle" font-size="17">00</text>
+      </g>
+      <!-- offset ruler -->
+      <path d="M180,396 L900,396" class="s-hair"/>
+      <g class="t-mut" text-anchor="middle">
+        <text x="216" y="410">0</text><text x="288" y="410">1</text><text x="360" y="410">2</text>
+        <text x="432" y="410">3</text><text x="504" y="410">4</text><text x="576" y="410">5</text>
+        <text x="648" y="410">6</text><text x="720" y="410">7</text><text x="792" y="410">8</text>
+        <text x="864" y="410">9</text>
+      </g>
+      <text x="168" y="410" class="t-cap" text-anchor="end">OFFSET</text>
+
+      <!-- role brackets -->
+      <path d="M182,424 L182,434 L322,434 L322,424" class="s-hair"/>
+      <text x="252" y="452" class="t-sm" text-anchor="middle">tuple tag, arity 2</text>
+      <path d="M326,424 L326,434 L682,434 L682,424" class="s-hair"/>
+      <text x="504" y="452" class="t-sm" text-anchor="middle">Atom("int") — tag, len 3, the bytes i n t</text>
+      <path d="M686,424 L686,434 L898,434 L898,424" class="s-hair"/>
+      <text x="792" y="452" class="t-sm" text-anchor="middle">Atom(0x00) — tag, len 1, payload</text>
+
+      <!-- footnote -->
+      <path d="M60,480 L1020,480" class="s-hair"/>
+      <text x="60" y="502" class="t-sm">Nothing else is in the value: no length header for the whole message, no version byte, no schema id, no padding. What you sign is what you see.</text>
+    </svg>
+    </div>
+
+    <div class="fig-narrow">
+    <svg viewBox="0 0 360 636" role="img" aria-label="Decomposition of the value int(0). The L0 tree is a Tuple of arity 2 whose children are Atom of the bytes i-n-t and Atom of the single byte zero. It encodes to the ten octets 01 02 00 03 69 6e 74 00 01 00, listed here one per row: offset 0 is the tuple tag, offset 1 the arity 2, offsets 2 to 6 encode the label atom, and offsets 7 to 9 encode the payload atom.">
+      <!-- Landscape draws the tape left to right and brackets it underneath. Here the
+           tape runs down the page, which buys a per-octet reading the wide plate
+           only groups: every one of the ten bytes gets its own line. -->
+      <text x="0" y="10" class="t-cap">REGISTER 1 — L0, THE VALUE</text>
+
+      <rect x="110" y="22" width="140" height="34" class="s-hollow"/>
+      <text x="180" y="44" class="t" text-anchor="middle">Tuple · arity 2</text>
+      <path d="M180,56 L84,80" class="s-lead"/>
+      <path d="M180,56 L276,80" class="s-lead"/>
+      <rect x="8" y="82" width="152" height="34" class="s-fill"/>
+      <text x="84" y="104" class="t-rev" text-anchor="middle">Atom "int"</text>
+      <rect x="200" y="82" width="152" height="34" class="s-fill"/>
+      <text x="276" y="104" class="t-rev" text-anchor="middle">Atom 0x00</text>
+
+      <rect x="0" y="132" width="360" height="86" class="s-wash"/>
+      <text x="12" y="150" class="t-cap">REGISTER 2 — L2, THE READING</text>
+      <text x="12" y="172" class="t" font-size="16">int( 0 )</text>
+      <path d="M12,182 L348,182" class="s-hair"/>
+      <text x="12" y="196" class="t-mut">label atom "int" + payload; payload is a sign</text>
+      <text x="12" y="210" class="t-mut">byte then big-endian magnitude. Zero is 0x00.</text>
+
+      <text x="0" y="238" class="t-cap">REGISTER 3 — ONTOS-CODEC-V1, THE CANONICAL OCTETS</text>
+      <path d="M0,245 L360,245" class="s-hair"/>
+      <text x="0" y="259" class="t-cap">OFF</text>
+      <text x="42" y="259" class="t-cap">BYTE</text>
+      <text x="150" y="259" class="t-cap">WHAT IT IS</text>
+
+      <g class="t-mut">
+        <text x="8" y="285" text-anchor="middle">0</text>
+        <text x="8" y="317" text-anchor="middle">1</text>
+        <text x="8" y="349" text-anchor="middle">2</text>
+        <text x="8" y="381" text-anchor="middle">3</text>
+        <text x="8" y="413" text-anchor="middle">4</text>
+        <text x="8" y="445" text-anchor="middle">5</text>
+        <text x="8" y="477" text-anchor="middle">6</text>
+        <text x="8" y="509" text-anchor="middle">7</text>
+        <text x="8" y="541" text-anchor="middle">8</text>
+        <text x="8" y="573" text-anchor="middle">9</text>
+      </g>
+
+      <g>
+        <rect x="42" y="266" width="52" height="26" class="s-hollow"/><text x="68" y="285" class="t" text-anchor="middle">01</text>
+        <rect x="42" y="298" width="52" height="26" class="s-wash"/><text x="68" y="317" class="t" text-anchor="middle">02</text>
+        <rect x="42" y="330" width="52" height="26" class="s-fill"/><text x="68" y="349" class="t-rev" text-anchor="middle">00</text>
+        <rect x="42" y="362" width="52" height="26" class="s-wash"/><text x="68" y="381" class="t" text-anchor="middle">03</text>
+        <rect x="42" y="394" width="52" height="26" class="s-wash"/><text x="68" y="413" class="t" text-anchor="middle">69</text>
+        <rect x="42" y="426" width="52" height="26" class="s-wash"/><text x="68" y="445" class="t" text-anchor="middle">6e</text>
+        <rect x="42" y="458" width="52" height="26" class="s-wash"/><text x="68" y="477" class="t" text-anchor="middle">74</text>
+        <rect x="42" y="490" width="52" height="26" class="s-fill"/><text x="68" y="509" class="t-rev" text-anchor="middle">00</text>
+        <rect x="42" y="522" width="52" height="26" class="s-wash"/><text x="68" y="541" class="t" text-anchor="middle">01</text>
+        <rect x="42" y="554" width="52" height="26" class="s-wash"/><text x="68" y="573" class="t" text-anchor="middle">00</text>
+      </g>
+
+      <!-- role brackets: which octets belong to which node of the tree above -->
+      <path d="M112,268 L104,268 L104,322 L112,322" class="s-hair"/>
+      <text x="120" y="285" class="t-sm">tuple tag</text>
+      <text x="120" y="317" class="t-sm">arity 2</text>
+
+      <path d="M112,332 L104,332 L104,482 L112,482" class="s-hair"/>
+      <text x="120" y="349" class="t-sm">atom tag</text>
+      <text x="120" y="381" class="t-sm">len 3</text>
+      <text x="120" y="413" class="t-sm">'i'</text>
+      <text x="120" y="445" class="t-sm">'n'</text>
+      <text x="120" y="477" class="t-sm">'t'</text>
+      <text x="212" y="397" class="t-cap">Atom("int")</text>
+      <text x="212" y="411" class="t-cap">THE LABEL</text>
+
+      <path d="M112,492 L104,492 L104,578 L112,578" class="s-hair"/>
+      <text x="120" y="509" class="t-sm">atom tag</text>
+      <text x="120" y="541" class="t-sm">len 1</text>
+      <text x="120" y="573" class="t-sm">payload</text>
+      <text x="212" y="535" class="t-cap">Atom(0x00)</text>
+      <text x="212" y="549" class="t-cap">THE PAYLOAD</text>
+
+      <path d="M0,596 L360,596" class="s-hair"/>
+      <text x="0" y="612" class="t-sm">Nothing else is in the value: no message length</text>
+      <text x="0" y="626" class="t-sm">header, no version byte, no schema id, no padding.</text>
+    </svg>
+    </div>
+  </figure>
+
+  <p style="margin-top:26px">
+    Authoring notation in, canonical bytes out, then evidence about those bytes, then
+    the digest of those bytes. Every line below was run against a build of
+    <code>cli/go/cmd/ontos</code> at v0.14.0, and is reproduced verbatim:
+  </p>
+
+  <pre class="lines"><span class="ln"><span class="p">$</span> ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'</span><span class="ln">01020003696e74000100</span><span class="ln gap"></span><span class="ln"><span class="p">$</span> ontos inspect 01020003696e74000100</span><span class="ln">Tuple(Atom(0x696e74), Atom(0x00))</span><span class="ln">canonical: yes</span><span class="ln">recognized: int</span><span class="ln gap"></span><span class="ln"><span class="p">$</span> ontos inspect --format json 01020003696e74000100</span><span class="ln">{"ok":true,"command":"inspect","codec":"ontos-codec-v1","canonical":true,"value":{"tuple":[{"atom":"696e74"},{"atom":"00"}]},"recognized":["int"]}</span><span class="ln gap"></span><span class="ln"><span class="c"># hashing is a pipe, not a subcommand — there is no `ontos hash`;</span></span><span class="ln"><span class="c"># canon --emit prints hex, so turn it back into the ten octets first</span></span><span class="ln"><span class="p">$</span> ontos canon --emit 01020003696e74000100 | xxd -r -p | sha256sum</span><span class="ln">0022704d463f6d3b29ce24b75b79cfa95b5ffa848560d79164cbd8a18a57a586 *-</span></pre>
+
+  <p class="note" style="margin-top:16px">
+    The <code>--from-json</code> notation is the only text→bytes path in the tool, and
+    it exists for authoring and debugging only. The discipline is explicit in the
+    spec: never sign, hash, or exchange the JSON text — hash the emitted bytes. And
+    hash the <em>octets</em>, not their hex spelling: piped straight into
+    <code>sha256sum</code>, <code>canon --emit</code>'s output would hash its 21 bytes of
+    hex text and newline instead of the ten octets. A pleasant text form was deliberately
+    <em>not</em> invented, because a pleasant notation risks becoming a second,
+    exchangeable value surface.
+  </p>
+</section>
+
+<!-- ============================ §04 EMBEDDINGS ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§04</span>
+    <h2>Eight registered readings — and not one new equality</h2>
+    <span class="tag sc">ontos/data · L2 · byte forms frozen</span>
+  </div>
+
+  <p class="lede">
+    L2 is where the world gets expressed, and it is deliberately opinionated about
+    exactly one thing: <em>representation</em>. Each label fixes the single canonical
+    spelling of a datum. None of them defines equality — that stays L0's, structural,
+    inherited unchanged.
+  </p>
+
+  <div class="tw">
+  <table class="t-embed">
+    <caption>The v1 label set — four scalars, three structural kinds, one no-value</caption>
+    <thead>
+      <tr><th class="m">label</th><th>shape</th><th>the canonical rule</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="m">int</td>
+        <td class="mw">Tuple(Atom("int"), Atom(payload))</td>
+        <td>Exact and unbounded in principle. Payload is one sign byte (<code>00</code> non-negative, <code>01</code> negative) then the big-endian magnitude with leading zeros stripped. <b>Zero is exactly the single byte <code>00</code></b>; there is no negative zero.</td>
+      </tr>
+      <tr>
+        <td class="m">utf8-text</td>
+        <td class="mw">Tuple(Atom("utf8-text"), Atom(utf8))</td>
+        <td>Valid UTF-8, <b>verbatim — no Unicode normalization</b>, no NFC, no NFD. Two canonically-equivalent but byte-distinct strings are distinct values. A consumer wanting normalization defines a separate later embedding.</td>
+      </tr>
+      <tr>
+        <td class="m">bool</td>
+        <td class="mw">Tuple(Atom("bool"), Atom(marker))</td>
+        <td>A single payload byte: <code>00</code> false, <code>01</code> true. Exactly two well-formed values; any other payload is not a <code>bool</code>.</td>
+      </tr>
+      <tr>
+        <td class="m">decimal</td>
+        <td class="mw">Tuple(Atom("decimal"), int(m), int(e))</td>
+        <td>Exact <span class="mono">m × 10<sup>e</sup></span>, never IEEE-754. Zero is <code>decimal(int 0, int 0)</code>; a non-zero mantissa carries no trailing base-10 zero. So <code>3.14</code> is uniquely <code>decimal(int 314, int −2)</code>. Not a general rational — <code>1/3</code> has no decimal form.</td>
+      </tr>
+      <tr>
+        <td class="m">list</td>
+        <td class="mw">Tuple(Atom("list"), e₀ … eₙ₋₁)</td>
+        <td>Order and multiplicity <em>are</em> identity: <code>[a,b] ≠ [b,a]</code> and <code>[a] ≠ [a,a]</code>. Never sorted, never deduplicated. <b>The bare unlabeled tuple is forbidden</b> — without the label it is indistinguishable from a compound, which is exactly what let blind encoders fork list identity.</td>
+      </tr>
+      <tr>
+        <td class="m">map</td>
+        <td class="mw">Tuple(Atom("map"), Tuple(k,v) …)</td>
+        <td>Entries are arity-2 pairs, sorted <b>strictly ascending by key</b> under the codec's total order. Strictness gives canonical order and key-uniqueness in one check.</td>
+      </tr>
+      <tr>
+        <td class="m">set</td>
+        <td class="mw">Tuple(Atom("set"), e₀ … eₙ₋₁)</td>
+        <td>Elements sorted strictly ascending under the same total order — canonical order and no-duplicates, again in one check.</td>
+      </tr>
+      <tr>
+        <td class="m">null</td>
+        <td class="mw">Tuple(Atom("null"))</td>
+        <td><b>Exactly one inhabitant, forever.</b> No <code>undefined</code>, no <code>nil</code>, no <code>missing</code>, no typed-null. It means <em>present-but-no-value</em>, which is not absence — absence stays structural, an omitted key.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="cols" style="margin-top:30px">
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">Verified canonical bytes</div>
+      <table class="t-bytes">
+        <thead><tr><th class="m">value</th><th class="m">ontos-codec-v1</th></tr></thead>
+        <tbody>
+          <tr><td class="m">int(0)</td><td class="mw">01020003696e74000100</td></tr>
+          <tr><td class="m">bool(true)</td><td class="mw">01020004626f6f6c000101</td></tr>
+          <tr><td class="m">utf8-text("hi")</td><td class="mw">01020009757466382d7465787400026869</td></tr>
+          <tr><td class="m">null()</td><td class="mw">010100046e756c6c</td></tr>
+          <tr><td class="m">list(int 1)</td><td class="mw">010200046c69737401020003696e7400020001</td></tr>
+          <tr><td class="m">decimal(314,−2)</td><td class="mw">01030007646563696d616c01020003696e74000300013a01020003696e7400020102</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Each row is one byte string, emitted by
+        <code>ontos canon --emit --from-json</code> and wrapped only to fit the column.
+      </p>
+    </div>
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">L2 constrains producers, not just readers</div>
+      <p class="note" style="margin-top:0">
+        The <em>three producer-admission laws</em> are the part most encoders get
+        wrong. Concretely for <code>utf8-text</code>: a host string carrying an
+        unpaired surrogate is <b>outside the domain and MUST be rejected</b>. It must
+        not be encoded verbatim — that mints a value the reader rule makes unreadable.
+        And it must not be "repaired" by substituting U+FFFD, because that succeeds
+        with a <em>different datum</em>, and the substitution is undetectable once the
+        host string is gone.
+      </p>
+      <p class="note">
+        <b>Two things that are not divergence.</b> First, host integer types differ by
+        language — Go takes <code>*big.Int</code>, TypeScript takes
+        <code>bigint</code> — both unbounded, matching the unbounded byte form.
+        Second, <code>map</code> and <code>set</code> are the only
+        <em>codec-version-relative</em> embeddings, because their canonical order
+        comes from the codec; the other six are purely structural.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ §05 ATTACHING ============================ -->
+<section id="attach">
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§05</span>
+    <h2>Attach through any door — the same bytes come out</h2>
+    <span class="tag sc">v0.14.0 · public registries · no credentials</span>
+  </div>
+
+  <p class="lede">
+    Each language installs from its own public registry with no credential, and every
+    lane carries the same release number — today 0.14.0. Each column below is one
+    consumer's whole attachment: install, import, one call. All three were run in empty
+    projects against the published packages, and each printed the ten octets of
+    Fig. 4.
+  </p>
+
+  <div class="attach">
+    <div>
+      <h3>Go · Go module proxy</h3>
+      <pre class="lines"><span class="ln"><span class="p">$</span> go get <span class="nw">github.com/bitspark/ontos@v0.14.0</span></span><span class="ln gap"></span><span class="ln">import (</span><span class="ln">    codec <span class="nw">"github.com/bitspark/ontos/codec/go"</span></span><span class="ln">    data  <span class="nw">"github.com/bitspark/ontos/data/go"</span></span><span class="ln">)</span><span class="ln gap"></span><span class="ln">codec.Encode(data.EncodeInt(big.NewInt(0)))</span></pre>
+      <p>One module and one tag carry core, codec, data and data/json. The module requires nothing outside the standard library.</p>
+      <div class="emits">
+        <span class="sc">emits — printed as hex</span>
+        <svg viewBox="-2 -2 364 52" role="img" aria-label="The Go program printed the ten octets 01 02 00 03 69 6e 74 00 01 00.">
+          <rect x="0" y="0" width="36" height="30" class="s-hollow"/><text x="18" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="36" y="0" width="36" height="30" class="s-wash"/><text x="54" y="20" class="t" text-anchor="middle">02</text>
+          <rect x="72" y="0" width="36" height="30" class="s-fill"/><text x="90" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="108" y="0" width="36" height="30" class="s-wash"/><text x="126" y="20" class="t" text-anchor="middle">03</text>
+          <rect x="144" y="0" width="36" height="30" class="s-wash"/><text x="162" y="20" class="t" text-anchor="middle">69</text>
+          <rect x="180" y="0" width="36" height="30" class="s-wash"/><text x="198" y="20" class="t" text-anchor="middle">6e</text>
+          <rect x="216" y="0" width="36" height="30" class="s-wash"/><text x="234" y="20" class="t" text-anchor="middle">74</text>
+          <rect x="252" y="0" width="36" height="30" class="s-fill"/><text x="270" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="288" y="0" width="36" height="30" class="s-wash"/><text x="306" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="324" y="0" width="36" height="30" class="s-wash"/><text x="342" y="20" class="t" text-anchor="middle">00</text>
+          <g class="t-mut" text-anchor="middle"><text x="18" y="46">0</text><text x="54" y="46">1</text><text x="90" y="46">2</text><text x="126" y="46">3</text><text x="162" y="46">4</text><text x="198" y="46">5</text><text x="234" y="46">6</text><text x="270" y="46">7</text><text x="306" y="46">8</text><text x="342" y="46">9</text></g>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h3>TypeScript · npmjs</h3>
+      <pre class="lines"><span class="ln"><span class="p">$</span> npm install <span class="nw">@bitspark/ontos-core</span> <span class="nw">@bitspark/ontos-codec</span> <span class="nw">@bitspark/ontos-data</span></span><span class="ln gap"></span><span class="ln">import { encode } from <span class="nw">"@bitspark/ontos-codec";</span></span><span class="ln">import { encodeInt } from <span class="nw">"@bitspark/ontos-data";</span></span><span class="ln gap"></span><span class="ln">encode(encodeInt(0n))</span></pre>
+      <p>Published with npm provenance; <code>@bitspark/ontos-data-json</code> is the fourth package. Installing these three added exactly three packages.</p>
+      <div class="emits">
+        <span class="sc">emits — printed as hex</span>
+        <svg viewBox="-2 -2 364 52" role="img" aria-label="The TypeScript program printed the ten octets 01 02 00 03 69 6e 74 00 01 00.">
+          <rect x="0" y="0" width="36" height="30" class="s-hollow"/><text x="18" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="36" y="0" width="36" height="30" class="s-wash"/><text x="54" y="20" class="t" text-anchor="middle">02</text>
+          <rect x="72" y="0" width="36" height="30" class="s-fill"/><text x="90" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="108" y="0" width="36" height="30" class="s-wash"/><text x="126" y="20" class="t" text-anchor="middle">03</text>
+          <rect x="144" y="0" width="36" height="30" class="s-wash"/><text x="162" y="20" class="t" text-anchor="middle">69</text>
+          <rect x="180" y="0" width="36" height="30" class="s-wash"/><text x="198" y="20" class="t" text-anchor="middle">6e</text>
+          <rect x="216" y="0" width="36" height="30" class="s-wash"/><text x="234" y="20" class="t" text-anchor="middle">74</text>
+          <rect x="252" y="0" width="36" height="30" class="s-fill"/><text x="270" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="288" y="0" width="36" height="30" class="s-wash"/><text x="306" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="324" y="0" width="36" height="30" class="s-wash"/><text x="342" y="20" class="t" text-anchor="middle">00</text>
+          <g class="t-mut" text-anchor="middle"><text x="18" y="46">0</text><text x="54" y="46">1</text><text x="90" y="46">2</text><text x="126" y="46">3</text><text x="162" y="46">4</text><text x="198" y="46">5</text><text x="234" y="46">6</text><text x="270" y="46">7</text><text x="306" y="46">8</text><text x="342" y="46">9</text></g>
+        </svg>
+      </div>
+    </div>
+    <div>
+      <h3>Rust · crates.io</h3>
+      <pre class="lines"><span class="ln"><span class="c"># Cargo.toml — [dependencies]</span></span><span class="ln">ontos-core = { package = <span class="nw">"bitspark-ontos-core",</span> version = "0.14" }</span><span class="ln">ontos-codec = { package = <span class="nw">"bitspark-ontos-codec",</span> version = "0.14" }</span><span class="ln">ontos-data = { package = <span class="nw">"bitspark-ontos-data",</span> version = "0.14" }</span><span class="ln gap"></span><span class="ln">use ontos_codec::encode;</span><span class="ln">use ontos_data::encode_int;</span><span class="ln gap"></span><span class="ln">encode(&amp;encode_int(0))</span></pre>
+      <p>Crates carry the <code>bitspark-</code> prefix; library names do not, so code reads <code>ontos_codec::</code>. Keep one ontos per dependency graph: two sources link two different <code>Value</code> types.</p>
+      <div class="emits">
+        <span class="sc">emits — printed as hex</span>
+        <svg viewBox="-2 -2 364 52" role="img" aria-label="The Rust program printed the ten octets 01 02 00 03 69 6e 74 00 01 00.">
+          <rect x="0" y="0" width="36" height="30" class="s-hollow"/><text x="18" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="36" y="0" width="36" height="30" class="s-wash"/><text x="54" y="20" class="t" text-anchor="middle">02</text>
+          <rect x="72" y="0" width="36" height="30" class="s-fill"/><text x="90" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="108" y="0" width="36" height="30" class="s-wash"/><text x="126" y="20" class="t" text-anchor="middle">03</text>
+          <rect x="144" y="0" width="36" height="30" class="s-wash"/><text x="162" y="20" class="t" text-anchor="middle">69</text>
+          <rect x="180" y="0" width="36" height="30" class="s-wash"/><text x="198" y="20" class="t" text-anchor="middle">6e</text>
+          <rect x="216" y="0" width="36" height="30" class="s-wash"/><text x="234" y="20" class="t" text-anchor="middle">74</text>
+          <rect x="252" y="0" width="36" height="30" class="s-fill"/><text x="270" y="20" class="t-rev" text-anchor="middle">00</text>
+          <rect x="288" y="0" width="36" height="30" class="s-wash"/><text x="306" y="20" class="t" text-anchor="middle">01</text>
+          <rect x="324" y="0" width="36" height="30" class="s-wash"/><text x="342" y="20" class="t" text-anchor="middle">00</text>
+          <g class="t-mut" text-anchor="middle"><text x="18" y="46">0</text><text x="54" y="46">1</text><text x="90" y="46">2</text><text x="126" y="46">3</text><text x="162" y="46">4</text><text x="198" y="46">5</text><text x="234" y="46">6</text><text x="270" y="46">7</text><text x="306" y="46">8</text><text x="342" y="46">9</text></g>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">
+    Three registries, three languages, one byte string: the claim of Fig. 1, made by a
+    consumer's own code rather than by the project's tests.
+  </p>
+
+  <div class="cols" style="margin-top:34px">
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">The import surface</div>
+      <p class="note" style="margin-top:0">
+        Each L2 label gets a symmetric pair — <code>encodeInt</code>/<code>readInt</code>,
+        <code>encodeMap</code>/<code>readMap</code>, and so on for all eight — plus
+        <code>recognize*</code> predicates for <code>int</code>, <code>decimal</code> and
+        <code>null</code>. Go and Rust mirror the set under their own naming.
+      </p>
+      <div class="sc sc-ink" style="padding:22px 0 10px">Optional: the deixis bridge</div>
+      <p class="note" style="margin-top:0">
+        <code>ontos-over-deixis-v1</code> maps ontos values onto deixis trees and back.
+        It ships in all three registries, each face a separate package, so importing
+        core, codec, data or data-json never brings deixis along. The dependency runs
+        one way, ontos → deixis, pinned at exactly 0.6.0, and identity stays at L0.
+      </p>
+      <p class="note coords">
+        <span class="sc">npmjs</span> <code class="nw">@bitspark/ontos-deixis-projection</code><br>
+        <span class="sc">crates.io</span> <code class="nw">bitspark-ontos-deixis-projection</code><br>
+        <span class="sc">Go proxy</span> <code>github.com/<wbr>bitspark/<wbr>ontos/<wbr>projection/<wbr>deixis/<wbr>go</code>
+      </p>
+    </div>
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">Dependency matrix — each row depends on the filled columns</div>
+      <svg class="dep" viewBox="0 0 380 252" role="img" aria-label="Dependency matrix. codec depends on core. data depends on core and codec. data-json depends on core and data. The deixis bridge depends on core and on deixis, which is outside ontos. The CLI depends on core, codec and data. Nothing depends on the CLI, and no row except the bridge depends on anything outside ontos.">
+        <!-- column headers; deixis sits behind a dashed rule because it is not ontos -->
+        <text x="140" y="48" class="t-sm" text-anchor="middle">core</text>
+        <text x="196" y="48" class="t-sm" text-anchor="middle">codec</text>
+        <text x="252" y="48" class="t-sm" text-anchor="middle">data</text>
+        <text x="332" y="30" class="t-cap" text-anchor="middle">OUTSIDE</text>
+        <text x="332" y="48" class="t-sm" text-anchor="middle">deixis</text>
+        <path d="M292,16 L292,244" class="s-hair" stroke-dasharray="3 3"/>
+        <path d="M0,58 L380,58" class="s-hair"/>
+
+        <!-- row: codec -->
+        <text x="112" y="86" class="t-sm" text-anchor="end">codec</text>
+        <rect x="128" y="68" width="24" height="24" class="s-fill"/>
+        <rect x="184" y="68" width="24" height="24" class="s-hair"/>
+        <rect x="240" y="68" width="24" height="24" class="s-hair"/>
+        <rect x="320" y="68" width="24" height="24" class="s-hair"/>
+
+        <!-- row: data -->
+        <text x="112" y="122" class="t-sm" text-anchor="end">data</text>
+        <rect x="128" y="104" width="24" height="24" class="s-fill"/>
+        <rect x="184" y="104" width="24" height="24" class="s-fill"/>
+        <rect x="240" y="104" width="24" height="24" class="s-hair"/>
+        <rect x="320" y="104" width="24" height="24" class="s-hair"/>
+
+        <!-- row: data-json -->
+        <text x="112" y="158" class="t-sm" text-anchor="end">data-json</text>
+        <rect x="128" y="140" width="24" height="24" class="s-fill"/>
+        <rect x="184" y="140" width="24" height="24" class="s-hair"/>
+        <rect x="240" y="140" width="24" height="24" class="s-fill"/>
+        <rect x="320" y="140" width="24" height="24" class="s-hair"/>
+
+        <!-- row: the deixis bridge -->
+        <text x="112" y="194" class="t-sm" text-anchor="end">deixis bridge</text>
+        <rect x="128" y="176" width="24" height="24" class="s-fill"/>
+        <rect x="184" y="176" width="24" height="24" class="s-hair"/>
+        <rect x="240" y="176" width="24" height="24" class="s-hair"/>
+        <rect x="320" y="176" width="24" height="24" class="s-fill"/>
+
+        <!-- row: cli -->
+        <text x="112" y="230" class="t-sm" text-anchor="end">cli</text>
+        <rect x="128" y="212" width="24" height="24" class="s-fill"/>
+        <rect x="184" y="212" width="24" height="24" class="s-fill"/>
+        <rect x="240" y="212" width="24" height="24" class="s-fill"/>
+        <rect x="320" y="212" width="24" height="24" class="s-hair"/>
+
+        <path d="M0,248 L380,248" class="s-hair"/>
+      </svg>
+      <p class="note">
+        Core takes no dependencies, and nothing depends on the CLI, the one row that is
+        not published. Only the optional bridge reaches outside ontos, and only one way.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ §06 THE TOOL ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§06</span>
+    <h2>The tool: bytes in, evidence out</h2>
+    <span class="tag sc">ontos CLI · built from source · not published</span>
+  </div>
+
+  <p class="lede">
+    <code>ontos</code> answers one question — <em>what are these bytes, are they
+    canonical, and what do they read as?</em> Its seam is an invocation contract, not
+    a function signature, and both of its output formats are byte-pinned across
+    implementations. Even <code class="nw">--format human</code> must be byte-identical in all
+    four: implementations disagreeing on a line a human reads is exactly the
+    favored-language wart the project forbids.
+  </p>
+
+  <figure>
+    <figcaption><span class="fnum sc">Fig. 5</span><span class="ftxt">The process seam — everything in, everything out</span></figcaption>
+    <div class="fig-wide">
+    <svg viewBox="0 0 1080 400" role="img" aria-label="The ontos process. Inputs on the left: argv with a command and flags, stdin carrying hex, and the --from-json authoring notation. Outputs on the right: stdout carrying human or JSON Lines output that is byte-identical across implementations, stderr carrying free-text diagnostics that are never compared, and an exit code of 0, 1 or 2. The process reads no environment variables, opens no files and makes no network calls.">
+      <defs>
+        <marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16150f"/>
+        </marker>
+      </defs>
+
+      <!-- the box -->
+      <rect x="400" y="110" width="280" height="180" fill="#e6e1d1" stroke="#16150f" stroke-width="2"/>
+      <text x="540" y="152" class="t" text-anchor="middle" font-size="22">ontos</text>
+      <path d="M430,168 L650,168" class="s-hair"/>
+      <text x="540" y="192" class="t-sm" text-anchor="middle">decode · inspect</text>
+      <text x="540" y="210" class="t-sm" text-anchor="middle">read · canon</text>
+      <path d="M430,228 L650,228" class="s-hair"/>
+      <text x="540" y="250" class="t-mut" text-anchor="middle">no env vars · no files</text>
+      <text x="540" y="266" class="t-mut" text-anchor="middle">no network · no state</text>
+
+      <!-- inputs -->
+      <text x="40" y="86" class="t-cap">IN</text>
+      <path d="M40,128 L396,128" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="40" y="120" class="t-sm">argv &nbsp;<tspan class="t-mut">&lt;command&gt; [--format human|json] [&lt;hex&gt;]</tspan></text>
+      <path d="M40,182 L396,182" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="40" y="174" class="t-sm">stdin &nbsp;<tspan class="t-mut">hex, when &lt;hex&gt; is "-" or omitted</tspan></text>
+      <path d="M40,236 L396,236" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="40" y="228" class="t-sm">--from-json &nbsp;<tspan class="t-mut">{"atom":"…"} | {"tuple":[…]}</tspan></text>
+      <text x="40" y="256" class="t-mut">the only text→bytes path; excludes a positional &lt;hex&gt;</text>
+
+      <!-- outputs -->
+      <text x="1040" y="86" class="t-cap" text-anchor="end">OUT</text>
+      <path d="M684,128 L1040,128" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="1040" y="120" class="t-sm" text-anchor="end"><tspan class="t-mut">human lines · JSON Lines</tspan>&nbsp; stdout</text>
+      <text x="1040" y="146" class="t-mut" text-anchor="end">byte-identical across all four, in BOTH formats</text>
+      <path d="M684,196 L1040,196" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="1040" y="188" class="t-sm" text-anchor="end"><tspan class="t-mut">free-text diagnostics — never compared</tspan>&nbsp; stderr</text>
+      <path d="M684,262 L1040,262" class="s-lead" marker-end="url(#ah4)"/>
+      <text x="1040" y="254" class="t-sm" text-anchor="end">exit code</text>
+
+      <!-- exit codes -->
+      <g>
+        <rect x="700" y="286" width="110" height="46" class="s-wash"/>
+        <text x="755" y="306" class="t" text-anchor="middle">0</text>
+        <text x="755" y="324" class="t-mut" text-anchor="middle">yes</text>
+        <rect x="820" y="286" width="110" height="46" class="s-wash"/>
+        <text x="875" y="306" class="t" text-anchor="middle">1</text>
+        <text x="875" y="324" class="t-mut" text-anchor="middle">no</text>
+        <rect x="940" y="286" width="100" height="46" class="s-wash"/>
+        <text x="990" y="306" class="t" text-anchor="middle">2</text>
+        <text x="990" y="324" class="t-mut" text-anchor="middle">couldn't run</text>
+      </g>
+      <text x="620" y="352" class="t-sm">0 &nbsp;decoded / canonical / recognized</text>
+      <text x="620" y="368" class="t-sm">1 &nbsp;a well-formed negative — the tool ran, the answer is "no"</text>
+      <text x="620" y="384" class="t-sm">2 &nbsp;usage error — bad flags, non-hex input, missing input</text>
+
+      <path d="M40,300 L360,300" class="s-hair"/>
+      <text x="40" y="322" class="t-sm">There is no `ontos hash`.</text>
+      <text x="40" y="342" class="t-mut">The tool is a canonical byte witness, not a</text>
+      <text x="40" y="358" class="t-mut">signing tool. Hash the octets by piping:</text>
+      <text x="40" y="378" class="t-sm">ontos canon --emit &lt;hex&gt; | xxd -r -p | sha256sum</text>
+    </svg>
+    </div>
+
+    <div class="fig-narrow">
+    <svg viewBox="0 0 360 576" role="img" aria-label="The ontos process. Inputs at the top: argv with a command and flags, stdin carrying hex, and the --from-json authoring notation. Outputs below: stdout carrying human or JSON Lines output that is byte-identical across implementations, stderr carrying free-text diagnostics that are never compared, and an exit code of 0, 1 or 2. The process reads no environment variables, opens no files and makes no network calls.">
+      <defs>
+        <marker id="ah5n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#16150f"/>
+        </marker>
+      </defs>
+      <!-- The wide plate runs the process left to right between an IN rail and an OUT
+           rail. Narrow keeps the same three-in / three-out contract but pours it down
+           the page, so no input or output is pushed off the edge. -->
+
+      <text x="0" y="10" class="t-cap">IN</text>
+      <path d="M0,16 L360,16" class="s-hair"/>
+      <text x="0" y="34" class="t-sm">argv</text>
+      <text x="0" y="48" class="t-mut">&lt;command&gt; [--format human|json] [&lt;hex&gt;]</text>
+      <text x="0" y="72" class="t-sm">stdin</text>
+      <text x="0" y="86" class="t-mut">hex, when &lt;hex&gt; is "-" or omitted</text>
+      <text x="0" y="110" class="t-sm">--from-json</text>
+      <text x="0" y="124" class="t-mut">{"atom":"…"} | {"tuple":[…]}  — the only</text>
+      <text x="0" y="136" class="t-mut">text→bytes path; excludes a positional &lt;hex&gt;</text>
+
+      <path d="M180,146 L180,166" class="s-lead" marker-end="url(#ah5n)"/>
+
+      <rect x="0" y="168" width="360" height="118" fill="#e6e1d1" stroke="#16150f" stroke-width="2"/>
+      <text x="180" y="198" class="t" text-anchor="middle" font-size="19">ontos</text>
+      <path d="M24,210 L336,210" class="s-hair"/>
+      <text x="180" y="230" class="t-sm" text-anchor="middle">decode · inspect · read · canon</text>
+      <path d="M24,242 L336,242" class="s-hair"/>
+      <text x="180" y="262" class="t-mut" text-anchor="middle">no env vars · no files</text>
+      <text x="180" y="276" class="t-mut" text-anchor="middle">no network · no state</text>
+
+      <path d="M180,288 L180,308" class="s-lead" marker-end="url(#ah5n)"/>
+
+      <text x="0" y="326" class="t-cap">OUT</text>
+      <path d="M0,332 L360,332" class="s-hair"/>
+      <text x="0" y="350" class="t-sm">stdout</text>
+      <text x="0" y="364" class="t-mut">human lines · JSON Lines — byte-identical</text>
+      <text x="0" y="376" class="t-mut">across all four, in BOTH formats</text>
+      <text x="0" y="400" class="t-sm">stderr</text>
+      <text x="0" y="414" class="t-mut">free-text diagnostics — never compared</text>
+      <text x="0" y="438" class="t-sm">exit code</text>
+
+      <g>
+        <rect x="0" y="448" width="112" height="42" class="s-wash"/>
+        <text x="56" y="466" class="t" text-anchor="middle">0</text>
+        <text x="56" y="482" class="t-mut" text-anchor="middle">yes</text>
+        <rect x="122" y="448" width="112" height="42" class="s-wash"/>
+        <text x="178" y="466" class="t" text-anchor="middle">1</text>
+        <text x="178" y="482" class="t-mut" text-anchor="middle">no</text>
+        <rect x="244" y="448" width="116" height="42" class="s-wash"/>
+        <text x="302" y="466" class="t" text-anchor="middle">2</text>
+        <text x="302" y="482" class="t-mut" text-anchor="middle">couldn't run</text>
+      </g>
+      <text x="0" y="508" class="t-mut">1 is a well-formed negative — the tool ran and the</text>
+      <text x="0" y="520" class="t-mut">answer is "no". 2 means it could not run at all.</text>
+
+      <path d="M0,534 L360,534" class="s-hair"/>
+      <text x="0" y="550" class="t-sm">No `ontos hash`. Hash the octets by piping:</text>
+      <text x="0" y="568" class="t-sm">ontos canon --emit &lt;hex&gt; | xxd -r -p | sha256sum</text>
+    </svg>
+    </div>
+  </figure>
+
+  <div class="tw">
+  <table>
+    <caption>The four commands — all four ship in every implementation</caption>
+    <thead><tr><th class="m">command</th><th>does</th><th class="m">answers with</th></tr></thead>
+    <tbody>
+      <tr><td class="m">ontos decode [&lt;hex&gt;]</td><td>decode the bytes to the L0 value tree</td><td class="m">the value, or a rejection code</td></tr>
+      <tr><td class="m">ontos inspect [&lt;hex&gt;]</td><td>decode, plus codec id, canonical?, and the embeddings recognized at the top level</td><td class="m">value · canonical · recognized[]</td></tr>
+      <tr><td class="m">ontos read <span class="nw">--all</span> | <span class="nw">--kind &lt;k&gt;</span></td><td>recognize registered embeddings — <code>--all</code> tries every label, <code>--kind</code> tests one</td><td class="m"><span class="nw">--all:</span> the labels matched<br><span class="nw">--kind:</span> recognized true|false</td></tr>
+      <tr><td class="m">ontos canon <span class="nw">--check</span> | <span class="nw">--emit</span></td><td>is the input canonical (decodes <em>and</em> re-encodes to the same bytes)? / print the canonical bytes</td><td class="m">canonical: yes|no · the hex</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="cols" style="margin-top:26px">
+    <p class="note">
+      <b>A recognition miss is not an error.</b> There is no <code>not_recognized</code>
+      code. <code>read --kind int</code> on a non-integer returns a positive-shaped
+      result — <code>{"ok":true,…,"recognized":false}</code> — and exits <code>1</code>.
+      The boolean field carries the answer; the exit code makes it scriptable.
+    </p>
+    <p class="note">
+      <b>Recognition is structural, not materialization.</b> A canonical
+      <code>int</code> whose magnitude exceeds a binding's host integer width is still
+      <code>recognized: true</code> in <em>every</em> binding. Host width is a separate
+      concern, and never a recognition miss — which is what lets the implementations
+      agree byte-for-byte on such values.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ §07 CONFORMANCE ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§07</span>
+    <h2>How four implementations are stopped from disagreeing</h2>
+    <span class="tag sc">vectors · differential harness · CI</span>
+  </div>
+
+  <p class="lede">
+    The claim "no favored language" is not a policy statement; it is a check that
+    fails. The differential harness drives every implementation over a shared corpus
+    and compares them <b>byte-for-byte on stdout and on the exit code</b> — an
+    implementation that emits the right bytes with the wrong exit code fails. A fifth
+    implementation in any language can prove conformance by being registered as one
+    more <code>--impl</code>, with no in-process test code ported at all.
+  </p>
+
+  <div class="cols">
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">Three check modes, one corpus</div>
+      <ul class="rules" style="margin-top:0">
+        <li><b>decode</b> — hex in, JSON Lines out. The default.</li>
+        <li><b>author→bytes</b> (<code>--from-json-roundtrip</code>) — inverts the protocol, driving <code>canon --emit --from-json</code> over each vector's authoring value.</li>
+        <li><b>human</b> (<code>--human-roundtrip</code>) — the same corpus at <code>--format human</code>, asserting the human rendering is byte-identical too.</li>
+      </ul>
+      <p class="note">
+        Run locally with <code>scripts/check.sh conformance</code>, which rebuilds
+        every CLI first so a stale binary cannot manufacture a false divergence.
+        <code>scripts/check.sh fuzz</code> adds the generative differential bout across
+        all four CLIs.
+      </p>
+      <p class="note">
+        Re-run for this sheet over the Go and Python implementations, in all three modes:
+        44 byte strings × 5 commands, the same 44 at <code>--format human</code>, and 44
+        author→bytes cases, all byte-identical, every emitted hex equal to the pinned one.
+      </p>
+    </div>
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">The pinned corpus</div>
+      <div class="tw">
+      <table>
+        <thead><tr><th class="m">vectors/</th><th>cases</th></tr></thead>
+        <tbody>
+          <tr><td class="m">identity.json</td><td>17 L0 identity cases</td></tr>
+          <tr><td class="m">codec.json</td><td>6 uvarint · 8 encode · 10 reject</td></tr>
+          <tr><td class="m">data.json</td><td>36 encode · 49 reject</td></tr>
+          <tr><td class="m">data.generated.json</td><td>14, regenerated and drift-checked</td></tr>
+          <tr><td class="m">data-json.json</td><td>7 valid · 3 reject, plus an oracle corpus</td></tr>
+          <tr><td class="m">producer-v1/</td><td>12 host-value → L2 cases</td></tr>
+          <tr><td class="m">codec-limits.json</td><td>13 limit-reporting cases, kept apart from the byte corpus</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="tw">
+  <table>
+    <caption>Maturity — what each surface's conformance actually rests on</caption>
+    <thead><tr><th>surface</th><th class="m">standing</th><th>rests on</th></tr></thead>
+    <tbody>
+      <tr><td class="m">ontos/core · ontos/codec · ontos/data</td><td class="m">portable, frozen</td><td>four implementations, byte-identical, vector-pinned in CI</td></tr>
+      <tr><td class="m">producer admission</td><td class="m">portable</td><td>four implementations, differentially enforced by <code>tools/producer-conformance</code></td></tr>
+      <tr><td class="m">ontos-data-json/1</td><td class="m">unwitnessed</td><td>three faces (go · rs · ts), all ontos-authored; frozen vectors plus an oracle corpus. A second, outside witness would still move it.</td></tr>
+      <tr><td class="m">ontos-over-deixis-v1</td><td class="m">unwitnessed, permanently</td><td>three faces (go · rs · ts), all ontos-authored, one shared vector set. The seal of the one eligible outside witness was deliberately left unspent: read this row as final.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note" style="margin-top:14px">
+    The ladder itself is: <em>experimental / unwitnessed</em> (one implementation,
+    goldens only) → <em>witnessed</em> (two independently authored implementations
+    agree) → <em>portable</em> (every language named by the portability promise passes
+    a shared corpus) → <em>frozen</em> (mapping and corpus versioned; a change requires
+    a new profile version). It is a claim about evidence, not about effort.
+  </p>
+</section>
+
+<!-- ============================ §08 NEGATIVE SPACE ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§08</span>
+    <h2>What ontos refuses to do</h2>
+    <span class="tag sc">non-goals — load-bearing, not modesty</span>
+  </div>
+
+  <p class="lede">
+    Each of these is a deliberate exclusion with a reason and an owner elsewhere. They
+    are the most useful thing on this sheet for deciding whether ontos is what you
+    need: if you are looking for one of them, you are looking for a different repo.
+  </p>
+
+  <div class="cols">
+    <div>
+      <ul class="rules" style="margin-top:0">
+        <li class="no"><b>No truth, inference, or proof.</b> ontos does not know what follows from what. Variables, rules and proof belong to a logic engine above it — <span class="mono">logos</span>.</li>
+        <li class="no"><b>No authority, identity, or attestation.</b> It does not know who said a thing or whether it counts. Facts, signers and trust belong to an authority layer — <span class="mono">arche</span> signs over the bytes.</li>
+        <li class="no"><b>No persistence, location, addressing, or time.</b> It does not know where a value lives or when. References and content addresses belong to a storage layer.</li>
+        <li class="no"><b>No schema, validation, or interpretation.</b> It does not say what a thing <em>means</em> — only that it is, and of what kind.</li>
+        <li class="no"><b>No arithmetic.</b> Numeric equality, arithmetic and ordering belong to the reasoner and the domain. A domain that wants <span class="mono">2/4 = 1/2</span> normalizes at the producer; ontos never adds the equation.</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="rules" style="margin-top:0">
+        <li class="no"><b>No third constructor, and no variable.</b> The tag set is closed; the codec <em>cannot</em> encode a variable. A consumer needing one must define its own codec and must not redefine <code>0x00</code> or <code>0x01</code>.</li>
+        <li class="no"><b>No ordering at L0.</b> The total order is codec-derived, explicitly not part of identity.</li>
+        <li class="no"><b>No floating point, ever.</b> It would break one-canonical-form-per-value. <code>decimal</code> is exact and is not a general rational.</li>
+        <li class="no"><b>No Unicode normalization.</b> Keeping it out keeps v1 self-contained and avoids baking one normalization regime into the floor.</li>
+        <li class="no"><b>No second no-value.</b> Explicitly against the prior art: CBOR shipped both <code>null</code> and <code>undefined</code> and DAG-CBOR had to ban one to regain canonicity; Ion's typed nulls multiply the no-value across every type.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="margin-top:26px;max-width:44em;font-size:19px;line-height:29px">
+    And one refusal about itself: <b>the codec is not the model.</b> It is a side axis
+    that answers one question — what are the canonical bytes of a value — and adds no
+    values and no identity. A value is the abstract tree; the bytes are the one
+    spelling everyone agrees to write it in.
+  </p>
+</section>
+
+<!-- ============================ §09 NEXT ============================ -->
+<section>
+  <hr class="hair">
+  <div class="head">
+    <span class="num">§09</span>
+    <h2>Where to go next</h2>
+    <span class="tag sc">the normative surface is the specs</span>
+  </div>
+
+  <p class="lede">
+    The specifications under <code>docs/spec/</code> are the source of truth: when code
+    and specification disagree, the specification is right until a pull request changes
+    it. The implementations conform to the specs, not the other way round.
+  </p>
+
+  <div class="cols" style="margin-top:26px">
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">If you came to use it</div>
+      <p class="note" style="margin-top:0">
+        Install from <a href="#attach">§05</a> — public registries, no credential, one
+        release number in every lane. Reach for <code>encode</code> /
+        <code>decode</code>, and take every hash and signature over the octets they
+        produce, never over a text form or its hex spelling. In Rust, keep one ontos per
+        dependency graph.
+      </p>
+      <p class="note">
+        The packages:
+        <a href="https://www.npmjs.com/package/@bitspark/ontos-codec">npmjs</a> ·
+        <a href="https://crates.io/crates/bitspark-ontos-codec">crates.io</a> ·
+        <a href="https://pkg.go.dev/github.com/bitspark/ontos">pkg.go.dev</a>.
+      </p>
+    </div>
+    <div>
+      <div class="sc sc-ink" style="padding-bottom:10px">If you came to check it</div>
+      <p class="note" style="margin-top:0">
+        Install the inspector straight from the Go module, without a clone, and re-run
+        §03 yourself:
+      </p>
+      <pre class="lines" style="margin-top:10px"><span class="ln"><span class="p">$</span> go install github.com/bitspark/ontos/cli/go/cmd/ontos@v0.14.0</span></pre>
+      <p class="note">
+        To prove a new language conforms, register it as one more <code>--impl</code> on
+        <code>tools/conformance/</code>: the corpus is the test, and no in-process test
+        code is ported.
+      </p>
+    </div>
+  </div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th class="m">path</th><th>what is there</th></tr></thead>
+    <tbody>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-core.md">docs/<wbr>spec/<wbr>ontos-core.md</a></td><td>L0 — the value set, structural identity, the frozen floor</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-codec.md">docs/<wbr>spec/<wbr>ontos-codec.md</a></td><td><code>ontos-codec-v1</code> — the canonical byte encoding, frozen</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-data.md">docs/<wbr>spec/<wbr>ontos-data.md</a></td><td>L2 — the eight registered embeddings and the producer-admission laws</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-compound.md">docs/<wbr>spec/<wbr>ontos-compound.md</a></td><td>L1 — the labeled-compound reading; adds no values and no identity</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-cli.md">docs/<wbr>spec/<wbr>ontos-cli.md</a></td><td>the <code>ontos</code> CLI contract the implementations implement</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-conformance.md">docs/<wbr>spec/<wbr>ontos-conformance.md</a></td><td>the conformance protocol and its maturity ladder</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/spec/ontos-data-json.md">docs/<wbr>spec/<wbr>ontos-data-json.md</a></td><td><code>ontos-data-json/1</code> — the total domain-JSON projection (companion)</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/projection/deixis/PROJECTION.md">projection/<wbr>deixis/<wbr>PROJECTION.md</a></td><td><code>ontos-over-deixis-v1</code> — the optional bridge to deixis trees</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/tree/main/vectors">vectors/</a></td><td>the cross-language corpus, computed from the spec; a change that makes the four disagree does not land</td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/tree/main/tools/conformance">tools/<wbr>conformance/</a></td><td>the differential harness — add an implementation as one more <code>--impl</code></td></tr>
+      <tr><td class="m"><a href="https://github.com/Bitspark/ontos/blob/main/docs/distribution.md">docs/<wbr>distribution.md</a></td><td>consuming ontos from the public registries, per language</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  <div class="masthead-top" style="align-items:center">
+    <div class="wordmark">
+      <svg width="42" height="42" viewBox="0 0 76 76" aria-hidden="true" style="flex:none">
+        <circle cx="38" cy="38" r="35" class="s-hair"/>
+        <circle cx="38" cy="38" r="26" class="s-hair"/>
+        <circle cx="38" cy="38" r="17" class="s-hair"/>
+        <circle cx="38" cy="38" r="9" class="s-fill"/>
+      </svg>
+      <div style="font-size:19px">Name the thing. Everything else is what you do with it.</div>
+    </div>
+    <div class="sc">github.com/Bitspark/ontos · v0.14.0 · Apache-2.0</div>
+  </div>
+
+  <div class="foot-grid">
+    <div>
+      <h4>The model</h4>
+      <ul>
+        <li>core/{go,rs,ts,py}</li>
+        <li>codec/{go,rs,ts,py}</li>
+        <li>data/{go,rs,ts,py}</li>
+        <li>data/json/{go,rs,ts}</li>
+        <li>projection/deixis/{go,rs,ts}</li>
+      </ul>
+    </div>
+    <div>
+      <h4>The tooling</h4>
+      <ul>
+        <li>cli/{go,rs,ts,py}</li>
+        <li>tools/conformance</li>
+        <li>tools/producer-conformance</li>
+        <li>tools/fuzz</li>
+        <li>tools/vector</li>
+      </ul>
+    </div>
+    <div>
+      <h4>The evidence</h4>
+      <ul>
+        <li>vectors/identity.json</li>
+        <li>vectors/codec.json</li>
+        <li>vectors/data.json</li>
+        <li>vectors/data-json.json</li>
+        <li>vectors/producer-v1</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Who stands on the bytes</h4>
+      <ul>
+        <li>arche — signs over them</li>
+        <li>logos — hashes them</li>
+        <li>deixis — the optional bridge's other side</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="colophon">
+    Every technical claim on this sheet traces to a <span class="mono">path:line</span>
+    citation in <span class="mono">poster/SEAM.md</span>; the design derivation is in
+    <span class="mono">poster/DESIGN.md</span>. Byte strings and command output were
+    produced by running a build of <span class="mono">cli/go/cmd/ontos</span> at v0.14.0,
+    and the three attachments in §05 by installing the published packages into empty
+    projects with no credentials, on 5 October 2026 — not transcribed from prose. This
+    page is a single file: no script, no network, no font payload, no build step.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -29,10 +29,10 @@ dependency direction is `ontos → deixis`, one-way, and only along this edge.
 ## Go
 
 The Go face is a nested module, versioned by a path-prefixed tag cut at the same commit as each
-ontos release: `projection/deixis/go/v0.13.0` goes with `v0.13.0`.
+ontos release: `projection/deixis/go/v0.14.0` goes with `v0.14.0`.
 
 ```sh
-go get github.com/bitspark/ontos/projection/deixis/go@v0.13.0
+go get github.com/bitspark/ontos/projection/deixis/go@v0.14.0
 ```
 
 ```go

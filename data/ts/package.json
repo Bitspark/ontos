@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/ontos-data",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "license": "Apache-2.0",
   "description": "ontos/data (L2) canonical embeddings (ontos-data-v1: int, utf8-text, bool, list, map, set, decimal, null). Depends on @bitspark/ontos-core and @bitspark/ontos-codec.",
   "type": "module",
@@ -23,8 +23,8 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@bitspark/ontos-core": "^0.13.0",
-    "@bitspark/ontos-codec": "^0.13.0"
+    "@bitspark/ontos-core": "^0.14.0",
+    "@bitspark/ontos-codec": "^0.14.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

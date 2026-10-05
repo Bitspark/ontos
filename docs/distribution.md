@@ -32,9 +32,9 @@ tuple's `i`-th child, must come from the same code in every face.
 
 ```jsonc
 "dependencies": {
-  "@bitspark/ontos-core":  "^0.13.0",
-  "@bitspark/ontos-codec": "^0.13.0",
-  "@bitspark/ontos-data":  "^0.13.0"
+  "@bitspark/ontos-core":  "^0.14.0",
+  "@bitspark/ontos-codec": "^0.14.0",
+  "@bitspark/ontos-data":  "^0.14.0"
 }
 ```
 ```ts
@@ -66,7 +66,7 @@ Go's minimal version selection and npm's deduplication make this a Rust-specific
 **Go:**
 
 ```sh
-go get github.com/bitspark/ontos@v0.13.0
+go get github.com/bitspark/ontos@v0.14.0
 ```
 ```go
 import (

@@ -1,16 +1,17 @@
 # Release ontos: rehearse, publish or verify one version.
 #
 # What a release is, and where each part goes:
-#   npm        @bitspark/ontos-core, -codec, -data, -data-json   npmjs, with provenance
-#   crates.io  bitspark-ontos-core, -codec, -data, -data-json    library names ontos_core, ...
+#   npm        @bitspark/ontos-core, -codec, -data, -data-json, -deixis-projection
+#                                                                npmjs, with provenance
+#   crates.io  bitspark-ontos-core, -codec, -data, -data-json, -deixis-projection
+#                                                                library names ontos_core, ...
 #   Go         nothing is uploaded. The module proxy fetches from this repository, so the TAGS
 #              are the Go release: `vX.Y.Z` (the root module) and
 #              `projection/deixis/go/vX.Y.Z` (the nested projection module), both on one commit.
 #   Python     source-only: core/py, codec/py, data/py and cli/py are not packaged.
-#   deferred   the deixis projection's Rust crate ships as source with publish = false, because
-#              crates.io refuses git dependencies and deixis is not there yet. Its TypeScript
-#              face is WITHHELD: not in this repository until deixis is on npmjs. Both arrive
-#              then. Its Go face ships with every release.
+#   deferred   none since v0.14.0. The class stays, so a face that has to wait for a registry
+#              (as the deixis projection's Rust crate and TypeScript face did until deixis was on
+#              crates.io and npmjs, public #1) is named here rather than left out.
 #   private    the CLIs (cli/rs, cli/ts) and the producer-conformance adapter: built and
 #              tested here, never published.
 # Every package the repository holds must be in exactly one of those classes. A new package
@@ -78,11 +79,11 @@ env:
   VERSION: ${{ inputs.version }}
   MODE: ${{ inputs.mode }}
   # Published, in dependency order: each member depends only on members before it.
-  NPM_PUBLISHED: "core/ts codec/ts data/ts data/json/ts"
-  NPM_WITHHELD: "projection/deixis/ts"   # must not exist in this tree yet
+  NPM_PUBLISHED: "core/ts codec/ts data/ts data/json/ts projection/deixis/ts"
+  NPM_WITHHELD: ""   # a package that must not be in this tree yet; none since v0.14.0
   NPM_PRIVATE: "cli/ts"
-  CRATES_PUBLISHED: "bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data bitspark-ontos-data-json"
-  CRATES_DEFERRED: "bitspark-ontos-deixis-projection"
+  CRATES_PUBLISHED: "bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data bitspark-ontos-data-json bitspark-ontos-deixis-projection"
+  CRATES_DEFERRED: ""   # publish = false until a registry dependency exists; none since v0.14.0
   CRATES_PRIVATE: "ontos-cli ontos-producer-adapter"
   NPM_REGISTRY: https://registry.npmjs.org/
   UA: "ontos-release (https://github.com/Bitspark/ontos)"
@@ -181,10 +182,12 @@ jobs:
             node -e 'const p=require("./'"$d"'/package.json"); if (p.publishConfig?.registry !== "https://registry.npmjs.org/") process.exit(1)' \
               || { echo "::error::$d does not publish to npmjs"; fail=1; }
           done
-          # Dependency order: a published package depends only on published packages before it.
+          # Dependency order: a published package depends only on ontos packages published before it.
+          # Another project's packages (@bitspark/deixis-*) are not in this release: they are pinned
+          # exactly and resolved from npmjs, which the outside verification installs.
           seen=""
           for d in $NPM_PUBLISHED; do
-            for dep in $(node -p "Object.keys(require('./$d/package.json').dependencies||{}).filter(k=>k.startsWith('@bitspark/')).join(' ')"); do
+            for dep in $(node -p "Object.keys(require('./$d/package.json').dependencies||{}).filter(k=>k.startsWith('@bitspark/ontos-')).join(' ')"); do
               found=""
               for e in $seen; do [ "$(node -p "require('./$e/package.json').name")" = "$dep" ] && found=1; done
               [ -n "$found" ] || { echo "::error::$d depends on $dep, which is not published before it"; fail=1; }
@@ -375,17 +378,20 @@ jobs:
           export NPM_CONFIG_USERCONFIG="$(mktemp)" npm_config_cache="$(mktemp -d)"
           printf '{"name":"consumer","private":true,"type":"module"}\n' > package.json
           retry npm install --no-audit --no-fund --registry "$NPM_REGISTRY" \
-            "@bitspark/ontos-core@$VERSION" "@bitspark/ontos-codec@$VERSION" "@bitspark/ontos-data@$VERSION" "@bitspark/ontos-data-json@$VERSION"
+            "@bitspark/ontos-core@$VERSION" "@bitspark/ontos-codec@$VERSION" "@bitspark/ontos-data@$VERSION" "@bitspark/ontos-data-json@$VERSION" \
+            "@bitspark/ontos-deixis-projection@$VERSION"
           cat > smoke.mjs <<'EOF'
           import { atom, tuple, equals } from "@bitspark/ontos-core";
           import { encode, decode } from "@bitspark/ontos-codec";
           import { encodeInt, readInt } from "@bitspark/ontos-data";
           import { project } from "@bitspark/ontos-data-json";
+          import { project as toNode, recognize } from "@bitspark/ontos-deixis-projection";
           const v = tuple([atom(new Uint8Array([1, 2])), tuple([])]);
           if (!equals(decode(encode(v)), v)) throw new Error("codec round trip failed");
           if (readInt(encodeInt(-42n)) !== -42n) throw new Error("int round trip failed");
           if (!equals(decode(encode(project('{"a":[1,true,null]}'))), project('{"a":[1,true,null]}'))) throw new Error("data-json failed");
-          console.log("npm: core, codec, data and data-json work from npmjs");
+          if (!equals(recognize(toNode(v)), v)) throw new Error("projection round trip failed");
+          console.log("npm: core, codec, data, data-json and the deixis projection work from npmjs");
           EOF
           node smoke.mjs
           npm audit signatures --registry "$NPM_REGISTRY"   # registry signatures and provenance
@@ -412,6 +418,7 @@ jobs:
           bitspark-ontos-codec = "=$VERSION"
           bitspark-ontos-data = "=$VERSION"
           bitspark-ontos-data-json = "=$VERSION"
+          bitspark-ontos-deixis-projection = "=$VERSION"
           EOF
           cat > src/main.rs <<'EOF'
           use ontos_core::Value;
@@ -421,7 +428,9 @@ jobs:
               assert_eq!(ontos_data::read_int(&ontos_data::encode_int(-42)).unwrap(), -42, "int round trip");
               let p = ontos_data_json::project(br#"{"a":[1,true,null]}"#).unwrap();
               assert!(ontos_codec::decode(&ontos_codec::encode(&p)).unwrap() == p, "data-json");
-              println!("crates.io: core, codec, data and data-json work");
+              let back = ontos_deixis_projection::recognize(&ontos_deixis_projection::project(&v)).unwrap();
+              assert!(back == v, "projection round trip");
+              println!("crates.io: core, codec, data, data-json and the deixis projection work");
           }
           EOF
           retry cargo generate-lockfile
@@ -489,7 +498,7 @@ jobs:
               npm: cand.npm.map((p) => ({ ...p, registry: process.env.NPM_REGISTRY, before_run: status["npm:" + p.name] })),
               crates: cand.crates.map((c) => ({ ...c, registry: "https://crates.io", before_run: status["crate:" + c.name] })),
               go: [{ module: "github.com/bitspark/ontos", version: process.env.TAG }, { module: "github.com/bitspark/ontos/projection/deixis/go", version: process.env.TAG }],
-              deferred: { crates: process.env.CRATES_DEFERRED.split(" "), npm_withheld_from_tree: process.env.NPM_WITHHELD.split(" ") },
+              deferred: { crates: process.env.CRATES_DEFERRED.split(" ").filter(Boolean), npm_withheld_from_tree: process.env.NPM_WITHHELD.split(" ").filter(Boolean) },
               source_only: ["core/py", "codec/py", "data/py", "cli/py"],
               verified_from_outside: process.env.VERIFIED === "true",
             };

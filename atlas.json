@@ -9,7 +9,7 @@
     {
       "to": "deixis",
       "kind": "build",
-      "note": "projection/deixis/rs and /go pin deixis v0.6.0 by git tag from the public deixis repository (rs: crates bitspark-deixis-core/-pos with a package rename, so the catalog sees the link). The projection has no TypeScript face in this repository until deixis is on npmjs."
+      "note": "projection/deixis pins deixis 0.6.0 exactly in every face: go v0.6.0 from the Go proxy, rs bitspark-deixis-core/-pos =0.6.0 from crates.io (a package rename, so the catalog sees the link), ts @bitspark/deixis-core/-pos 0.6.0 from npmjs."
     }
   ],
   "docs": {

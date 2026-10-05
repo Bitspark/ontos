@@ -10,15 +10,11 @@ faces are conformant against the same hand-authored vectors in
 | face | path | how to get it |
 | --- | --- | --- |
 | Go | [`go/`](go/) | `github.com/bitspark/ontos/projection/deixis/go`, from the Go module proxy |
-| Rust | [`rs/`](rs/) | a git dependency on this repository (not yet on crates.io, see below) |
-
-**A TypeScript face exists and is not in this repository yet.** It depends on deixis's npm
-packages, which are not yet on npmjs; it is added, and published as
-`@bitspark/ontos-deixis-projection`, once they are. For the same reason the Rust crate is not
-yet on crates.io: it pins deixis by git tag, and crates.io refuses git dependencies.
+| Rust | [`rs/`](rs/) | `bitspark-ontos-deixis-projection`, from crates.io (from v0.14.0) |
+| TypeScript | [`ts/`](ts/) | `@bitspark/ontos-deixis-projection`, from npmjs (from v0.14.0) |
 
 Every face generates κ (the key of a tuple's `i`-th child) from the same `deixis-pos` code: κ is
-the profile's spine, so every face pins the **same deixis revision**, today `v0.6.0`.
+the profile's spine, so every face pins the **same deixis revision**, today `0.6.0`, exactly.
 
 deixis's **mandatory node values** model fixes the bridge's codomain: every node carries an own
 value independently of its children, so the profile targets **`Node[Option[Bytes]]`**.
@@ -61,13 +57,29 @@ carrying the ontos index `Path` to the offending node and a `Reason`.
 
 ```toml
 [dependencies]
-ontos-deixis-projection = { package = "bitspark-ontos-deixis-projection", git = "https://github.com/Bitspark/ontos", tag = "v0.13.0" }
+ontos-deixis-projection = { package = "bitspark-ontos-deixis-projection", version = "0.14.0" }
 ```
 
-The crate pulls deixis's `bitspark-deixis-core` and `bitspark-deixis-pos` (imported as
-`deixis_core` and `deixis_pos`) by git tag `v0.6.0` from the public deixis repository. No
-credentials are needed. Keep the rest of your graph's ontos on the same version and source
+The library name is `ontos_deixis_projection`. The crate pulls deixis's `bitspark-deixis-core`
+and `bitspark-deixis-pos` (imported as `deixis_core` and `deixis_pos`) from crates.io at exactly
+`0.6.0`. Keep the rest of your graph's ontos on the same version
 (see [docs/distribution.md](../../docs/distribution.md)).
+
+## TypeScript
+
+```sh
+npm install @bitspark/ontos-deixis-projection
+```
+
+```ts
+import { project, recognize } from "@bitspark/ontos-deixis-projection";
+
+const node = project(value);    // P: total, cannot fail
+const back = recognize(node);   // R: partial, throws an Unrecognized refusal
+```
+
+It depends on `@bitspark/ontos-core` and on `@bitspark/deixis-core` and `@bitspark/deixis-pos`,
+pinned exactly at `0.6.0`. It is browser-compatible: no Node-only imports.
 
 ## What you are relying on
 

@@ -229,6 +229,12 @@ jobs:
           npm run build --workspaces --if-present
           for d in $NPM_PUBLISHED; do
             cp LICENSE NOTICE "$d/"   # npm always packs these two; the package dirs have none
+            # npm records a packument's gitHead only from the manifest it publishes, and this run
+            # publishes the packed tarball, so the release commit goes into package.json before the
+            # pack. atlas's capture reads it; v0.13.0 shipped without one, and atlas took the commit
+            # from the provenance statements instead. So a verify of v0.13.0 itself would now see
+            # different content: from v0.13.1 on, every version carries it.
+            ( cd "$d" && npm pkg set gitHead="$RELEASE_SHA" )
             ( cd "$d" && npm pack --pack-destination "$WORK/npm" --json > "$WORK/npm/$(basename "$(dirname "$d")")-$(basename "$d").pack.json" )
           done
           args=(); for c in $CRATES_PUBLISHED; do args+=(-p "$c"); done

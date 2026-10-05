@@ -51,7 +51,8 @@ deliberately **austere** answer to ontos-internal#17: it reuses the verbose `{at
 JSON rather than inventing a *pleasant* text form, precisely because a pleasant
 notation risks becoming a second, exchangeable value surface. The discipline holds —
 only the **canonical bytes** are the value: never sign, hash, or exchange the JSON
-text; hash the emitted bytes (`canon --emit --from-json … | sha256sum`).
+text; hash the emitted bytes. `canon --emit` prints them as hex, so decode the hex before
+hashing: `canon --emit --from-json … | xxd -r -p | sha256sum`.
 
 ## Synopsis
 
@@ -107,7 +108,7 @@ The intended use is **author → canonical bytes**:
 
 ```text
 ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'
-# → 01020003696e74000100    (pipe to sha256sum to hash)
+# → 01020003696e74000100    (hex: decode it, then hash: | xxd -r -p | sha256sum)
 ```
 
 `--from-json` works with every command (it is simply the other input source):
@@ -123,13 +124,15 @@ store, sign, or exchange; only the emitted bytes are.
 | `ontos decode [<hex>]` | decode the bytes → the L0 value tree | **shipped** (scaffold ontos-internal#18) |
 | `ontos inspect [<hex>]` | decode + report codec id, canonical?, value, and the registered embeddings recognized at the top level | **shipped** (ontos-internal#19) |
 | `ontos read [--all\|--kind <k>] [<hex>]` | recognize registered embeddings (`int·utf8-text·bool·list·map·set·decimal·null`); `--all` tries each | **shipped** (ontos-internal#20) |
-| `ontos canon [--check\|--emit] [<hex>]` | `--check`: is the input canonical (decodes **and** re-encodes to the same bytes)?; `--emit`: print the canonical bytes (hex) for piping to a hasher | **shipped** (ontos-internal#21) |
+| `ontos canon [--check\|--emit] [<hex>]` | `--check`: is the input canonical (decodes **and** re-encodes to the same bytes)?; `--emit`: print the canonical bytes as hex, to decode and pipe to a hasher | **shipped** (ontos-internal#21) |
 
 All four commands ship in all three peer cores (`go` · `rs` · `ts`) and in the `py`
 validation lane; the issue refs above are history, not pending work.
 
 `ontos` is a **canonical byte witness**, not a signing tool — there is no
-`ontos hash`. Hash by piping: `ontos canon --emit <hex> | sha256sum`.
+`ontos hash`. Hash by piping the decoded bytes: `ontos canon --emit <hex> | xxd -r -p | sha256sum`.
+Piping the hex itself to `sha256sum` hashes the hex text and its newline, not the value: for
+the example above that gives `2cd3c476…149e0139` instead of the canonical bytes' `0022704d…8a57a586`.
 
 ## JSON Lines output schema
 

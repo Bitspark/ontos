@@ -105,7 +105,7 @@ jobs:
           echo "WORK=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
           echo "$MODE of ontos v$VERSION"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.mode == 'rehearse' && inputs.ref || format('refs/tags/v{0}', inputs.version) }}
           fetch-depth: 0
@@ -139,15 +139,15 @@ jobs:
           fi
           echo "RELEASE_SHA=$head" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Rust, at the version the repository pins
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -500,7 +500,7 @@ jobs:
         env:
           VERIFIED: ${{ job.status == 'success' }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: release-${{ inputs.version }}-${{ inputs.mode }}

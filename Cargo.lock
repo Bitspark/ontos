@@ -16,18 +16,18 @@ checksum = "6a9f7110945d2e5034073c63b34d6d234932bf4203c800f3329a3a192299d2f7"
 
 [[package]]
 name = "bitspark-ontos-codec"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bitspark-ontos-core",
 ]
 
 [[package]]
 name = "bitspark-ontos-core"
-version = "0.13.0"
+version = "0.14.0"
 
 [[package]]
 name = "bitspark-ontos-data"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bitspark-ontos-codec",
  "bitspark-ontos-core",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "bitspark-ontos-data-json"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bitspark-ontos-codec",
  "bitspark-ontos-core",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "bitspark-ontos-deixis-projection"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "bitspark-deixis-core",
  "bitspark-deixis-pos",

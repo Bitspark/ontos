@@ -17,6 +17,6 @@ path = "src/main.rs"
 # Dependency-free beyond the local cores: arg parsing and JSON are hand-rolled,
 # mirroring how the cores and their tests avoid clap/serde.
 [dependencies]
-ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../core/rs" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../codec/rs" }
-ontos-data = { package = "bitspark-ontos-data", version = "0.13.0", path = "../../data/rs" }
+ontos-core = { package = "bitspark-ontos-core", version = "0.14.0", path = "../../core/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.14.0", path = "../../codec/rs" }
+ontos-data = { package = "bitspark-ontos-data", version = "0.14.0", path = "../../data/rs" }

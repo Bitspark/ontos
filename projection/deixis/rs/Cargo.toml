@@ -1,6 +1,6 @@
 [package]
 name = "bitspark-ontos-deixis-projection"
-version = "0.13.0"
+version = "0.14.0"
 description = "ontos-over-deixis-v1: the total projection P and exact partial recognizer R between ontos values and Node[Option[Bytes]], on the deixis-pos-v1 position spelling. Additive; the one place in ontos that knows deixis exists."
 edition.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ name = "ontos_deixis_projection"
 path = "src/lib.rs"
 
 [dependencies]
-ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../../core/rs" }
+ontos-core = { package = "bitspark-ontos-core", version = "0.14.0", path = "../../../core/rs" }
 # deixis from crates.io, pinned exactly: every face pins the same deixis revision, because the key
 # of a tuple's i-th child must come from the same code in every face.
 deixis-core = { package = "bitspark-deixis-core", version = "=0.6.0" }
@@ -20,4 +20,4 @@ deixis-pos = { package = "bitspark-deixis-pos", version = "=0.6.0" }
 
 [dev-dependencies]
 # The frozen codec, used only to pin toOntosBytes(P(v)) = encodeOntosV1(v) in tests.
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../../codec/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.14.0", path = "../../../codec/rs" }

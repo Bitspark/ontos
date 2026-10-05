@@ -1,6 +1,6 @@
 [package]
 name = "bitspark-ontos-core"
-version = "0.13.0"
+version = "0.14.0"
 description = "ontos/core (L0): the Atom(Bytes) | Tuple(Value*) value model and structural identity. No codec, no interpretation."
 edition.workspace = true
 license.workspace = true

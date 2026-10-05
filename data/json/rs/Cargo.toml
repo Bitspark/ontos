@@ -1,6 +1,6 @@
 [package]
 name = "bitspark-ontos-data-json"
-version = "0.13.0"
+version = "0.14.0"
 description = "ontos-data-json/1 — the named, total projection of a domain-JSON document to an ontos/data value. Rust peer of data/json/go and data/json/ts. Depends on ontos-core and ontos-data."
 edition.workspace = true
 license.workspace = true
@@ -12,8 +12,8 @@ name = "ontos_data_json"
 path = "src/lib.rs"
 
 [dependencies]
-ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../../core/rs" }
-ontos-data = { package = "bitspark-ontos-data", version = "0.13.0", path = "../../../data/rs" }
+ontos-core = { package = "bitspark-ontos-core", version = "0.14.0", path = "../../../core/rs" }
+ontos-data = { package = "bitspark-ontos-data", version = "0.14.0", path = "../../../data/rs" }
 
 [dev-dependencies]
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../../codec/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.14.0", path = "../../../codec/rs" }

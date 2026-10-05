@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/ontos-codec",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "license": "Apache-2.0",
   "description": "ontos canonical binary codec (ontos-codec-v1, frozen). Depends on @bitspark/ontos-core.",
   "type": "module",
@@ -23,7 +23,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@bitspark/ontos-core": "^0.13.0"
+    "@bitspark/ontos-core": "^0.14.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

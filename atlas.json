@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Bitspark/atlas/main/schema/atlas-manifest.schema.json",
+  "name": "ontos",
+  "greek": "ὄντος",
+  "gloss": "of that which is",
+  "is": "what is — the shared vocabulary of values everything reasons over",
+  "layer": "substance",
+  "dependsOn": [
+    {
+      "to": "deixis",
+      "kind": "build",
+      "note": "projection/deixis/rs and /go pin deixis v0.6.0 by git tag from the public deixis repository (rs: crates bitspark-deixis-core/-pos with a package rename, so the catalog sees the link). The projection has no TypeScript face in this repository until deixis is on npmjs."
+    }
+  ],
+  "docs": {
+    "entry": "README.md",
+    "exports": [
+      {
+        "id": "core",
+        "kind": "spec",
+        "path": "docs/spec/ontos-core.md",
+        "anchors": [
+          "1-the-value-set",
+          "2-intrinsic-properties",
+          "3-identity--when-two-values-are-the-same",
+          "4-well-formedness",
+          "8-conformance-vectors"
+        ]
+      },
+      {
+        "id": "codec",
+        "kind": "spec",
+        "path": "docs/spec/ontos-codec.md",
+        "anchors": [
+          "2-the-encoding",
+          "3-uvarint--the-lengtharity-encoding",
+          "4-decoding--rejection-codes",
+          "9-conformance"
+        ]
+      },
+      {
+        "id": "conformance",
+        "kind": "spec",
+        "path": "docs/spec/ontos-conformance.md",
+        "anchors": [
+          "the-protocol-is-the-clis-json-lines-output",
+          "invocation-contract",
+          "comparison-rule",
+          "runner-exit-codes"
+        ]
+      }
+    ]
+  }
+}

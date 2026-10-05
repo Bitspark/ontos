@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A vulnerability
+    url: https://github.com/Bitspark/ontos/security/advisories/new
+    about: Report it privately, not in an issue. SECURITY.md says what counts as one.
+  - name: What belongs in ontos
+    url: https://github.com/Bitspark/ontos/blob/main/CONTRIBUTING.md
+    about: Values and never meaning, the frozen floor and codec, and four languages held to one corpus.
+  - name: The specification
+    url: https://github.com/Bitspark/ontos/tree/main/docs/spec
+    about: The normative surface. A behavior the specification does not state starts as a change to it.

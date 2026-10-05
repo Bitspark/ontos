@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Bitspark/atlas/main/schema/atlas-wire-epoch.schema.json",
+  "format": "ontos-data",
+  "version": "0.5.1",
+  "writerEpoch": "ontos-data-v1",
+  "readerEpochs": ["ontos-data-v1"],
+  "proof": {
+    "kind": "vector-matrix",
+    "ref": "vectors/data.json + docs/spec/ontos-data.md — the ontos-data-v1 canonical embeddings (int, utf8-text, bool, list, map, set, decimal, null)"
+  },
+  "notes": "Each ontos-data-v1 embedding's byte form is frozen; the embedding REGISTRY is additive (e.g. decimal ontos-internal#103, null ontos-internal#137 were added over time). A newer writer MAY emit an embedding an older reader does not yet recognize — the reader fails CLOSED (rejects an unknown tag), it never misreads. So readerEpochs stays [ontos-data-v1] (same-epoch readers handle the embeddings they know; the fail-closed wire envelope from SUBSTRATE_MIGRATION §2 guards the additive frontier). A future INCOMPATIBLE byte change to an existing embedding would mint ontos-data-v2."
+}

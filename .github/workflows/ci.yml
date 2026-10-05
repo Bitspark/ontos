@@ -1,0 +1,252 @@
+# Required CI. Each check job runs one target of scripts/check.sh, the script a contributor
+# runs locally, so what CI checks and what a checkout checks cannot drift apart:
+#
+#   lint         check.sh/check.ps1 parity, project-name spelling, gofmt + go vet,
+#                cargo fmt + clippy, tsc --noEmit over every TypeScript workspace
+#   test         the Rust, Go, TypeScript and Python suites, which replay vectors/, and the
+#                codec on two 32-bit targets: Rust on wasm32 under wasmtime, Go GOARCH=386
+#   vectors      the map/set vectors regenerate from their source with no drift
+#   conformance  the four CLIs, built fresh, byte-identical over every vector
+#   producer     a host value -> L2 in all four languages (ontos-data.md 4.1)
+#   fuzz         Go native fuzzing of the codec and the data recognizers, and a seeded
+#                differential bout across the four CLIs
+#
+# The check jobs run on every push to main, every pull request, every release tag and every
+# dispatch; there is no docs-only path filter. consumer-smoke is the one job that is not a
+# check.sh target, and it runs only on release tags and dispatch; its comment says why.
+#
+# Runners are GitHub-hosted without exception, and no job picks its runner from a variable,
+# so a pull request from a fork runs only on GitHub's own machines. No job reads a secret.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # bash -eo pipefail: a check.sh failure fails its step even through `| tee`.
+    shell: bash
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # rustup is on the runner image; with no argument it installs the toolchain
+      # rust-toolchain.toml pins, with that file's components and profile. One source of
+      # truth for the Rust version, and no third-party action.
+      - name: Rust toolchain (as rust-toolchain.toml pins it)
+        run: rustup toolchain install --no-self-update && rustc --version
+      - name: scripts/check.sh lint
+        run: |
+          bash scripts/check.sh lint 2>&1 | tee "$RUNNER_TEMP/check.log"
+          # check.sh prints SKIPPED for a leg the local machine cannot run and carries on.
+          # That is right on a laptop and a hole in CI, where every leg must run.
+          if grep -n 'SKIPPED' "$RUNNER_TEMP/check.log"; then
+            echo "::error::check.sh skipped a leg; in CI every leg runs"
+            exit 1
+          fi
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Rust toolchain (as rust-toolchain.toml pins it)
+        run: rustup toolchain install --no-self-update && rustc --version
+      # The codec's native-width bound (ontos-codec.md 4.1, 4.2) fires at 2^32 where usize
+      # is 32 bits, so its #[cfg(target_pointer_width = "32")] tests never run on this
+      # 64-bit runner. wasm32-wasip1 has a 32-bit usize and, being a WASI target, can run
+      # the cargo test harness. check.sh runs that leg when wasmtime is on PATH and the
+      # target is installed, so this step provides both. wasmtime is fetched at a pinned
+      # version and checked against a pinned sha256 rather than installed by an action.
+      - name: wasmtime and the wasm32-wasip1 target (the codec's 32-bit Rust leg)
+        env:
+          WASMTIME_VERSION: v49.0.2
+          WASMTIME_SHA256: a4d6e9e3a5a60f527cf7793d674c48930c80c2e8977995b8a275cad3254b9322
+        run: |
+          [ "$(uname -m)" = x86_64 ] || { echo "::error::the pinned wasmtime build is x86_64; this runner is $(uname -m)"; exit 1; }
+          rustup target add wasm32-wasip1
+          dir="$RUNNER_TEMP/wasmtime"
+          tarball="wasmtime-$WASMTIME_VERSION-x86_64-linux.tar.xz"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/$tarball" "https://github.com/bytecodealliance/wasmtime/releases/download/$WASMTIME_VERSION/$tarball"
+          echo "$WASMTIME_SHA256  $dir/$tarball" | sha256sum -c -
+          tar -xJf "$dir/$tarball" -C "$dir"
+          "$dir/wasmtime-$WASMTIME_VERSION-x86_64-linux/wasmtime" --version
+          echo "$dir/wasmtime-$WASMTIME_VERSION-x86_64-linux" >> "$GITHUB_PATH"
+      # check.sh also runs `GOARCH=386 go test ./codec/go/`, the Go side of the same bound
+      # (2^31 on a 32-bit build). GitHub's Ubuntu runners execute i386 binaries, so the 386
+      # test binary runs here rather than only compiling.
+      - name: scripts/check.sh test
+        run: |
+          bash scripts/check.sh test 2>&1 | tee "$RUNNER_TEMP/check.log"
+          if grep -n 'SKIPPED' "$RUNNER_TEMP/check.log"; then
+            echo "::error::check.sh skipped a leg; in CI every leg runs"
+            exit 1
+          fi
+          # Positive control: a 32-bit-only test must have reported ok, so a cfg that
+          # compiled the 32-bit tests out cannot pass for coverage.
+          grep -q '^test valid_u64_over_usize_is_limit_exceeded \.\.\. ok$' "$RUNNER_TEMP/check.log" \
+            || { echo "::error::no 32-bit-only codec test ran on wasm32"; exit 1; }
+
+  vectors:
+    name: vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: scripts/check.sh vectors
+        run: bash scripts/check.sh vectors
+
+  conformance:
+    name: conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Rust toolchain (as rust-toolchain.toml pins it)
+        run: rustup toolchain install --no-self-update && rustc --version
+      - name: scripts/check.sh conformance
+        run: bash scripts/check.sh conformance
+
+  producer:
+    name: producer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Rust toolchain (as rust-toolchain.toml pins it)
+        run: rustup toolchain install --no-self-update && rustc --version
+      - name: scripts/check.sh producer
+        run: bash scripts/check.sh producer
+
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Rust toolchain (as rust-toolchain.toml pins it)
+        run: rustup toolchain install --no-self-update && rustc --version
+      # The differential bout's seed derives from GITHUB_SHA, so a rerun on one commit
+      # replays one corpus; the generator prints the seed, so a failure replays locally
+      # with FUZZ_SEED=<printed> scripts/check.sh fuzz.
+      - name: scripts/check.sh fuzz
+        run: bash scripts/check.sh fuzz
+
+  # What an outside consumer resolves. projection/deixis/go's own tests (in `test`) run with
+  # the face's in-repo `replace github.com/bitspark/ontos => ../../..` in force. A consumer
+  # never sees that replace, because replace applies only in the main module: it gets
+  # github.com/bitspark/ontos from the module proxy, at whatever version the face's go.mod
+  # requires. This job builds a scratch module that replaces ONLY the face with this
+  # checkout and lets ontos and deixis resolve through proxy.golang.org and sum.golang.org,
+  # as they would for anyone, then runs .github/ci/consumer-smoke/main.go on that graph.
+  #
+  # It runs on release tags and on manual dispatch, and never on a push to main or a pull
+  # request. The face requires a published ontos version, and until that version is tagged
+  # no consumer can resolve it, so on an ordinary push this job would be red for a reason
+  # that is not a defect. It is gated by trigger rather than taught to skip when resolution
+  # fails: a skip that reports green is a pass that checked nothing. Run at a tag, or by
+  # dispatch on a commit whose tags exist, a failure here is real.
+  consumer-smoke:
+    name: consumer smoke
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: projection/deixis/go against the published ontos and deixis
+        run: |
+          face="github.com/bitspark/ontos/projection/deixis/go"
+          tmp=$(mktemp -d)
+          cp .github/ci/consumer-smoke/main.go "$tmp/main.go"
+          cd "$tmp"
+          go mod init ci/consumer-smoke
+          go mod edit -require="$face@v0.0.0" -replace="$face=$GITHUB_WORKSPACE/projection/deixis/go"
+          go mod tidy
+          echo "--- what a consumer resolves ---"
+          grep -E 'github.com/bitspark/(ontos|deixis) v' go.mod
+          go run .

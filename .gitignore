@@ -1,0 +1,21 @@
+# Build artefacts of the four implementations.
+target/
+node_modules/
+dist/
+__pycache__/
+
+# The CLIs that scripts/check.sh and the conformance harness build ad hoc: `-o ontos-go` at
+# the repository root, or a plain `go build` in the package directory. `.exe` on Windows.
+/ontos-go
+/ontos-go.exe
+/cli/go/cmd/ontos/ontos
+/cli/go/cmd/ontos/ontos.exe
+
+# The differential fuzz bout's corpus (tools/fuzz/gen.mjs). It is generated, consumed and
+# discarded on each run; the seed is what reproduces it, not the file.
+/fuzz-corpus.json
+
+# Per-checkout local state.
+*.log
+.DS_Store
+.env

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Bitspark/atlas/main/schema/atlas-wire-epoch.schema.json",
+  "format": "ontos-codec",
+  "version": "0.2.1",
+  "writerEpoch": "ontos-codec-v1",
+  "readerEpochs": ["ontos-codec-v1"],
+  "proof": {
+    "kind": "vector-matrix",
+    "ref": "vectors/codec.json + docs/spec/ontos-codec.md — the canonical ontos-codec-v1 byte contract, replayed cross-language by codec/{go,rs,ts}/vectors"
+  },
+  "notes": "ontos-codec-v1 is FROZEN: the canonical binary byte contract does not change across ontos versions, so every ontos-codec version both writes and reads ontos-codec-v1 — all versions are mutually wire-compatible. Proof: the conformance vectors (Class A hand-authored independent oracle for scalars/text/list; Class B derived-and-cross-checked-against-all-three-encoders for map/set entry order). A future incompatible byte change would mint ontos-codec-v2 (a new epoch), not silently alter v1."
+}

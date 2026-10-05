@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ontos lockup — concentric rings narrowing to a filled core, crowning the
+  wordmark (dark). The mark: one kind of being, the same shape at every scale,
+  down to its core (the filled axiom). Drawn to the Bitspark/design wordmark
+  spec (brand/wordmark.md). Colours are literal @bitspark/design dark-theme
+  token values:
+    #fafafa = color-fg ; #27272a = color-border ; #a1a1aa = color-fg-muted.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 264" width="280" role="img" aria-label="ontos — of that which is">
+  <g fill="none" stroke="#fafafa" stroke-width="3">
+    <circle cx="240" cy="56" r="30"/>
+    <circle cx="240" cy="56" r="17"/>
+    <circle cx="240" cy="56" r="6" fill="#fafafa" stroke="none"/>
+  </g>
+  <text x="240" y="190" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="84" font-weight="700" fill="#fafafa" letter-spacing="-0.02em">ontos</text>
+  <line x1="196" y1="212" x2="284" y2="212" stroke="#27272a" stroke-width="1"/>
+  <text x="240" y="234" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="11" font-weight="600" fill="#a1a1aa" letter-spacing="0.16em">ὄντος · BEING · WHAT IS</text>
+</svg>

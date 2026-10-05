@@ -1,0 +1,16 @@
+[package]
+name = "bitspark-ontos-data"
+version = "0.13.0"
+description = "ontos/data (L2) canonical embeddings (ontos-data-v1: int, utf8-text, bool, list, map, set, decimal, null). Depends on ontos-core and ontos-codec (map/set element order)."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+name = "ontos_data"
+path = "src/lib.rs"
+
+[dependencies]
+ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../core/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../codec/rs" }

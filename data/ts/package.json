@@ -1,0 +1,31 @@
+{
+  "name": "@bitspark/ontos-data",
+  "version": "0.13.0",
+  "license": "Apache-2.0",
+  "description": "ontos/data (L2) canonical embeddings (ontos-data-v1: int, utf8-text, bool, list, map, set, decimal, null). Depends on @bitspark/ontos-core and @bitspark/ontos-codec.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bitspark/ontos.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "files": [
+    "dist/src"
+  ],
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@bitspark/ontos-core": "^0.13.0",
+    "@bitspark/ontos-codec": "^0.13.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  }
+}

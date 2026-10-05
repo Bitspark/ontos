@@ -1,0 +1,35 @@
+# The Rust toolchain this repo builds and lints with (ontos-internal#259).
+#
+# WHY PINNED: `cargo clippy --workspace --all-targets -- -D warnings` promotes every
+# lint to a build failure, so an unpinned `stable` makes each upstream clippy release
+# an unannounced, unreviewed change to this repo's merge gate — and it lands on `main`
+# rather than on a PR, so the person who discovers it is whoever opens the next PR,
+# usually about something unrelated. That is exactly what happened between ontos-internal#249 (green)
+# and ontos-internal#256 (red) with no Rust change between them: the runner rolled to 1.98 overnight
+# and brought `clippy::chunks_exact_to_as_chunks`, a lint that did not exist when the
+# offending line was written. Fixed in ontos-internal#257; this file is about the mechanism.
+#
+# It also makes Rust consistent with the lanes beside it: `actions/setup-go` is pinned
+# to 1.25 and the TS setup action is pinned by SHA, in the same workflow file. Rust was
+# the only floating lane.
+#
+# ⚠ WHAT THIS PIN DOES **NOT** DO — read before relaxing anything on its account.
+# It does NOT guard the byte contract. `vectors/` pins the codec's output BYTE-FOR-BYTE
+# across every face and the `vectors` CI leg fails on drift; if a rustc release changed
+# our emitted bytes, that leg goes red, which is precisely what it is for. The bytes are
+# defended by the vectors, not by this file. What the pin adds is PROVENANCE — "which
+# rustc built these bytes" is otherwise a fact the repo records nowhere, and for an
+# artifact consumers sign and hash over, that belongs in an auditable supply chain.
+# (Ruled by the ontos maintainers, which owns the byte-contract call, when the pin was proposed
+# on the stronger-sounding and WRONG ground that our bytes might silently drift.)
+#
+# BUMPING: a bump is a dated PR that shows exactly which lints arrived — that is the
+# point. Do not chase `latest`; a pin should record a fact, not smuggle an upgrade in
+# as a fix. Keep this channel and the `rust-version` MSRV in the root Cargo.toml
+# coherent: the MSRV is the floor consumers may build on, this is what CI actually runs.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+# minimal + explicit components: the smallest install that satisfies fmt, clippy and
+# the build. Deliberate — this fleet has run its host to under 2% free disk.
+profile = "minimal"

@@ -1,0 +1,22 @@
+[package]
+name = "ontos-cli"
+version = "0.1.0"
+description = "ontos — the byte-first inspector CLI (tri-core peer; this is the Rust build)."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+# A repo-local developer tool, not a distributed artifact — never `cargo publish`
+# this binary crate. (The `ts` peer is `private`; only the value-model libraries are
+# published. See docs/spec/ontos-cli.md "Not a published package".)
+publish = false
+
+[[bin]]
+name = "ontos"
+path = "src/main.rs"
+
+# Dependency-free beyond the local cores: arg parsing and JSON are hand-rolled,
+# mirroring how the cores and their tests avoid clap/serde.
+[dependencies]
+ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../core/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../codec/rs" }
+ontos-data = { package = "bitspark-ontos-data", version = "0.13.0", path = "../../data/rs" }

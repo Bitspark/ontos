@@ -1,0 +1,31 @@
+# Source stays LF in every checkout, so gofmt -l, cargo fmt, diffs and the conformance
+# harness's byte comparisons mean the same thing on Windows and Linux.
+* text=auto eol=lf
+*.go text eol=lf
+*.rs text eol=lf
+*.ts text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.txt text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+Cargo.lock text eol=lf
+
+# The corpus the four implementations are compared against byte for byte. A CRLF here would
+# make one implementation disagree with the others on a checkout, which is exactly the
+# failure this repository exists to detect, and it would be an artefact, not a real one.
+vectors/** text eol=lf
+
+# .mjs is left to detection on purpose: tools/conformance/run.mjs contains a literal NUL (a
+# key separator), so git detects it as binary and stores it byte for byte. Forcing *.mjs to
+# text would rewrite that file's line endings on the next commit.
+
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary

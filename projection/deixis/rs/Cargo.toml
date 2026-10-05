@@ -1,0 +1,24 @@
+[package]
+name = "bitspark-ontos-deixis-projection"
+version = "0.13.0"
+description = "ontos-over-deixis-v1: the total projection P and exact partial recognizer R between ontos values and Node[Option[Bytes]], on the deixis-pos-v1 position spelling. Additive; the one place in ontos that knows deixis exists."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+# Not on crates.io yet: crates.io refuses git dependencies, and this crate pins deixis by
+# git tag until deixis is published there (ontos-internal#367).
+publish = false
+
+[lib]
+name = "ontos_deixis_projection"
+path = "src/lib.rs"
+
+[dependencies]
+ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../../core/rs" }
+deixis-core = { package = "bitspark-deixis-core", git = "https://github.com/Bitspark/deixis", tag = "v0.6.0" }
+deixis-pos = { package = "bitspark-deixis-pos", git = "https://github.com/Bitspark/deixis", tag = "v0.6.0" }
+
+[dev-dependencies]
+# The frozen codec, used only to pin toOntosBytes(P(v)) = encodeOntosV1(v) in tests.
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.13.0", path = "../../../codec/rs" }

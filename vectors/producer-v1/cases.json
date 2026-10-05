@@ -1,0 +1,237 @@
+{
+  "profile": "producer-v1",
+  "note": "Producer-admission cases (ontos-data.md 4.1). Each case names a HOST-NEUTRAL datum and a per-language CONSTRUCTION RECIPE; an adapter builds the host value natively, runs the blessed producer, and reports canonical bytes or a stable error. This corpus measures the host-value -> L2 step, which sits UPSTREAM of the byte encoding and is therefore invisible to tools/conformance (it constructs an L0 value and never a host value). See ontos-internal#198.",
+  "oracle": "Expected bytes are NOT generated here. A portable case cites a case NAME in vectors/data.json and reuses that entry's frozen hex, so the oracle is the already-frozen, CI-enforced corpus rather than a golden this file minted. A case citing a vector that does not exist is a harness error, not a skip.",
+  "profiles": {
+    "portable": "Representable in every implementation; ALL adapters must produce the cited bytes.",
+    "host": "Pins language-specific ADMISSION. Only the languages in `applies` can construct the input at all; the others are not failures, they are inapplicable (e.g. Rust cannot build an invalid &str). Mechanisms may differ; the OUTCOME CLASS may not.",
+    "portable-differential": "Representable everywhere and all adapters must AGREE, but no frozen vector exists to pin the value. Weaker than `portable`: it catches divergence, not a wrong-but-unanimous answer. Prefer `portable` whenever a vectors/data.json entry exists."
+  },
+  "cases": [
+    {
+      "id": "int/zero",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "0"
+      },
+      "oracle": {
+        "vector": "int_0"
+      },
+      "why": "Canonical zero is the single byte 0x00 (sign 0x00, empty magnitude) - no negative zero. The one int whose payload has no magnitude bytes."
+    },
+    {
+      "id": "int/one",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "1"
+      },
+      "oracle": {
+        "vector": "int_1"
+      }
+    },
+    {
+      "id": "int/neg-one",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "-1"
+      },
+      "oracle": {
+        "vector": "int_neg1"
+      },
+      "why": "Sign byte 0x01 with the same magnitude as +1 - sign-magnitude, not two's complement."
+    },
+    {
+      "id": "int/255",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "255"
+      },
+      "oracle": {
+        "vector": "int_255"
+      },
+      "why": "One magnitude byte at its maximum - the boundary before a second byte is required."
+    },
+    {
+      "id": "int/256",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "256"
+      },
+      "oracle": {
+        "vector": "int_256"
+      },
+      "why": "Two magnitude bytes, big-endian, minimal-length (0x0100 - no leading zero)."
+    },
+    {
+      "id": "int/2pow128",
+      "embedding": "int",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "int",
+        "decimal": "340282366920938463463374607431768211456"
+      },
+      "oracle": {
+        "vector": "int_2pow128"
+      },
+      "why": "Beyond i128/u128 deliberately. The ENCODING is portable even where a language's typed read-back is not - Rust reports IntOutOfRange on read while still producing these bytes. Producer conformance is about what is MINTED, so this case belongs to every language."
+    },
+    {
+      "id": "bool/false",
+      "embedding": "bool",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "bool",
+        "value": false
+      },
+      "oracle": {
+        "vector": "bool_false"
+      }
+    },
+    {
+      "id": "bool/true",
+      "embedding": "bool",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "bool",
+        "value": true
+      },
+      "oracle": {
+        "vector": "bool_true"
+      }
+    },
+    {
+      "id": "text/hi",
+      "embedding": "utf8-text",
+      "profile": "portable",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "text",
+        "scalars": [
+          104,
+          105
+        ]
+      },
+      "oracle": {
+        "vector": "utf8_hi"
+      },
+      "why": "Text is carried as an array of Unicode SCALAR VALUES, never as a JSON string. A JSON string cannot portably transport a lone surrogate or invalid UTF-8, so asking this file's own parser to preserve a malformed host string would be the same class of bug the corpus exists to test - and it would silently reshape the host-profile cases below."
+    },
+    {
+      "id": "text/lone-high-surrogate",
+      "embedding": "utf8-text",
+      "profile": "host",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "text-utf16",
+        "units": [
+          55296
+        ]
+      },
+      "why": "U+D800 is not a Unicode scalar value and has no UTF-8 encoding. ts/py can BUILD it (UTF-16 units / a lone code point) and must REJECT; go has no UTF-16 string and rs's char refuses surrogates, so both report unsupported. No adapter may return ok - TypeScript did, silently substituting U+FFFD, until ontos-internal#202."
+    },
+    {
+      "id": "text/invalid-utf8-byte",
+      "embedding": "utf8-text",
+      "profile": "host",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "text-bytes",
+        "bytes": [
+          "80"
+        ]
+      },
+      "why": "A lone 0x80 continuation byte. Only Go can hold it in a string, so only Go can REJECT it; the others report unsupported because their string types carry the invariant. Go emitted these bytes verbatim - minting a value its own ReadText refuses - until ontos-internal#203."
+    },
+    {
+      "id": "text/astral-paired-surrogate",
+      "embedding": "utf8-text",
+      "profile": "portable-differential",
+      "applies": [
+        "go",
+        "rs",
+        "ts",
+        "py"
+      ],
+      "input": {
+        "kind": "text",
+        "scalars": [
+          128512
+        ]
+      },
+      "why": "U+1F600. DIFFERENTIAL-ONLY: vectors/data.json has no astral entry, so there is no frozen hex to cite and this case asserts cross-implementation AGREEMENT rather than a pinned value. Stated explicitly because a case that quietly checked nothing would be worse than no case. It earns its place anyway: in TS this scalar is a surrogate PAIR, so a naive unpaired-surrogate guard would wrongly reject all astral text - the obvious way to over-correct the fidelity fix."
+    }
+  ]
+}

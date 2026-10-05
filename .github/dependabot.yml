@@ -1,0 +1,37 @@
+# ontos has almost no dependencies. The core, the codec and the embeddings use each
+# language's standard library; the one dependency on another repository is deixis, taken by
+# the deixis projection (projection/deixis/go as a Go module, projection/deixis/rs as a git
+# tag in Cargo.toml). What remains is tooling: the TypeScript compiler and the workflows.
+# Updates are grouped into one pull request per ecosystem per week.
+#
+# A gomod entry covers the module in ONE directory and does not descend into nested ones,
+# so each go.mod is named here. The cargo and npm entries sit at the workspace roots, which
+# cover every member. A Go module added without a line here gets no updates and nothing
+# reds: the silence is the failure mode, so check this list when one is added.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /projection/deixis/go
+    schedule: { interval: weekly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: cargo
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      rust: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      ts: { patterns: ["*"] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }

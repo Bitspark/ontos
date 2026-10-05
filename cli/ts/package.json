@@ -21,7 +21,7 @@
     "@bitspark/ontos-data": "^0.14.0"
   },
   "devDependencies": {
-    "@types/node": "^24"
+    "@types/node": "^26"
   },
   "scripts": {
     "prebuild": "node ../../scripts/check-workspace-links.mjs",

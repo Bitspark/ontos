@@ -521,7 +521,7 @@ fn run_canon(
     };
 
     if emit {
-        // --emit: print the canonical bytes (hex) for piping to a hasher.
+        // --emit: print the canonical bytes as hex; decode the hex before hashing it.
         let canon_bytes = encode(&value);
         match format {
             Format::Human => {

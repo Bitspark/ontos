@@ -6,7 +6,9 @@ credential is needed to install any of it.
 | Ecosystem | Packages | From |
 | --- | --- | --- |
 | TypeScript | `@bitspark/ontos-core`, `@bitspark/ontos-codec`, `@bitspark/ontos-data`, `@bitspark/ontos-data-json` | npmjs, with provenance |
+| TypeScript | `@bitspark/ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | npmjs, with provenance |
 | Rust | `bitspark-ontos-core`, `bitspark-ontos-codec`, `bitspark-ontos-data`, `bitspark-ontos-data-json` | crates.io |
+| Rust | `bitspark-ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | crates.io |
 | Go | `github.com/bitspark/ontos/{core,codec,data,data/json}/go` | the Go module proxy (one module, `github.com/bitspark/ontos`) |
 | Go | `github.com/bitspark/ontos/projection/deixis/go`, the `ontos-over-deixis-v1` bridge | a nested module, tagged `projection/deixis/go/vX.Y.Z` at the same commit as each release |
 
@@ -19,9 +21,10 @@ release is **v0.13.0**.
 codec version, never as an edit. Upgrading ontos never changes the bytes of a value you already
 store, hash or sign.
 
-**Not yet published here:** the deixis projection's TypeScript package and Rust crate. Both
-depend on deixis, which is not yet on npmjs and crates.io; they follow once it is. The Go face of
-the projection is published from the first release.
+**The deixis projection** is published in all three languages from v0.14.0. Its Go face has been
+published since the first release; its TypeScript package and Rust crate waited for deixis to
+reach npmjs and crates.io. Every face pins deixis exactly (`0.6.0`), because κ, the key of a
+tuple's `i`-th child, must come from the same code in every face.
 
 ## Consume
 

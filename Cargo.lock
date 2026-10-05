@@ -5,12 +5,14 @@ version = 4
 [[package]]
 name = "bitspark-deixis-core"
 version = "0.6.0"
-source = "git+https://github.com/Bitspark/deixis?tag=v0.6.0#8fb1fa6f82ce48b7c56eef745c098814c201348e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "999c0c6908c6a9b34e5f53f424fd4c0e4bdb2d6d0456a1fa5113aaf2f71c1066"
 
 [[package]]
 name = "bitspark-deixis-pos"
 version = "0.6.0"
-source = "git+https://github.com/Bitspark/deixis?tag=v0.6.0#8fb1fa6f82ce48b7c56eef745c098814c201348e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a9f7110945d2e5034073c63b34d6d234932bf4203c800f3329a3a192299d2f7"
 
 [[package]]
 name = "bitspark-ontos-codec"

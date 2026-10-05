@@ -2,12 +2,13 @@
   "name": "ontos",
   "private": true,
   "description": "ontos monorepo root — npm workspaces wiring the @bitspark/ontos-* TypeScript packages so they resolve each other by name in-repo exactly as published. Not itself published.",
-  "//workspaces": "ORDER IS LOAD-BEARING. A release publishes the packages in this dependency order (core before codec before data before data-json), because a dependent must not reach the registry before its dependency, and scripts/check.sh, scripts/check.ps1 and ci.yml derive the build, test and lint set from it, so a package absent here is skipped everywhere. Do NOT alphabetise. cli/ts is a workspace and is not published.",
+  "//workspaces": "ORDER IS LOAD-BEARING. A release publishes the packages in this dependency order (core before codec before data before data-json, then the deixis projection), because a dependent must not reach the registry before its dependency, and scripts/check.sh, scripts/check.ps1 and ci.yml derive the build, test and lint set from it, so a package absent here is skipped everywhere. Do NOT alphabetise. cli/ts is a workspace and is not published.",
   "workspaces": [
     "core/ts",
     "codec/ts",
     "data/ts",
     "data/json/ts",
+    "projection/deixis/ts",
     "cli/ts"
   ],
   "devDependencies": {

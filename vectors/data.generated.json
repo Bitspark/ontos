@@ -1,0 +1,456 @@
+{
+  "note": "GENERATED ARTIFACT — do NOT hand-edit. Produced by tools/vector/gen.mjs from vectors/data.source.json (the human-authored Class B oracle: map/set membership in deliberately non-canonical order + an order_explanation). Each entry below is the derived canonical {value, hex}: encodeMap/encodeSet (@bitspark/ontos-data) SORT the source entries/elements by ontos-codec-v1 byte order (ontos-codec.md §6), then @bitspark/ontos-codec encode produces the hex. gen.mjs asserts each {value, hex} here reproduces the corresponding map_*/set_* case in vectors/data.json byte-for-byte (which is differentially pinned to all four encoders), so this is a reviewed cross-check, not the oracle itself. Regenerate with: node tools/vector/gen.mjs. Policy: docs/conformance-vector-provenance.md.",
+  "profile": "ontos-data-v1",
+  "codec": "ontos-codec-v1",
+  "provenance": "derived-from-spec-algorithm",
+  "source": "vectors/data.source.json",
+  "generator": "tools/vector/gen.mjs",
+  "cases": [
+    {
+      "name": "map_empty",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          }
+        ]
+      },
+      "hex": "010100036d6170"
+    },
+    {
+      "name": "map_one_int_text",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "0001"
+                  }
+                ]
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "757466382d74657874"
+                  },
+                  {
+                    "atom": "6869"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010200036d6170010201020003696e740002000101020009757466382d7465787400026869"
+    },
+    {
+      "name": "map_two_atom_keys",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "61"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "0001"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "atom": "62"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "757466382d74657874"
+                  },
+                  {
+                    "atom": "6869"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010300036d6170010200016101020003696e7400020001010200016201020009757466382d7465787400026869"
+    },
+    {
+      "name": "map_mixed_keys",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "61"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "626f6f6c"
+                  },
+                  {
+                    "atom": "01"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "0001"
+                  }
+                ]
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "626f6f6c"
+                  },
+                  {
+                    "atom": "00"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "tuple": [
+                  {
+                    "atom": "757466382d74657874"
+                  },
+                  {
+                    "atom": "61"
+                  }
+                ]
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "000100"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010400036d6170010200016101020004626f6f6c000101010201020003696e740002000101020004626f6f6c000100010201020009757466382d7465787400016101020003696e740003000100"
+    },
+    {
+      "name": "map_prefix_keys",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "61"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "0001"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "atom": "6161"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "000100"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010300036d6170010200016101020003696e740002000101020002616101020003696e740003000100"
+    },
+    {
+      "name": "map_nested_value",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "6b"
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "6d6170"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010200036d6170010200016b010100036d6170"
+    },
+    {
+      "name": "map_map_key",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "tuple": [
+                  {
+                    "atom": "6d6170"
+                  },
+                  {
+                    "tuple": [
+                      {
+                        "atom": "61"
+                      },
+                      {
+                        "tuple": [
+                          {
+                            "atom": "696e74"
+                          },
+                          {
+                            "atom": "0001"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "tuple": [
+                  {
+                    "atom": "626f6f6c"
+                  },
+                  {
+                    "atom": "01"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010200036d61700102010200036d6170010200016101020003696e740002000101020004626f6f6c000101"
+    },
+    {
+      "name": "map_noncanonical_int_key",
+      "value": {
+        "tuple": [
+          {
+            "atom": "6d6170"
+          },
+          {
+            "tuple": [
+              {
+                "tuple": [
+                  {
+                    "atom": "696e74"
+                  },
+                  {
+                    "atom": "000001"
+                  }
+                ]
+              },
+              {
+                "atom": "00"
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010200036d6170010201020003696e740003000001000100"
+    },
+    {
+      "name": "set_empty",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          }
+        ]
+      },
+      "hex": "01010003736574"
+    },
+    {
+      "name": "set_one_int",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "696e74"
+              },
+              {
+                "atom": "0001"
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "0102000373657401020003696e7400020001"
+    },
+    {
+      "name": "set_two_atoms",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          },
+          {
+            "atom": "61"
+          },
+          {
+            "atom": "62"
+          }
+        ]
+      },
+      "hex": "01030003736574000161000162"
+    },
+    {
+      "name": "set_mixed",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          },
+          {
+            "atom": "61"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "696e74"
+              },
+              {
+                "atom": "0001"
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "atom": "757466382d74657874"
+              },
+              {
+                "atom": "61"
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "0104000373657400016101020003696e740002000101020009757466382d74657874000161"
+    },
+    {
+      "name": "set_nested",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "736574"
+              }
+            ]
+          },
+          {
+            "tuple": [
+              {
+                "atom": "736574"
+              },
+              {
+                "atom": "61"
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "010300037365740101000373657401020003736574000161"
+    },
+    {
+      "name": "set_noncanonical_int_elem",
+      "value": {
+        "tuple": [
+          {
+            "atom": "736574"
+          },
+          {
+            "tuple": [
+              {
+                "atom": "696e74"
+              },
+              {
+                "atom": "000001"
+              }
+            ]
+          }
+        ]
+      },
+      "hex": "0102000373657401020003696e740003000001"
+    }
+  ]
+}

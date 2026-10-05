@@ -1,0 +1,15 @@
+[package]
+name = "bitspark-ontos-codec"
+version = "0.13.0"
+description = "ontos canonical binary codec (ontos-codec-v1, frozen). Depends on ontos-core."
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+name = "ontos_codec"
+path = "src/lib.rs"
+
+[dependencies]
+ontos-core = { package = "bitspark-ontos-core", version = "0.13.0", path = "../../core/rs" }

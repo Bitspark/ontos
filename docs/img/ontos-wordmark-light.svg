@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ontos lockup — concentric rings narrowing to a filled core, crowning the
+  wordmark (light). The mark: one kind of being, the same shape at every scale,
+  down to its core (the filled axiom). Drawn to the Bitspark/design wordmark
+  spec (brand/wordmark.md): stroke-only mark + the one sanctioned axiom fill,
+  then the system-sans wordmark, a hairline rule, and the letterspaced kicker.
+  Colours are literal @bitspark/design light-theme token values:
+    #18181b = color-fg ; #e4e4e7 = color-border ; #52525b = color-fg-muted.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 264" width="280" role="img" aria-label="ontos — of that which is">
+  <g fill="none" stroke="#18181b" stroke-width="3">
+    <circle cx="240" cy="56" r="30"/>
+    <circle cx="240" cy="56" r="17"/>
+    <circle cx="240" cy="56" r="6" fill="#18181b" stroke="none"/>
+  </g>
+  <text x="240" y="190" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="84" font-weight="700" fill="#18181b" letter-spacing="-0.02em">ontos</text>
+  <line x1="196" y1="212" x2="284" y2="212" stroke="#e4e4e7" stroke-width="1"/>
+  <text x="240" y="234" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="11" font-weight="600" fill="#52525b" letter-spacing="0.16em">ὄντος · BEING · WHAT IS</text>
+</svg>

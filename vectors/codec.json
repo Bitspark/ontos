@@ -1,0 +1,37 @@
+{
+  "codec": "ontos-codec-v1",
+  "note": "FROZEN codec (ontos-codec-v1), normatively specified in docs/spec/ontos-codec.md; the byte mapping is immutable and any change ships as a new version. Atom(b)=0x00||uvarint(len(b))||b; Tuple(vs)=0x01||uvarint(arity)||encode(child)...; uvarint=shortest-form unsigned LEB128 over the u64 domain. Bytes hand-computed from the spec + verified green across go/rs/ts. The uvarint integer domain is now PINNED to u64 (spec §3.1): a uvarint encoding a value >=2^64 is cross-core `uvarint_overflow` (pinned below); a value within u64 but exceeding a particular core's native length type is an impl-local resource limit, NOT vector-pinned. CROSS-CORE BOUNDARY (this u64 fix): the >=2^64 reject family is pinned as uvarint_overflow and MUST agree byte-for-byte across go/rs/ts -- uvarint_overflow_ge_2_64 (11-byte LEB128 reaching the 2^64 boundary), uvarint_overflow_11_continuation_bytes (11 continuation bytes, no terminator: shift passes the 64-bit ceiling), uvarint_overflow_11byte_canonical (11-byte shortest-form uvarint; a canonical u64 uvarint is at most 10 bytes, so any 11-byte uvarint necessarily encodes >=2^64). These three are pinned because all three cores detect overflow STRUCTURALLY via the continuation/length ceiling, independent of value-wrapping; they are unambiguous cross-core. A 10-byte input whose 10th terminating byte alone pushes the value over 2^64 (e.g. 00ffffffffffffffffff7f) is INTENTIONALLY NOT pinned: cores that compute the value in wrapped 64-bit arithmetic re-encode the wrapped result and report non_canonical_uvarint, while a full-precision core reports uvarint_overflow -- they disagree, so that shape is not a stable cross-core vector. DELIBERATELY NOT PINNED EITHER: the valid-u64-but-too-large boundary -- a uvarint that IS a valid u64 (e.g. 2^64-1 = uvarint ffffffffffffffffff01) but exceeds a core's native MATERIALIZATION width. Per spec §3.1 that is an implementation-local RESOURCE LIMIT (limit_exceeded class), NOT uvarint_overflow, and each core tests its own boundary in its own suite (Go: > maxInt = 2^63-1; Rust: only triggers on 32-bit usize targets; TS: > Number.MAX_SAFE_INTEGER = 2^53-1).",
+
+  "uvarint": [
+    { "n": 0,     "hex": "00" },
+    { "n": 1,     "hex": "01" },
+    { "n": 127,   "hex": "7f" },
+    { "n": 128,   "hex": "8001" },
+    { "n": 300,   "hex": "ac02" },
+    { "n": 16384, "hex": "808001" }
+  ],
+
+  "encode": [
+    { "name": "empty_atom",        "value": { "atom": "" },                 "hex": "0000" },
+    { "name": "one_byte_atom",     "value": { "atom": "61" },               "hex": "000161" },
+    { "name": "three_byte_atom",   "value": { "atom": "010203" },           "hex": "0003010203" },
+    { "name": "empty_tuple",       "value": { "tuple": [] },                "hex": "0100" },
+    { "name": "singleton_tuple",   "value": { "tuple": [ { "atom": "61" } ] }, "hex": "0101000161" },
+    { "name": "pair_tuple",        "value": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] }, "hex": "0102000161000162" },
+    { "name": "tuple_of_empty_atom", "value": { "tuple": [ { "atom": "" } ] }, "hex": "01010000" },
+    { "name": "nested_tuple",      "value": { "tuple": [ { "atom": "61" }, { "tuple": [ { "atom": "62" }, { "atom": "63" } ] } ] }, "hex": "01020001610102000162000163" }
+  ],
+
+  "reject": [
+    { "name": "empty_input",                "hex": "",        "code": "unexpected_eof" },
+    { "name": "unknown_tag",                "hex": "02",      "code": "unknown_tag" },
+    { "name": "atom_length_exceeds_input",  "hex": "000561",  "code": "unexpected_eof" },
+    { "name": "tuple_arity_exceeds_input",  "hex": "0103",    "code": "unexpected_eof" },
+    { "name": "trailing_bytes_after_value", "hex": "0000ff",  "code": "trailing_bytes" },
+    { "name": "noncanonical_uvarint_zero",  "hex": "008000",  "code": "non_canonical_uvarint" },
+    { "name": "noncanonical_uvarint_one",   "hex": "008100",  "code": "non_canonical_uvarint" },
+    { "name": "uvarint_overflow_ge_2_64",   "hex": "008080808080808080808001", "code": "uvarint_overflow" },
+    { "name": "uvarint_overflow_11_continuation_bytes", "hex": "008080808080808080808080", "code": "uvarint_overflow" },
+    { "name": "uvarint_overflow_11byte_canonical", "hex": "00ffffffffffffffffffff01", "code": "uvarint_overflow" }
+  ]
+}

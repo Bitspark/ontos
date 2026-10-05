@@ -1,0 +1,107 @@
+{
+  "note": "L0 structural-identity vectors for ontos/core. Each case asserts equal(left, right) == equal. Hand-authored from docs/spec/ontos-core.md §3. The {atom:hex}|{tuple:[...]} JSON is authoring notation, NOT ontos's canonical encoding.",
+  "cases": [
+    {
+      "name": "empty_atoms_equal",
+      "left": { "atom": "" },
+      "right": { "atom": "" },
+      "equal": true
+    },
+    {
+      "name": "empty_tuples_equal",
+      "left": { "tuple": [] },
+      "right": { "tuple": [] },
+      "equal": true
+    },
+    {
+      "name": "empty_atom_ne_empty_tuple",
+      "left": { "atom": "" },
+      "right": { "tuple": [] },
+      "equal": false
+    },
+    {
+      "name": "atoms_equal_same_bytes",
+      "left": { "atom": "010203" },
+      "right": { "atom": "010203" },
+      "equal": true
+    },
+    {
+      "name": "atoms_distinct_same_length_different_bytes",
+      "left": { "atom": "010203" },
+      "right": { "atom": "010204" },
+      "equal": false
+    },
+    {
+      "name": "atoms_distinct_by_length_leading_zero",
+      "left": { "atom": "01" },
+      "right": { "atom": "0001" },
+      "equal": false
+    },
+    {
+      "name": "atoms_distinct_prefix_is_not_equal",
+      "left": { "atom": "0102" },
+      "right": { "atom": "010200" },
+      "equal": false
+    },
+    {
+      "name": "atom_ne_tuple_nonempty",
+      "left": { "atom": "61" },
+      "right": { "tuple": [ { "atom": "61" } ] },
+      "equal": false
+    },
+    {
+      "name": "singleton_tuple_ne_its_element",
+      "left": { "tuple": [ { "atom": "61" } ] },
+      "right": { "atom": "61" },
+      "equal": false
+    },
+    {
+      "name": "tuples_equal_same_children_same_order",
+      "left": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] },
+      "right": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] },
+      "equal": true
+    },
+    {
+      "name": "tuples_distinct_by_order",
+      "left": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] },
+      "right": { "tuple": [ { "atom": "62" }, { "atom": "61" } ] },
+      "equal": false
+    },
+    {
+      "name": "tuples_distinct_by_arity",
+      "left": { "tuple": [ { "atom": "61" } ] },
+      "right": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] },
+      "equal": false
+    },
+    {
+      "name": "tuples_distinct_by_multiplicity",
+      "left": { "tuple": [ { "atom": "61" }, { "atom": "61" } ] },
+      "right": { "tuple": [ { "atom": "61" } ] },
+      "equal": false
+    },
+    {
+      "name": "nesting_is_significant",
+      "left": { "tuple": [ { "tuple": [ { "atom": "61" }, { "atom": "62" } ] } ] },
+      "right": { "tuple": [ { "atom": "61" }, { "atom": "62" } ] },
+      "equal": false
+    },
+    {
+      "name": "nested_tuples_equal_when_structurally_identical",
+      "left": { "tuple": [ { "atom": "61" }, { "tuple": [ { "atom": "62" }, { "atom": "63" } ] } ] },
+      "right": { "tuple": [ { "atom": "61" }, { "tuple": [ { "atom": "62" }, { "atom": "63" } ] } ] },
+      "equal": true
+    },
+    {
+      "name": "nested_tuples_distinct_deep_difference",
+      "left": { "tuple": [ { "atom": "61" }, { "tuple": [ { "atom": "62" }, { "atom": "63" } ] } ] },
+      "right": { "tuple": [ { "atom": "61" }, { "tuple": [ { "atom": "62" }, { "atom": "64" } ] } ] },
+      "equal": false
+    },
+    {
+      "name": "tuple_of_empty_atom_ne_tuple_of_empty_tuple",
+      "left": { "tuple": [ { "atom": "" } ] },
+      "right": { "tuple": [ { "tuple": [] } ] },
+      "equal": false
+    }
+  ]
+}

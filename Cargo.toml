@@ -1,0 +1,15 @@
+[workspace]
+members = ["core/rs", "codec/rs", "data/rs", "data/json/rs", "cli/rs", "projection/deixis/rs", "tools/producer-conformance/adapters/rs"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+# The MSRV: the floor a consumer may build these crates on (ontos-internal#259). This is the
+# VERIFIED floor — 1.96.0 is the toolchain fmt + `clippy -D warnings` + the full test
+# suite were run green on when it was declared. It is not a claim that every older
+# release fails, and it is deliberately NOT the same fact as rust-toolchain.toml:
+# that file is what CI runs, this is what consumers may rely on. Raise it only with a
+# reason, and say which one in the PR.
+rust-version = "1.96"
+repository = "https://github.com/Bitspark/ontos"

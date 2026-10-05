@@ -1,0 +1,531 @@
+# Release ontos: rehearse, publish or verify one version.
+#
+# What a release is, and where each part goes:
+#   npm        @bitspark/ontos-core, -codec, -data, -data-json   npmjs, with provenance
+#   crates.io  bitspark-ontos-core, -codec, -data, -data-json    library names ontos_core, ...
+#   Go         nothing is uploaded. The module proxy fetches from this repository, so the TAGS
+#              are the Go release: `vX.Y.Z` (the root module) and
+#              `projection/deixis/go/vX.Y.Z` (the nested projection module), both on one commit.
+#   Python     source-only: core/py, codec/py, data/py and cli/py are not packaged.
+#   deferred   the deixis projection's Rust crate ships as source with publish = false, because
+#              crates.io refuses git dependencies and deixis is not there yet. Its TypeScript
+#              face is WITHHELD: not in this repository until deixis is on npmjs. Both arrive
+#              then. Its Go face ships with every release.
+#   private    the CLIs (cli/rs, cli/ts) and the producer-conformance adapter: built and
+#              tested here, never published.
+# Every package the repository holds must be in exactly one of those classes. A new package
+# that is in none fails the release rather than being silently left out.
+#
+# One `mode`, never a combination of booleans:
+#   rehearse (default)  any commit. Check, test, build the candidate, compare it with what the
+#                       registries already hold, and dry-run every upload. Publishes nothing.
+#   publish             the tag set must exist on one commit of main whose CI is green. Uploads
+#                       what is missing, in dependency order, then verifies.
+#   verify              uploads nothing. Checks the published release from outside and
+#                       (re)writes the GitHub release and its receipt. Use it to finish after a
+#                       registry was slow to serve what it had accepted.
+# DISPATCH FROM main, in every mode:
+#   gh workflow run release.yml --ref main -f version=X.Y.Z -f mode=rehearse
+#   (then tag vX.Y.Z and projection/deixis/go/vX.Y.Z on the release commit, and push both together)
+#   gh workflow run release.yml --ref main -f version=X.Y.Z -f mode=publish
+# publish and verify always CHECK OUT the tag, whatever the dispatch ref: the tag fixes what is
+# released, and this file stays the copy on main. A dispatch on the tag ref would run the
+# tag's own copy of this file, frozen with the tag, so a workflow bug that a rehearsal found
+# could never be fixed for that version (measured on deixis v0.6.0). The `release`
+# environment therefore admits the `main` branch.
+#
+# Publishing is explicit: no tag push or release event triggers this workflow. GitHub fires no
+# push event for a push creating more than three tags, and an event raised with GITHUB_TOKEN
+# starts no workflow, so a release that depended on either could silently not happen.
+#
+# What already exists is COMPARED, never skipped on sight: identical content is reused,
+# different content stops the run, and a registry answer that is neither "present" nor "absent"
+# stops it too. A version, once published, is never replaced: a content error needs a new one.
+#
+# Credentials: the first publish of each name uses repository secrets NPM_TOKEN and
+# CARGO_REGISTRY_TOKEN. Once trusted publishing (OIDC) is configured for every name, set the
+# repository variable CRATES_IO_TRUSTED_PUBLISHING to true and delete both secrets: npm then
+# authenticates by OIDC alone. Every run waits at the `release` environment for its reviewer.
+#
+# Runners are GitHub-hosted, without exception.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version, without the v (e.g. 0.13.0)."
+        required: true
+      mode:
+        description: "rehearse publishes nothing; publish uploads what is missing then verifies; verify uploads nothing."
+        type: choice
+        options: [rehearse, publish, verify]
+        default: rehearse
+      ref:
+        description: "rehearse only: the commit or branch to rehearse. publish and verify always use the tag."
+        required: false
+        default: main
+
+permissions:
+  contents: write   # the GitHub release and its assets
+  id-token: write   # npm provenance and crates.io trusted publishing
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  MODE: ${{ inputs.mode }}
+  # Published, in dependency order: each member depends only on members before it.
+  NPM_PUBLISHED: "core/ts codec/ts data/ts data/json/ts"
+  NPM_WITHHELD: "projection/deixis/ts"   # must not exist in this tree yet
+  NPM_PRIVATE: "cli/ts"
+  CRATES_PUBLISHED: "bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data bitspark-ontos-data-json"
+  CRATES_DEFERRED: "bitspark-ontos-deixis-projection"
+  CRATES_PRIVATE: "ontos-cli ontos-producer-adapter"
+  NPM_REGISTRY: https://registry.npmjs.org/
+  UA: "ontos-release (https://github.com/Bitspark/ontos)"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Every run, a rehearsal's too, waits here for the environment's reviewer before any step.
+    # A published version cannot be taken back, and the environment is also what the trusted
+    # publishers are scoped to.
+    environment: release
+    timeout-minutes: 90
+    steps:
+      - name: The inputs are well formed
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z, got '$VERSION'"; exit 1; }
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+          echo "GO_NESTED_TAG=projection/deixis/go/v$VERSION" >> "$GITHUB_ENV"
+          echo "WORK=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+          echo "$MODE of ontos v$VERSION"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.mode == 'rehearse' && inputs.ref || format('refs/tags/v{0}', inputs.version) }}
+          fetch-depth: 0
+
+      - name: The tag set names this commit, on main, with CI green
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          git fetch --quiet --force --tags origin
+          git fetch --quiet origin main
+          for t in "$TAG" "$GO_NESTED_TAG"; do
+            if sha=$(git rev-parse --verify --quiet "refs/tags/$t^{commit}"); then
+              [ "$sha" = "$head" ] || { echo "::error::$t is $sha, but the release commit is $head"; exit 1; }
+              echo "$t -> $head"
+            elif [ "$MODE" != rehearse ]; then
+              echo "::error::$MODE needs both tags; $t does not exist. Tag both on the release commit and push them together."
+              exit 1
+            else
+              echo "$t does not exist yet (a rehearsal does not need it)"
+            fi
+          done
+          if [ "$MODE" != rehearse ]; then
+            git merge-base --is-ancestor "$head" origin/main || { echo "::error::$head is not on main"; exit 1; }
+            # Every check run on the commit concluded well, apart from this workflow's own.
+            bad=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$head/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name != "release") | select(.status != "completed" or (.conclusion | IN("success","skipped","neutral") | not)) | "\(.name): \(.status) \(.conclusion)"')
+            [ -z "$bad" ] || { echo "::error::CI is not green on $head:"; echo "$bad"; exit 1; }
+            echo "CI is green on $head"
+          fi
+          echo "RELEASE_SHA=$head" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Rust, at the version the repository pins
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: npm new enough for trusted publishing
+        # OIDC publishing needs npm 11.5.1 or later; an older npm silently falls back to a token.
+        run: |
+          npm install -g npm@^11.5.1
+          echo "npm $(npm --version), node $(node --version)"
+
+      - name: Every package is classified, and every published member is at this version
+        run: |
+          set -euo pipefail
+          fail=0
+          listed() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
+          # npm: every package.json outside node_modules and the workspace root.
+          for f in $(git ls-files '*package.json' | grep -v '^package.json$'); do
+            d=$(dirname "$f")
+            if listed "$d" "$NPM_PUBLISHED"; then
+              node -e 'const p=require("./'"$f"'"); if (p.private) process.exit(1)' || { echo "::error::$d is published but private"; fail=1; }
+            elif listed "$d" "$NPM_WITHHELD"; then
+              echo "::error::$d is withheld until deixis is on npmjs, but it is in the tree"; fail=1
+            elif listed "$d" "$NPM_PRIVATE"; then
+              node -e 'const p=require("./'"$f"'"); if (!p.private) process.exit(1)' || { echo "::error::$d is private but not \"private\": true"; fail=1; }
+            else
+              echo "::error::$d is an npm package in no class (published, deferred, private)"; fail=1
+            fi
+          done
+          for d in $NPM_PUBLISHED; do
+            v=$(node -p "require('./$d/package.json').version")
+            [ "$v" = "$VERSION" ] || { echo "::error::$d is $v, the release is $VERSION"; fail=1; }
+            node -e 'const p=require("./'"$d"'/package.json"); if (p.publishConfig?.registry !== "https://registry.npmjs.org/") process.exit(1)' \
+              || { echo "::error::$d does not publish to npmjs"; fail=1; }
+          done
+          # Dependency order: a published package depends only on published packages before it.
+          seen=""
+          for d in $NPM_PUBLISHED; do
+            for dep in $(node -p "Object.keys(require('./$d/package.json').dependencies||{}).filter(k=>k.startsWith('@bitspark/')).join(' ')"); do
+              found=""
+              for e in $seen; do [ "$(node -p "require('./$e/package.json').name")" = "$dep" ] && found=1; done
+              [ -n "$found" ] || { echo "::error::$d depends on $dep, which is not published before it"; fail=1; }
+            done
+            seen="$seen $d"
+          done
+          # crates: every workspace member.
+          cargo metadata --no-deps --format-version 1 --locked > "$RUNNER_TEMP/meta.json"
+          while IFS=$'\t' read -r name version publish; do
+            if listed "$name" "$CRATES_PUBLISHED"; then
+              [ "$publish" = null ] || { echo "::error::$name is published but publish = false"; fail=1; }
+              [ "$version" = "$VERSION" ] || { echo "::error::$name is $version, the release is $VERSION"; fail=1; }
+            elif listed "$name" "$CRATES_DEFERRED"; then
+              [ "$publish" = "[]" ] || { echo "::error::$name is deferred but publishable"; fail=1; }
+              [ "$version" = "$VERSION" ] || { echo "::error::$name is $version, the release is $VERSION"; fail=1; }
+            elif listed "$name" "$CRATES_PRIVATE"; then
+              [ "$publish" = "[]" ] || { echo "::error::$name is private but publishable"; fail=1; }
+            else
+              echo "::error::$name is a crate in no class (published, deferred, private)"; fail=1
+            fi
+          done < <(node -e 'for (const p of require(process.argv[1]).packages) console.log([p.name, p.version, JSON.stringify(p.publish)].join("\t"))' "$RUNNER_TEMP/meta.json")
+          # Go: the nested module requires the root module at this same release.
+          grep -qE "^	github\.com/bitspark/ontos v${VERSION//./\\.}$" projection/deixis/go/go.mod \
+            || { echo "::error::projection/deixis/go/go.mod does not require github.com/bitspark/ontos v$VERSION"; fail=1; }
+          exit $fail
+
+      - name: The gate is the one every pull request passes
+        # Unit and vector tests in four languages, then the differential conformance harness
+        # over all four CLIs. A version that cannot pass it is not publishable in any language.
+        run: |
+          set -euo pipefail
+          bash scripts/check.sh test
+          bash scripts/check.sh conformance
+
+      - name: Build the candidate
+        # The bytes that will be published, built once. npm uploads these exact tarballs. Cargo
+        # repackages on upload, so the crates are compared with this candidate afterwards.
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK/npm" "$WORK/crates"
+          npm ci --no-audit --no-fund
+          npm run build --workspaces --if-present
+          for d in $NPM_PUBLISHED; do
+            cp LICENSE NOTICE "$d/"   # npm always packs these two; the package dirs have none
+            ( cd "$d" && npm pack --pack-destination "$WORK/npm" --json > "$WORK/npm/$(basename "$(dirname "$d")")-$(basename "$d").pack.json" )
+          done
+          args=(); for c in $CRATES_PUBLISHED; do args+=(-p "$c"); done
+          cargo package --locked --allow-dirty "${args[@]}"
+          cp "${CARGO_TARGET_DIR:-target}"/package/*.crate "$WORK/crates/"
+          node -e '
+            const fs = require("fs"), path = require("path"), crypto = require("crypto");
+            const w = process.env.WORK, out = { npm: [], crates: [] };
+            for (const f of fs.readdirSync(path.join(w, "npm")).filter((f) => f.endsWith(".pack.json"))) {
+              for (const p of [].concat(Object.values(JSON.parse(fs.readFileSync(path.join(w, "npm", f), "utf8"))))) {
+                const r = Array.isArray(p) ? p[0] : p;
+                out.npm.push({ name: r.name, version: r.version, filename: r.filename, integrity: r.integrity, shasum: r.shasum });
+              }
+            }
+            for (const name of process.env.CRATES_PUBLISHED.split(" ")) {
+              const file = `${name}-${process.env.VERSION}.crate`;
+              const sha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(w, "crates", file))).digest("hex");
+              out.crates.push({ name, version: process.env.VERSION, filename: file, sha256 });
+            }
+            fs.writeFileSync(path.join(w, "candidate.json"), JSON.stringify(out, null, 2) + "\n");
+            console.log(JSON.stringify(out, null, 2));
+          '
+
+      - name: Compare the candidate with what the registries already hold
+        # absent -> publish; identical -> reuse; different or unreadable -> stop.
+        run: |
+          set -euo pipefail
+          : > "$WORK/status.tsv"
+          same_content() {  # $1, $2: two package archives (.tgz or .crate); compares the files inside
+            local a b; a=$(mktemp -d); b=$(mktemp -d)
+            tar -xzf "$1" -C "$a"; tar -xzf "$2" -C "$b"
+            diff -r "$a" "$b" > /dev/null
+          }
+          for name in $(node -p 'require(process.env.WORK + "/candidate.json").npm.map(p => p.name).join(" ")'); do
+            want=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').integrity")
+            file=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').filename")
+            if got=$(npm view "$name@$VERSION" dist.integrity --registry "$NPM_REGISTRY" 2> "$WORK/err"); then
+              if [ "$got" = "$want" ]; then status=reuse
+              else
+                d=$(mktemp -d); ( cd "$d" && npm pack "$name@$VERSION" --registry "$NPM_REGISTRY" > /dev/null )
+                if same_content "$WORK/npm/$file" "$d"/*.tgz; then status=reuse
+                else echo "::error::$name@$VERSION is on npm with DIFFERENT content. A published version is never replaced; this needs a new version."; exit 1; fi
+              fi
+            elif grep -q E404 "$WORK/err"; then status=absent
+            else echo "::error::cannot tell whether $name@$VERSION is on npm:"; cat "$WORK/err"; exit 1; fi
+            printf 'npm\t%s\t%s\n' "$name" "$status" | tee -a "$WORK/status.tsv"
+          done
+          for name in $CRATES_PUBLISHED; do
+            want=$(node -p "require(process.env.WORK + '/candidate.json').crates.find(c => c.name === '$name').sha256")
+            code=$(curl -s -o "$WORK/crate.json" -w '%{http_code}' -A "$UA" "https://crates.io/api/v1/crates/$name/$VERSION")
+            case "$code" in
+              200)
+                got=$(node -p "require(process.env.WORK + '/crate.json').version.checksum")
+                if [ "$got" = "$want" ]; then status=reuse
+                else
+                  curl -sfL -A "$UA" -o "$WORK/published.crate" "https://static.crates.io/crates/$name/$name-$VERSION.crate"
+                  if same_content "$WORK/crates/$name-$VERSION.crate" "$WORK/published.crate"; then status=reuse
+                  else echo "::error::$name@$VERSION is on crates.io with DIFFERENT content. A published version is never replaced; this needs a new version."; exit 1; fi
+                fi ;;
+              404) status=absent ;;
+              *) echo "::error::cannot tell whether $name@$VERSION is on crates.io (HTTP $code)"; exit 1 ;;
+            esac
+            printf 'crate\t%s\t%s\n' "$name" "$status" | tee -a "$WORK/status.tsv"
+          done
+
+      - name: Rehearse every upload
+        if: inputs.mode == 'rehearse'
+        run: |
+          set -euo pipefail
+          while IFS=$'	' read -r eco name status; do
+            [ "$eco" = npm ] && [ "$status" = absent ] || continue
+            file=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').filename")
+            # --provenance=false: a rehearsal may run while the repository is still private (it is
+            # staged as such before the cutover), and provenance needs a PUBLIC repository.
+            npm publish "$WORK/npm/$file" --dry-run --access public --provenance=false --registry "$NPM_REGISTRY"
+          done < "$WORK/status.tsv"
+          args=(); while IFS=$'\t' read -r eco name status; do
+            [ "$eco" = crate ] && [ "$status" = absent ] && args+=(-p "$name")
+          done < "$WORK/status.tsv"
+          # One command, so cargo orders the chain and verifies each crate against its
+          # not-yet-published siblings.
+          if [ "${#args[@]}" -gt 0 ]; then cargo publish --dry-run --locked --allow-dirty "${args[@]}"; fi
+          echo "REHEARSAL: nothing was published. Re-dispatch with mode=publish once both tags exist."
+
+      - name: Check what provenance needs
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          vis=$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)
+          [ "$vis" = PUBLIC ] || { echo "::error::the repository is $vis; npm provenance needs a PUBLIC repository"; exit 1; }
+
+      - name: Publish to npm, in dependency order
+        if: inputs.mode == 'publish'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for d in $NPM_PUBLISHED; do
+            name=$(node -p "require('./$d/package.json').name")
+            status=$(awk -F'\t' -v n="$name" '$1=="npm" && $2==n {print $3}' "$WORK/status.tsv")
+            [ "$status" = absent ] || { echo "$name@$VERSION: $status"; continue; }
+            file=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').filename")
+            want=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').integrity")
+            npm publish "$WORK/npm/$file" --access public --provenance --registry "$NPM_REGISTRY"
+            # The read path lags the write; a dependant is published only once this is served.
+            for i in $(seq 1 30); do
+              got=$(npm view "$name@$VERSION" dist.integrity --registry "$NPM_REGISTRY" 2>/dev/null || true)
+              [ "$got" = "$want" ] && { echo "$name@$VERSION is served"; break; }
+              [ "$i" = 30 ] && { echo "::error::$name@$VERSION was accepted but is not served after 5 minutes. Re-dispatch with mode=publish: what is published is compared and reused."; exit 1; }
+              sleep 10
+            done
+          done
+
+      - name: Mint a crates.io token from this run's identity
+        id: cratesio-auth
+        if: inputs.mode == 'publish' && vars.CRATES_IO_TRUSTED_PUBLISHING == 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish to crates.io, in dependency order
+        if: inputs.mode == 'publish'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.cratesio-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(); while IFS=$'\t' read -r eco name status; do
+            [ "$eco" = crate ] && [ "$status" = absent ] && args+=(-p "$name")
+          done < "$WORK/status.tsv"
+          # One command: cargo publishes the chain in dependency order and waits for each crate
+          # to be on the index before uploading the next.
+          if [ "${#args[@]}" -gt 0 ]; then cargo publish --locked --allow-dirty "${args[@]}"; else echo "every crate is already published"; fi
+
+      - name: Verify from outside, as a stranger would
+        # Fresh consumers in an empty directory, with no .npmrc, no workspace, no replace and
+        # no inherited cache, resolving every published package from its public registry.
+        if: inputs.mode != 'rehearse'
+        run: |
+          set -euo pipefail
+          retry() { for i in $(seq 1 30); do "$@" && return 0; echo "not served yet ($i/30)"; sleep 10; done; return 1; }
+
+          echo "== npm"
+          n=$(mktemp -d); cd "$n"
+          export NPM_CONFIG_USERCONFIG="$(mktemp)" npm_config_cache="$(mktemp -d)"
+          printf '{"name":"consumer","private":true,"type":"module"}\n' > package.json
+          retry npm install --no-audit --no-fund --registry "$NPM_REGISTRY" \
+            "@bitspark/ontos-core@$VERSION" "@bitspark/ontos-codec@$VERSION" "@bitspark/ontos-data@$VERSION" "@bitspark/ontos-data-json@$VERSION"
+          cat > smoke.mjs <<'EOF'
+          import { atom, tuple, equals } from "@bitspark/ontos-core";
+          import { encode, decode } from "@bitspark/ontos-codec";
+          import { encodeInt, readInt } from "@bitspark/ontos-data";
+          import { project } from "@bitspark/ontos-data-json";
+          const v = tuple([atom(new Uint8Array([1, 2])), tuple([])]);
+          if (!equals(decode(encode(v)), v)) throw new Error("codec round trip failed");
+          if (readInt(encodeInt(-42n)) !== -42n) throw new Error("int round trip failed");
+          if (!equals(decode(encode(project('{"a":[1,true,null]}'))), project('{"a":[1,true,null]}'))) throw new Error("data-json failed");
+          console.log("npm: core, codec, data and data-json work from npmjs");
+          EOF
+          node smoke.mjs
+          npm audit signatures --registry "$NPM_REGISTRY"   # registry signatures and provenance
+          # What is served is what this commit builds: compared file by file, because cargo
+          # repackages on upload and an archive's bytes can differ while its content does not.
+          same_content() {
+            local a b; a=$(mktemp -d); b=$(mktemp -d)
+            tar -xzf "$1" -C "$a"; tar -xzf "$2" -C "$b"
+            diff -r "$a" "$b" > /dev/null
+          }
+          for name in $(node -p 'require(process.env.WORK + "/candidate.json").npm.map(p => p.name).join(" ")'); do
+            file=$(node -p "require(process.env.WORK + '/candidate.json').npm.find(p => p.name === '$name').filename")
+            d=$(mktemp -d); ( cd "$d" && npm pack "$name@$VERSION" --registry "$NPM_REGISTRY" > /dev/null )
+            same_content "$WORK/npm/$file" "$d"/*.tgz || { echo "::error::$name@$VERSION as served differs from what $RELEASE_SHA builds"; exit 1; }
+            echo "$name@$VERSION: served content matches the candidate"
+          done
+
+          echo "== crates.io"
+          r=$(mktemp -d); cd "$r"
+          export CARGO_HOME="$(mktemp -d)" CARGO_TARGET_DIR="$(mktemp -d)"
+          cargo new --quiet --vcs none consumer && cd consumer
+          cat >> Cargo.toml <<EOF
+          bitspark-ontos-core = "=$VERSION"
+          bitspark-ontos-codec = "=$VERSION"
+          bitspark-ontos-data = "=$VERSION"
+          bitspark-ontos-data-json = "=$VERSION"
+          EOF
+          cat > src/main.rs <<'EOF'
+          use ontos_core::Value;
+          fn main() {
+              let v = Value::tuple([Value::atom([1u8, 2]), Value::tuple(Vec::<Value>::new())]);
+              assert!(ontos_codec::decode(&ontos_codec::encode(&v)).unwrap() == v, "codec round trip");
+              assert_eq!(ontos_data::read_int(&ontos_data::encode_int(-42)).unwrap(), -42, "int round trip");
+              let p = ontos_data_json::project(br#"{"a":[1,true,null]}"#).unwrap();
+              assert!(ontos_codec::decode(&ontos_codec::encode(&p)).unwrap() == p, "data-json");
+              println!("crates.io: core, codec, data and data-json work");
+          }
+          EOF
+          retry cargo generate-lockfile
+          cargo run --quiet --locked
+          for name in $CRATES_PUBLISHED; do
+            curl -sfL -A "$UA" -o "$WORK/served.crate" "https://static.crates.io/crates/$name/$name-$VERSION.crate"
+            same_content "$WORK/crates/$name-$VERSION.crate" "$WORK/served.crate"               || { echo "::error::$name@$VERSION as served differs from what $RELEASE_SHA builds"; exit 1; }
+            echo "$name@$VERSION: served content matches the candidate"
+          done
+
+          echo "== Go"
+          g=$(mktemp -d); cd "$g"
+          export GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOPRIVATE= GONOSUMDB= GOFLAGS=-mod=mod GOMODCACHE="$(mktemp -d)"
+          go mod init consumer > /dev/null 2>&1
+          retry go get "github.com/bitspark/ontos@v$VERSION" "github.com/bitspark/ontos/projection/deixis/go@v$VERSION"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+          	"fmt"
+          	"math/big"
+
+          	core "github.com/bitspark/ontos/core/go"
+          	codec "github.com/bitspark/ontos/codec/go"
+          	data "github.com/bitspark/ontos/data/go"
+          	datajson "github.com/bitspark/ontos/data/json/go"
+          	projection "github.com/bitspark/ontos/projection/deixis/go"
+          )
+
+          func main() {
+          	v := core.NewTuple(core.NewAtom([]byte{1, 2}), core.NewTuple())
+          	back, err := codec.Decode(codec.Encode(v))
+          	if err != nil || !core.Equal(back, v) {
+          		panic("codec round trip")
+          	}
+          	n, err := data.ReadInt(data.EncodeInt(big.NewInt(-42)))
+          	if err != nil || n.Int64() != -42 {
+          		panic("int round trip")
+          	}
+          	if _, err := datajson.Project([]byte(`{"a":[1,true,null]}`)); err != nil {
+          		panic(err)
+          	}
+          	if r, err := projection.Recognize(projection.Project(v)); err != nil || !core.Equal(r, v) {
+          		panic("projection round trip")
+          	}
+          	fmt.Println("Go: core, codec, data, data/json and the deixis projection work from the proxy")
+          }
+          EOF
+          go mod tidy
+          go run .
+
+      - name: The receipt
+        if: always() && inputs.mode != 'rehearse'
+        run: |
+          set -euo pipefail
+          [ -f "$WORK/candidate.json" ] || { echo "no candidate; nothing to record"; exit 0; }
+          node -e '
+            const fs = require("fs"), w = process.env.WORK;
+            const cand = JSON.parse(fs.readFileSync(w + "/candidate.json", "utf8"));
+            const status = Object.fromEntries(fs.readFileSync(w + "/status.tsv", "utf8").trim().split("\n").map((l) => { const [e, n, s] = l.split("\t"); return [e + ":" + n, s]; }));
+            const receipt = {
+              project: "ontos", version: process.env.VERSION, mode: process.env.MODE,
+              tags: [process.env.TAG, process.env.GO_NESTED_TAG], source_sha: process.env.RELEASE_SHA,
+              workflow_sha: process.env.GITHUB_WORKFLOW_SHA, run: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              npm: cand.npm.map((p) => ({ ...p, registry: process.env.NPM_REGISTRY, before_run: status["npm:" + p.name] })),
+              crates: cand.crates.map((c) => ({ ...c, registry: "https://crates.io", before_run: status["crate:" + c.name] })),
+              go: [{ module: "github.com/bitspark/ontos", version: process.env.TAG }, { module: "github.com/bitspark/ontos/projection/deixis/go", version: process.env.TAG }],
+              deferred: { crates: process.env.CRATES_DEFERRED.split(" "), npm_withheld_from_tree: process.env.NPM_WITHHELD.split(" ") },
+              source_only: ["core/py", "codec/py", "data/py", "cli/py"],
+              verified_from_outside: process.env.VERIFIED === "true",
+            };
+            fs.writeFileSync(w + "/release-manifest.json", JSON.stringify(receipt, null, 2) + "\n");
+          '
+          ( cd "$WORK" && sha256sum npm/*.tgz crates/*.crate release-manifest.json > SHA256SUMS )
+          cat "$WORK/release-manifest.json"
+        env:
+          VERIFIED: ${{ job.status == 'success' }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ inputs.version }}-${{ inputs.mode }}
+          path: |
+            ${{ runner.temp }}/release/candidate.json
+            ${{ runner.temp }}/release/status.tsv
+            ${{ runner.temp }}/release/release-manifest.json
+            ${{ runner.temp }}/release/SHA256SUMS
+            ${{ runner.temp }}/release/npm/*.tgz
+            ${{ runner.temp }}/release/crates/*.crate
+          if-no-files-found: ignore
+
+      - name: The GitHub release
+        # Only after the outside verification passed. A re-run of verify refreshes the receipt.
+        if: inputs.mode != 'rehearse'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$WORK/release-manifest.json" "$WORK/SHA256SUMS" --clobber
+          else
+            notes="docs/releases/$TAG.md"
+            args=(--title "ontos $TAG" --verify-tag)
+            if [ -f "$notes" ]; then args+=(--notes-file "$notes"); else args+=(--generate-notes); fi
+            gh release create "$TAG" "${args[@]}" \
+              "$WORK"/npm/*.tgz "$WORK"/crates/*.crate "$WORK/release-manifest.json" "$WORK/SHA256SUMS"
+          fi

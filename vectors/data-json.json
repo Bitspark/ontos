@@ -1,0 +1,453 @@
+{
+  "profile": "ontos-data-json/1",
+  "codec": "ontos-codec-v1",
+  "schema": "ontos-data-json/1",
+  "note": "Cross-repo projection lock for the ontos-data-json/1 profile (docs/spec/ontos-data-json.md). These are DERIVATION vectors, not schema-validation: each valid case pins a domain-JSON document -> ontos-data-json/1 projection -> ontos/data value -> ontos-codec-v1 bytes -> SHA-256 (codecSha256, the 'inner' digest), and the domain-separated era-2 preimage Tuple(Atom(tag), value) -> ontos-codec-v1 -> SHA-256 (era2.digest). The pin is the PAIR (ontos-data-json/1, ontos-codec-v1): the projection profile and the codec version are independent coordinates (map/set entry order is codec-version-relative). Every expectation here is HARNESS-DERIVED by the differential oracle over the frozen tri-core data+codec libraries (not hand-authored, none provisional); the deep byte corpus (full projected value trees + full hex) lives in the sibling vectors/data-json.oracle.json, pinned by sha256 below so it is reachable and drift-evident without the 155KB blob crossing repos. Reproduction per case: project the doc -> value tree, then `ontos canon --emit --from-json - < tree.json | xxd -r -p | sha256sum` (inner); wrap Tuple(Atom(<tag>), value) and canon --emit that for the era-2 digest. VALID-case `doc` is a live JSON value (lossless: pure int/string/bool/object/array). REJECT-case `doc` is given as RAW JSON SOURCE text (`docSource`) so the exact number literal under test survives — a parsed JSON number cannot distinguish 1e3 from 1000.0. The same raw-source discipline has a hard limit this corpus cannot cross: this file is itself JSON and must remain well-formed UTF-8, so a document whose defect is raw invalid UTF-8 BYTES inside a string literal is unrepresentable here — only the escape form of a text-fidelity defect (an unpaired surrogate, `\\ud800`) can ride in a vector. The raw-byte form of the same defect (ontos-internal#216, same outcome class: the producer must reject rather than succeed with a different admissible datum) is pinned by unit tests in each face whose input type can construct it; its absence from this corpus is this constraint, not an oversight. ONE exception to the oracle-derivation provenance: the depth-floor boundary case (corpusKey depth-floor-512, ontos-internal#236) pins the resource-limit posture’s minimum-accept depth; its digests are tri-face-derived (each face’s suite recomputes and agrees) but it lives outside the sibling oracle blob, whose corpus predates the posture. Add-only revision discipline: a future ontos-data-json/2 may only assign a reading to a form /1 REJECTS (e.g. the reserved decimal arm exercised below); it never re-points an arm /1 accepts, so every digest here is drift-proof by construction.",
+  "corpus": {
+    "path": "vectors/data-json.oracle.json",
+    "sha256": "60639bdcec4607b20bd5402a2b5e54344f299202545308a8f2346a60629866a5",
+    "note": "deep corpus: per-document full projected value tree + inner codec-v1 hex + domain-separated preimage hex; produced by the same oracle run that derived the digests here."
+  },
+  "valid": [
+    {
+      "desc": "projects a mind.v0 class binding declaration (all nodes object/array/string/integer-literal/bool — no fraction/exponent/null, so projection is total) and domain-separates under the bind2 era-2 tag",
+      "value": {
+        "doc": {
+          "class": "mind.v0",
+          "bindingVersion": "1",
+          "stateRoot": "/state",
+          "documents": {
+            "identity": {
+              "path": "identity.json",
+              "schema": "identity.schema.json",
+              "phase": "incarnation-lifetime"
+            },
+            "incarnation": {
+              "path": "incarnation.json",
+              "schema": "incarnation.schema.json",
+              "phase": "incarnation-snapshot"
+            },
+            "peers": {
+              "path": "peers.json",
+              "schema": "peers.schema.json",
+              "phase": "turn"
+            }
+          },
+          "channels": {
+            "inbox": {
+              "dir": "inbox",
+              "processedDir": "inbox/seen",
+              "algorithm": "atomic-json-mailbox-v1",
+              "direction": "host-to-body"
+            },
+            "outbox": {
+              "dir": "outbox",
+              "processedDir": "outbox/sent",
+              "algorithm": "atomic-json-mailbox-v1",
+              "direction": "body-to-host"
+            },
+            "events": {
+              "dir": "events",
+              "processedDir": "events/emitted",
+              "algorithm": "atomic-json-mailbox-v1",
+              "direction": "body-to-host",
+              "drain": "any-exit",
+              "schema": "mind-event.schema.json",
+              "semantics": "self-observations (tool/brain/journal/obligations). Drained on ANY exit - a crashed turn's observations are still facts - unlike outbox, whose commit rides the exit block."
+            }
+          },
+          "scaffoldDirs": [
+            "journal",
+            "workspace"
+          ],
+          "envSlots": {
+            "STATE_DIR": {
+              "required": false,
+              "default": "/state",
+              "phase": "incarnation-lifetime",
+              "semantics": "membrane root override — injected by a host/certifier that relocates the membrane (tests, certification); a body must read it through the generated binding accessor only"
+            }
+          },
+          "secretSlots": {
+            "brainApiKey": {
+              "carrier": {
+                "kind": "env",
+                "name": "BRAIN_API_KEY"
+              },
+              "phase": "incarnation-snapshot",
+              "semantics": "the brain credential for the account bound at Create; value host-held, materialized late, never present in any declaration/record/plan; rotation requires recreation (snapshot phase)"
+            }
+          },
+          "exit": {
+            "clean": "sleep-commit-outbound",
+            "nonzero": "crash-withhold-outbound"
+          }
+        },
+        "expect": {
+          "codecSha256": "c115751e76698f6b283b78385ff9b39beb5eb68dd7aeaeda393e35a3a4adedd4",
+          "era2": {
+            "tag": "bind2",
+            "tagAtomBytesHex": "62696e6432",
+            "digest": "sha256:dcffb5ee05e623f5dfd3d5fe8369a1ed8da866d478e833a43593c22ecc16ed01"
+          }
+        },
+        "corpusKey": "bind2"
+      }
+    },
+    {
+      "desc": "projects a kind-declaration (soil-sample) with the top-level `description` field stripped per the decl-era preimage rule, then domain-separates under the decl2 era-2 tag; schema bounds minimum:0 / maximum:14 are INTEGER literals reading as int (not rejected)",
+      "value": {
+        "doc": {
+          "kind": "bitspark.dev/soil-sample",
+          "kindVersion": "1",
+          "representationClass": "blob",
+          "encoding": "utf-8",
+          "mediaType": "application/json",
+          "representationRules": {
+            "duplicateKeys": "reject",
+            "numbers": "i64-strict",
+            "unicodeNormalization": "none"
+          },
+          "schema": {
+            "language": "json-schema",
+            "dialect": "https://json-schema.org/draft/2020-12/schema",
+            "vocabularyProfile": "forge.json-schema-core/1",
+            "definition": {
+              "type": "object",
+              "required": [
+                "ph"
+              ],
+              "properties": {
+                "ph": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 14
+                }
+              }
+            }
+          },
+          "canonicalization": {
+            "profile": "canonical-json/1"
+          }
+        },
+        "preprocess": [
+          "strip-top-level-key:description"
+        ],
+        "expect": {
+          "codecSha256": "f43154d41f04ffbd7e237ad123f7d568b399469b6b6032556f6df77d9afacff2",
+          "era2": {
+            "tag": "decl2",
+            "tagAtomBytesHex": "6465636c32",
+            "digest": "sha256:461be8ca6c18003b85392d2cadf25f42cc4120d198ef7d990c1126d7dc5ecfb9"
+          }
+        },
+        "corpusKey": "decl2",
+        "note": "`doc` is the projection input (description already removed); the original declaration carried a top-level description string, stripped before projection per anvil's decl2 preimage rule."
+      }
+    },
+    {
+      "desc": "projects a protocol declaration (title/required/properties — all object/array/string, projection total) with NO preprocess strip, then domain-separates under the pdecl2 era-2 tag; twin-witnessed cross-repo byte-identical against the kernel ProtocolDeclarationDigest2",
+      "value": {
+        "doc": {
+          "title": "X",
+          "required": [
+            "a"
+          ],
+          "properties": {
+            "a": {
+              "type": "string"
+            }
+          }
+        },
+        "expect": {
+          "codecSha256": "9559b0be2751c2fb5b89a8e6e306c2b39a8260e6dc9a10f641ccf01dd30939c9",
+          "era2": {
+            "tag": "pdecl2",
+            "tagAtomBytesHex": "706465636c32",
+            "digest": "sha256:5807eadc3bb9ffe87144fc82c7bda1c2c78c86911f9cf0a99bb5396681d55a15"
+          }
+        },
+        "corpusKey": "pdecl2",
+        "note": "no preprocess: unlike decl2 (strip top-level `description`) / rel2 (strip top-level `release`), the pdecl2 family strips nothing, so the era-2 preimage covers the whole declaration. The map arms sort by encoded-key bytes (length-prefix first): title(5) < required(8) < properties(10), not lexicographic."
+      }
+    },
+    {
+      "desc": "projects a release descriptor (body-envelope.v2 — bindingDigest/class/classDeclaration/declarationDigest/descriptorVersion/image/imageArtifactId, all object/string, projection total) with the top-level `release` field stripped per the rel-era preimage rule, then domain-separates under the rel2 era-2 tag; twin-witnessed cross-repo byte-identical against the kernel ReleaseRootDigest2",
+      "value": {
+        "doc": {
+          "bindingDigest": "bind1:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "class": "mind.v0",
+          "classDeclaration": {
+            "brainProtocol": "openai-chat"
+          },
+          "declarationDigest": "pdecl1:sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "descriptorVersion": "body-envelope.v2",
+          "image": {
+            "rootDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+            "rootMediaType": "application/vnd.oci.image.config.v1+json"
+          },
+          "imageArtifactId": "art:sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "preprocess": [
+          "strip-top-level-key:release"
+        ],
+        "expect": {
+          "codecSha256": "5a140688080a90466d3eca8d014026ccc52cab81fa01fa4ccd5461d9ca9a2a78",
+          "era2": {
+            "tag": "rel2",
+            "tagAtomBytesHex": "72656c32",
+            "digest": "sha256:4ef89b71e61ce6cd4ab855b3a58697d4f746d48315daca2c67430889f63dcf50"
+          }
+        },
+        "corpusKey": "rel2",
+        "note": "`doc` is the projection input (release already removed); the original descriptor carried a top-level `release` object, stripped before projection per anvil's rel2 preimage rule — the same strip discipline as decl2's `description`. The map arms sort by encoded-key bytes (length-prefix first), so class(5) < image(5, tie broken by content) precedes the longer keys; the era-2 preimage covers the stripped descriptor under the rel2 tag."
+      }
+    },
+    {
+      "desc": "projects a kind-vector suite descriptor (forge.kind-vectors/1 — cases/description/forDeclaration/harnessContract, all string, projection total), DESCRIPTION-INCLUSIVE (the vec2 family strips nothing), then domain-separates under the vec2 era-2 tag; twin-witnessed cross-repo byte-identical against the kernel VectorSuiteDigest2",
+      "value": {
+        "doc": {
+          "forDeclaration": "decl1:sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "harnessContract": "forge.kind-vectors/1",
+          "cases": "tree:sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "description": "exercise the greeting kind"
+        },
+        "expect": {
+          "codecSha256": "169c9ab73e288502c2680f96d6378e4d6502426f0e2912201be3c041b1b51a37",
+          "era2": {
+            "tag": "vec2",
+            "tagAtomBytesHex": "76656332",
+            "digest": "sha256:8a1f8c056341ffc5e9b522bee9b02e5784585ea3c2920a54ea46e1fb116b7e09"
+          }
+        },
+        "corpusKey": "vec2",
+        "note": "no preprocess: unlike decl2 (strip top-level `description`) / rel2 (strip top-level `release`), the vec2 family strips nothing — it is DESCRIPTION-INCLUSIVE, so the era-2 preimage covers the whole suite descriptor including `description`. The map arms sort by encoded-key bytes (length-prefix first): cases(5) < description(11) < forDeclaration(14) < harnessContract(15), not lexicographic."
+      }
+    },
+    {
+      "desc": "projects a build manifest (manifestVersion/sourceRoot/entries, where entries is a list of {path,digest} objects, all string, projection total), then domain-separates under the manif2 era-2 tag; the manif2 family strips nothing; twin-witnessed cross-repo byte-identical against the kernel ManifestDigest2",
+      "value": {
+        "doc": {
+          "manifestVersion": "1",
+          "sourceRoot": "tree:sha256:7777777777777777777777777777777777777777777777777777777777777777",
+          "entries": [
+            {
+              "path": "main.go",
+              "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+            }
+          ]
+        },
+        "expect": {
+          "codecSha256": "4fa5c7e2e4942dfe28768234779ec9152799f919c6c18e947a7b50e2214fc644",
+          "era2": {
+            "tag": "manif2",
+            "tagAtomBytesHex": "6d616e696632",
+            "digest": "sha256:b40f387957bcad9a479b67971dcd413fdd2e19adf6ac534655094fdf286eca44"
+          }
+        },
+        "corpusKey": "manif2",
+        "note": "no preprocess: the manif2 family strips nothing, so the era-2 preimage covers the whole manifest. manifestVersion is the STRING \"1\" (utf8-text), not an int — the int arm is never taken here. Top map keys sort by encoded-key bytes (length-prefix first): entries(7) < sourceRoot(10) < manifestVersion(15); each entry's keys: path(4) < digest(6)."
+      }
+    },
+    {
+      "desc": "the resource-limit posture's MINIMUM-ACCEPT depth (spec floor 512, ontos-internal#236): a 512-deep array MUST be accepted by every conformant face. Faces bound nesting (Go 10000, TS 1024, Rust 512 — per-face, stated, never pinned here); rejection above a face's ceiling is the LIMIT class, distinct from domain rejection, so this corpus pins only the floor's ACCEPT side. The era-2 tag probe1 is synthetic — it pins the wrap arithmetic, not a registered domain tag",
+      "value": {
+        "doc": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],
+        "corpusKey": "depth-floor-512",
+        "expect": {
+          "codecSha256": "7f41104b7090b26c4d98b5340b009c498e3e271806dd01b724a7891cbd100738",
+          "era2": {
+            "tag": "probe1",
+            "tagAtomBytesHex": "70726f626531",
+            "digest": "sha256:421a13d2893b8984fba6c357eb46190401899da8d5b2e7a62e565ce30a9afcd5"
+          }
+        }
+      }
+    }
+  ],
+  "reject": [
+    {
+      "desc": "a fraction number literal is REJECTED path-named (reserved decimal arm ungraduated under /1) — never coerced to a float or decimal",
+      "value": {
+        "docSource": "{\"sensor\": \"ph-probe\", \"numbers\": {\"threshold\": 3.14}}",
+        "expect": {
+          "reject": {
+            "path": "$.numbers.threshold",
+            "reason": "non-integer number literal \"3.14\" — fraction/exponent rejected under ontos-data-json/1 (reserved decimal arm ungraduated)"
+          }
+        }
+      }
+    },
+    {
+      "desc": "an exponent number literal is REJECTED path-named (same reserved-decimal-arm rule) — the raw `1e3` lexical form is preserved via docSource so the literal, not its normalized value, is what is tested",
+      "value": {
+        "docSource": "{\"sensor\": \"ph-probe\", \"numbers\": {\"scale\": 1e3}}",
+        "expect": {
+          "reject": {
+            "path": "$.numbers.scale",
+            "reason": "non-integer number literal \"1e3\" — fraction/exponent rejected under ontos-data-json/1 (reserved decimal arm ungraduated)"
+          }
+        }
+      }
+    },
+    {
+      "desc": "a string containing an unpaired surrogate is REJECTED path-named — it has NO UTF-8 encoding, and a decoder that substitutes U+FFFD SUCCEEDS WITH A DIFFERENT ADMISSIBLE DATUM (ontos-data.md §4.1 law 2, the fidelity law), the one outcome an identity-digest projection must never produce. This corner being unlocked is exactly how the Go and TS faces drifted silently (ontos-internal#216: Go's encoding/json coerced and succeeded; TS rejected). docSource carries the escape form (\\ud800) because this file must itself remain valid UTF-8; the paired escape \\ud83d\\ude00 before it MUST combine to one code point (U+1F600, 2 UTF-16 units), pinning both the pairing rule and the UTF-16 unit count in the reported index (soil- is 5 units, the emoji 2, the hyphen 1 → index 8). The raw-invalid-byte form of the same defect is unrepresentable in a JSON-hosted vector and is covered by unit tests in the Go face",
+      "value": {
+        "docSource": "{\"sensor\": \"ph-probe\", \"note\": \"soil-\\ud83d\\ude00-\\ud800\"}",
+        "expect": {
+          "reject": {
+            "path": "$.note",
+            "reason": "unpaired surrogate 0xd800 at UTF-16 index 8 — the string has no UTF-8 encoding, rejected under ontos-data-json/1 (U+FFFD coercion violates the ontos-data.md §4.1 fidelity law)"
+          }
+        }
+      }
+    }
+  ],
+  "duplicateKeys": {
+    "note": "ontos-internal#322 — the SOURCE-ADMISSION axis over the same /1 mapping. The profile projects a repeated object member last-wins (docs/spec/ontos-data-json.md §The projection, *Duplicate object keys*), and a face MAY offer an opt-in `duplicateKeys: reject` mode that refuses the document instead of collapsing it. These cases pin that mode's OUTCOME CLASS and LOCATION, never a reason string: for each `reject` case the strict mode refuses at `path` (the repeated member — the FIRST repeat in source order, in the same `$.key` / `$[i]` spelling as the reject cases above) naming `key` (the member name AS DECODED: an escaped and a literal spelling of one name collide; two names that differ in bytes do not, even when canonically equivalent — no normalization, ontos-data §5.2), while the DEFAULT mode accepts the same document and projects it to the SAME ontos-codec-v1 bytes as `lastWinsEquivalent` — the document with the repeated members already collapsed, hand-written — which the strict mode in turn accepts to those same bytes. `accept` cases are duplicate-free under the exact-content rule and must project byte-identically in both modes. No digests here, deliberately: each claim is an equivalence between two documents under ONE face, which needs no oracle and cannot drift with one. Every `valid` and `reject` case above also holds UNCHANGED under the strict mode — the number-literal, text-fidelity, trailing-data and depth-limit outcome classes are not touched by the policy — and each face's suite replays them through it. Hand-authored from the spec.",
+    "reject": [
+      {
+        "desc": "a repeated member at the root is refused at that member; the default mode keeps the LAST value",
+        "value": {
+          "docSource": "{\"operation_id\": \"a\", \"operation_id\": \"b\"}",
+          "expect": {
+            "reject": {
+              "path": "$.operation_id",
+              "key": "operation_id"
+            },
+            "lastWinsEquivalent": "{\"operation_id\": \"b\"}"
+          }
+        }
+      },
+      {
+        "desc": "an escaped spelling of a name collides with its literal spelling — the rule is exact DECODED content, so \\u0061 IS a",
+        "value": {
+          "docSource": "{\"a\": 1, \"\\u0061\": 2}",
+          "expect": {
+            "reject": {
+              "path": "$.a",
+              "key": "a"
+            },
+            "lastWinsEquivalent": "{\"a\": 2}"
+          }
+        }
+      },
+      {
+        "desc": "a repeat inside a nested object is refused at the nested member path, even when both values are EQUAL — the defect is the repetition, not a conflict",
+        "value": {
+          "docSource": "{\"outer\": {\"x\": 1, \"y\": {\"k\": true, \"k\": true}}}",
+          "expect": {
+            "reject": {
+              "path": "$.outer.y.k",
+              "key": "k"
+            },
+            "lastWinsEquivalent": "{\"outer\": {\"x\": 1, \"y\": {\"k\": true}}}"
+          }
+        }
+      },
+      {
+        "desc": "a repeat inside an object that sits in an array is refused at the indexed path",
+        "value": {
+          "docSource": "{\"items\": [{\"id\": 1}, {\"id\": 2, \"id\": 3}]}",
+          "expect": {
+            "reject": {
+              "path": "$.items[1].id",
+              "key": "id"
+            },
+            "lastWinsEquivalent": "{\"items\": [{\"id\": 1}, {\"id\": 3}]}"
+          }
+        }
+      },
+      {
+        "desc": "a supplementary-plane name spelled as a surrogate-pair escape collides with its literal spelling — the pair combines to ONE code point before comparison",
+        "value": {
+          "docSource": "{\"😀\": 1, \"\\ud83d\\ude00\": 2}",
+          "expect": {
+            "reject": {
+              "path": "$.😀",
+              "key": "😀"
+            },
+            "lastWinsEquivalent": "{\"😀\": 2}"
+          }
+        }
+      },
+      {
+        "desc": "three occurrences refuse at the FIRST repeat (the second occurrence); the default mode keeps the third",
+        "value": {
+          "docSource": "{\"k\": 1, \"k\": 2, \"k\": 3}",
+          "expect": {
+            "reject": {
+              "path": "$.k",
+              "key": "k"
+            },
+            "lastWinsEquivalent": "{\"k\": 3}"
+          }
+        }
+      },
+      {
+        "desc": "the same name in a CHILD object between the two occurrences is a different object's member and does not reset the count — the root repeat is still refused",
+        "value": {
+          "docSource": "{\"id\": 1, \"child\": {\"id\": 2}, \"id\": 3}",
+          "expect": {
+            "reject": {
+              "path": "$.id",
+              "key": "id"
+            },
+            "lastWinsEquivalent": "{\"child\": {\"id\": 2}, \"id\": 3}"
+          }
+        }
+      },
+      {
+        "desc": "the empty name is a name like any other: repeating it is refused, and the path is `$.` with an empty last segment",
+        "value": {
+          "docSource": "{\"\": 1, \"\": 2}",
+          "expect": {
+            "reject": {
+              "path": "$.",
+              "key": ""
+            },
+            "lastWinsEquivalent": "{\"\": 2}"
+          }
+        }
+      }
+    ],
+    "accept": [
+      {
+        "desc": "the same name in two DIFFERENT objects is not a repeat",
+        "value": {
+          "docSource": "{\"a\": {\"id\": 1}, \"b\": {\"id\": 2}}"
+        }
+      },
+      {
+        "desc": "canonically equivalent but byte-distinct names stay distinct — U+00E9 vs e + U+0301; the projection never normalizes (ontos-data §5.2), so strict mode must not either",
+        "value": {
+          "docSource": "{\"é\": 1, \"e\\u0301\": 2}"
+        }
+      },
+      {
+        "desc": "names differing only in case are distinct",
+        "value": {
+          "docSource": "{\"Key\": 1, \"key\": 2}"
+        }
+      },
+      {
+        "desc": "a name reused by a nested child is not a repeat of the parent's member",
+        "value": {
+          "docSource": "{\"id\": 1, \"child\": {\"id\": 2}}"
+        }
+      },
+      {
+        "desc": "identical sibling objects in an array each carry their own member set",
+        "value": {
+          "docSource": "[{\"a\": 1}, {\"a\": 1}]"
+        }
+      },
+      {
+        "desc": "an empty object and an empty document-level array have nothing to repeat",
+        "value": {
+          "docSource": "{\"o\": {}, \"l\": []}"
+        }
+      }
+    ]
+  }
+}

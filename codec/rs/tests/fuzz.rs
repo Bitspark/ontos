@@ -22,7 +22,9 @@
 //! deeper, mutation-driven exploration; it is intentionally *not* added here so the
 //! cargo workspace and stable CI stay clean and nightly-free.
 
-use ontos_codec::{decode, encode};
+use ontos_codec::{
+    decode, decode_with_limits, encode, DecodeLimits, EventDecodeError, EventDecoder,
+};
 use ontos_core::Value;
 
 // ----- hand-rolled deterministic PRNG (64-bit LCG) -----
@@ -110,6 +112,42 @@ fn random_value(rng: &mut Lcg, depth: u32) -> Value {
 }
 
 // ----- the tests -----
+
+/// Chunk boundaries, including empty chunks, cannot change the result or exact
+/// error fields of an exact-length input. Keep a separate seed so the existing
+/// buffer decoder corpus is unchanged.
+#[test]
+fn progressive_random_chunkings_match_buffer_results() {
+    let mut rng = Lcg::new(0xE7E0_5CA1_5EED_1234);
+    for iteration in 0..5_000 {
+        let bytes = if iteration % 2 == 0 {
+            random_bytes(&mut rng, 64)
+        } else {
+            small_alphabet_bytes(&mut rng, 64)
+        };
+        let limits = DecodeLimits {
+            max_depth: rng.below(5) as usize,
+            max_atom_bytes: rng.below(17) as usize,
+            max_tuple_arity: rng.below(9) as usize,
+        };
+        let expected = decode_with_limits(&bytes, limits)
+            .map(|_| ())
+            .map_err(EventDecodeError::Codec);
+        let mut decoder = Ok(EventDecoder::new(bytes.len(), limits));
+        let mut cursor = 0;
+        while cursor < bytes.len() {
+            decoder = decoder.and_then(|state| state.push(&[], &mut |_| {}));
+            let end = bytes.len().min(cursor + 1 + rng.below(9) as usize);
+            decoder = decoder.and_then(|state| state.push(&bytes[cursor..end], &mut |_| {}));
+            cursor = end;
+        }
+        assert_eq!(
+            decoder.and_then(EventDecoder::finish),
+            expected,
+            "case {iteration}, bytes={bytes:?}, limits={limits:?}"
+        );
+    }
+}
 
 /// **P1 + P2.** Throw ~50k arbitrary byte buffers (length `0..=64`) at the
 /// decoder. It must never panic — only `Ok`/`Err`. And because the codec accepts

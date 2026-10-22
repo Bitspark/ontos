@@ -384,6 +384,12 @@
       "what-is-published",
       "what-holds"
     ],
+    "docs/releases/v0.15.0.md": [
+      "ontos-v0150",
+      "rust-consume-a-tuple-without-cloning-its-children",
+      "typescript-encode-the-canonical-tuple-header",
+      "upgrade-together"
+    ],
     "docs/spec/ontos-cli.md": [
       "ontos-cli--the-ontos-cli-contract",
       "tri-core-no-favored-language",

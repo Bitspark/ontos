@@ -16,12 +16,12 @@
     "dist/src"
   ],
   "dependencies": {
-    "@bitspark/ontos-core": "^0.15.0",
     "@bitspark/ontos-codec": "^0.15.0",
+    "@bitspark/ontos-core": "^0.15.0",
     "@bitspark/ontos-data": "^0.15.0"
   },
   "devDependencies": {
-    "@types/node": "^26"
+    "@types/node": "^26.6.5"
   },
   "scripts": {
     "prebuild": "node ../../scripts/check-workspace-links.mjs",

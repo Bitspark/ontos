@@ -39,10 +39,19 @@ impl fmt::Display for EventDecodeError {
         match self {
             Self::Codec(error) => error.fmt(f),
             Self::InputUnderfill { expected, received } => {
-                write!(f, "input transfer expected {expected} bytes, received {received}")
+                write!(
+                    f,
+                    "input transfer expected {expected} bytes, received {received}"
+                )
             }
-            Self::InputOverrun { remaining, supplied } => {
-                write!(f, "input transfer has {remaining} bytes remaining, supplied {supplied}")
+            Self::InputOverrun {
+                remaining,
+                supplied,
+            } => {
+                write!(
+                    f,
+                    "input transfer has {remaining} bytes remaining, supplied {supplied}"
+                )
             }
         }
     }
@@ -115,7 +124,7 @@ enum State {
 /// use ontos_codec::{DecodeEvent, DecodeLimits, EventDecoder};
 /// # fn main() -> Result<(), ontos_codec::EventDecodeError> {
 /// let mut payload_bytes = 0;
-/// let mut sink = |event| {
+/// let mut sink = |event: DecodeEvent<'_>| {
 ///     if let DecodeEvent::AtomChunk(bytes) = event {
 ///         payload_bytes += bytes.len();
 ///     }
@@ -197,7 +206,8 @@ impl EventDecoder {
                             limit: "decode depth",
                             value: depth as u64,
                             max: self.limits.max_depth as u64,
-                        }.into());
+                        }
+                        .into());
                     }
                     let Some(&tag) = chunk.get(cursor) else {
                         return self.need_more();
@@ -229,7 +239,10 @@ impl EventDecoder {
                     // Read the eleventh byte before reporting overflow. Ten
                     // continuation bytes followed by EOF still report EOF.
                     if length.shift >= 64 || (length.shift == 63 && low > 1) {
-                        return Err(DecodeError::UvarintOverflow { offset: length.offset }.into());
+                        return Err(DecodeError::UvarintOverflow {
+                            offset: length.offset,
+                        }
+                        .into());
                     }
                     length.bytes[length.count] = byte;
                     length.count += 1;
@@ -242,15 +255,19 @@ impl EventDecoder {
                     let mut canonical = Vec::new();
                     encode_uvarint(length.value, &mut canonical);
                     if canonical.as_slice() != &length.bytes[..length.count] {
-                        return Err(DecodeError::NonCanonicalUvarint { offset: length.offset }.into());
+                        return Err(DecodeError::NonCanonicalUvarint {
+                            offset: length.offset,
+                        }
+                        .into());
                     }
                     // Native narrowing precedes the configured bound, exactly
                     // as in the original buffer reader.
-                    let value = usize::try_from(length.value).map_err(|_| DecodeError::LimitExceeded {
-                        limit: length.field.label(),
-                        value: length.value,
-                        max: usize::MAX as u64,
-                    })?;
+                    let value =
+                        usize::try_from(length.value).map_err(|_| DecodeError::LimitExceeded {
+                            limit: length.field.label(),
+                            value: length.value,
+                            max: usize::MAX as u64,
+                        })?;
                     let max = match length.field {
                         Field::Atom => self.limits.max_atom_bytes,
                         Field::Tuple => self.limits.max_tuple_arity,
@@ -260,7 +277,8 @@ impl EventDecoder {
                             limit: length.field.label(),
                             value: value as u64,
                             max: max as u64,
-                        }.into());
+                        }
+                        .into());
                     }
                     let remaining = self.logical_len - self.position;
                     match length.field {
@@ -302,11 +320,16 @@ impl EventDecoder {
                     emit(DecodeEvent::AtomChunk(&available[..count]));
                     self.position += count;
                     cursor += count;
-                    self.state = State::Atom { remaining: remaining - count };
+                    self.state = State::Atom {
+                        remaining: remaining - count,
+                    };
                 }
                 State::Complete => {
                     if self.position != self.logical_len {
-                        return Err(DecodeError::TrailingBytes { offset: self.position }.into());
+                        return Err(DecodeError::TrailingBytes {
+                            offset: self.position,
+                        }
+                        .into());
                     }
                     return Ok(self);
                 }

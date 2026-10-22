@@ -4,8 +4,8 @@
 //! `ontos-core` and `ontos-codec` stay dependency-free.
 
 use ontos_codec::{
-    decode, decode_with_limits, encode, encode_uvarint, DecodeError, DecodeLimitKind, DecodeLimits,
-    DecodeEvent, EventDecodeError, EventDecoder,
+    decode, decode_with_limits, encode, encode_uvarint, DecodeError, DecodeEvent, DecodeLimitKind,
+    DecodeLimits, EventDecodeError, EventDecoder,
 };
 use ontos_core::Value;
 
@@ -299,10 +299,12 @@ fn progressive_codec_vectors_at_every_split() {
         for case in doc.get(section).unwrap().arr() {
             let name = case.get("name").unwrap().str();
             let bytes = hex_to_bytes(case.get("hex").unwrap().str());
-            let expected = decode(&bytes).map(|value| encode(&value)).map_err(EventDecodeError::Codec);
+            let expected = decode(&bytes)
+                .map(|value| encode(&value))
+                .map_err(EventDecodeError::Codec);
             for split in 0..=bytes.len() {
                 let mut output = Vec::new();
-                let mut sink = |event| match event {
+                let mut sink = |event: DecodeEvent<'_>| match event {
                     DecodeEvent::AtomStart { length } => {
                         output.push(0);
                         encode_uvarint(length as u64, &mut output);
@@ -323,9 +325,14 @@ fn progressive_codec_vectors_at_every_split() {
             }
             let mut decoder = Ok(EventDecoder::new(bytes.len(), DecodeLimits::default()));
             for byte in &bytes {
-                decoder = decoder.and_then(|decoder| decoder.push(std::slice::from_ref(byte), &mut |_| {}));
+                decoder = decoder
+                    .and_then(|decoder| decoder.push(std::slice::from_ref(byte), &mut |_| {}));
             }
-            assert_eq!(decoder.and_then(EventDecoder::finish), expected.map(|_| ()), "{name}, bytewise");
+            assert_eq!(
+                decoder.and_then(EventDecoder::finish),
+                expected.map(|_| ()),
+                "{name}, bytewise"
+            );
         }
     }
 }

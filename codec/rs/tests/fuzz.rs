@@ -22,7 +22,9 @@
 //! deeper, mutation-driven exploration; it is intentionally *not* added here so the
 //! cargo workspace and stable CI stay clean and nightly-free.
 
-use ontos_codec::{decode, decode_with_limits, encode, DecodeLimits, EventDecodeError, EventDecoder};
+use ontos_codec::{
+    decode, decode_with_limits, encode, DecodeLimits, EventDecodeError, EventDecoder,
+};
 use ontos_core::Value;
 
 // ----- hand-rolled deterministic PRNG (64-bit LCG) -----
@@ -139,8 +141,11 @@ fn progressive_random_chunkings_match_buffer_results() {
             decoder = decoder.and_then(|state| state.push(&bytes[cursor..end], &mut |_| {}));
             cursor = end;
         }
-        assert_eq!(decoder.and_then(EventDecoder::finish), expected,
-            "case {iteration}, bytes={bytes:?}, limits={limits:?}");
+        assert_eq!(
+            decoder.and_then(EventDecoder::finish),
+            expected,
+            "case {iteration}, bytes={bytes:?}, limits={limits:?}"
+        );
     }
 }
 

@@ -5,6 +5,7 @@
 
 use ontos_codec::{
     decode, decode_with_limits, encode, encode_uvarint, DecodeError, DecodeLimitKind, DecodeLimits,
+    DecodeEvent, EventDecodeError, EventDecoder,
 };
 use ontos_core::Value;
 
@@ -284,6 +285,47 @@ fn codec_reject_vectors() {
         match decode(&bytes) {
             Ok(v) => panic!("reject case {name:?} unexpectedly decoded to {v}"),
             Err(e) => assert_eq!(e.code(), want_code, "reject case {name:?}"),
+        }
+    }
+}
+
+/// The additive event interface replays the unchanged frozen oracle, including
+/// every single split point and byte-at-a-time delivery. Re-encoding event headers
+/// and borrowed payloads checks order without depending on a materializing sink.
+#[test]
+fn progressive_codec_vectors_at_every_split() {
+    let doc = read_vectors("codec.json");
+    for section in ["encode", "reject"] {
+        for case in doc.get(section).unwrap().arr() {
+            let name = case.get("name").unwrap().str();
+            let bytes = hex_to_bytes(case.get("hex").unwrap().str());
+            let expected = decode(&bytes).map(|value| encode(&value)).map_err(EventDecodeError::Codec);
+            for split in 0..=bytes.len() {
+                let mut output = Vec::new();
+                let mut sink = |event| match event {
+                    DecodeEvent::AtomStart { length } => {
+                        output.push(0);
+                        encode_uvarint(length as u64, &mut output);
+                    }
+                    DecodeEvent::TupleStart { arity } => {
+                        output.push(1);
+                        encode_uvarint(arity as u64, &mut output);
+                    }
+                    DecodeEvent::AtomChunk(chunk) => output.extend_from_slice(chunk),
+                    DecodeEvent::AtomEnd | DecodeEvent::TupleEnd => {}
+                };
+                let result = EventDecoder::new(bytes.len(), DecodeLimits::default())
+                    .push(&bytes[..split], &mut sink)
+                    .and_then(|decoder| decoder.push(&bytes[split..], &mut sink))
+                    .and_then(EventDecoder::finish)
+                    .map(|()| output);
+                assert_eq!(result, expected, "{name}, split {split}");
+            }
+            let mut decoder = Ok(EventDecoder::new(bytes.len(), DecodeLimits::default()));
+            for byte in &bytes {
+                decoder = decoder.and_then(|decoder| decoder.push(std::slice::from_ref(byte), &mut |_| {}));
+            }
+            assert_eq!(decoder.and_then(EventDecoder::finish), expected.map(|_| ()), "{name}, bytewise");
         }
     }
 }

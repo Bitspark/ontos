@@ -21,6 +21,10 @@
 use core::fmt;
 use ontos_core::{Atom, Tuple, Value};
 
+mod progressive;
+
+pub use progressive::{DecodeEvent, EventDecodeError, EventDecoder};
+
 const TAG_ATOM: u8 = 0x00;
 const TAG_TUPLE: u8 = 0x01;
 const DEFAULT_MAX_DEPTH: usize = 1024;
@@ -164,16 +168,60 @@ pub fn decode(input: &[u8]) -> Result<Value, DecodeError> {
 
 /// Decode one value with explicit limits; rejects trailing bytes.
 pub fn decode_with_limits(input: &[u8], limits: DecodeLimits) -> Result<Value, DecodeError> {
-    let mut reader = Reader {
-        input,
-        pos: 0,
-        limits,
-    };
-    let value = reader.read_value(0)?;
-    if reader.pos != input.len() {
-        return Err(DecodeError::TrailingBytes { offset: reader.pos });
+    let mut builder = ValueBuilder::default();
+    let decoder = EventDecoder::new(input.len(), limits)
+        .push(input, &mut |event| builder.event(event))
+        .map_err(buffer_decode_error)?;
+    decoder.finish().map_err(buffer_decode_error)?;
+    Ok(builder.value.expect("a complete decode has one root value"))
+}
+
+fn buffer_decode_error(error: EventDecodeError) -> DecodeError {
+    match error {
+        EventDecodeError::Codec(error) => error,
+        EventDecodeError::InputUnderfill { .. } | EventDecodeError::InputOverrun { .. } => {
+            unreachable!("the buffer decoder supplies exactly its declared input length")
+        }
     }
-    Ok(value)
+}
+
+/// Materialization is a sink over the same scanner used by the progressive API.
+/// Neither the byte grammar nor its checks are duplicated here.
+#[derive(Default)]
+struct ValueBuilder {
+    tuples: Vec<Vec<Value>>,
+    atom: Option<Vec<u8>>,
+    value: Option<Value>,
+}
+
+impl ValueBuilder {
+    fn event(&mut self, event: DecodeEvent<'_>) {
+        match event {
+            DecodeEvent::TupleStart { arity } => self.tuples.push(Vec::with_capacity(arity)),
+            DecodeEvent::TupleEnd => {
+                let items = self.tuples.pop().expect("tuple end follows tuple start");
+                self.complete(Value::Tuple(Tuple::new(items)));
+            }
+            DecodeEvent::AtomStart { length } => self.atom = Some(Vec::with_capacity(length)),
+            DecodeEvent::AtomChunk(bytes) => self
+                .atom
+                .as_mut()
+                .expect("atom chunks follow atom start")
+                .extend_from_slice(bytes),
+            DecodeEvent::AtomEnd => {
+                let bytes = self.atom.take().expect("atom end follows atom start");
+                self.complete(Value::Atom(Atom::new(bytes)));
+            }
+        }
+    }
+
+    fn complete(&mut self, value: Value) {
+        if let Some(items) = self.tuples.last_mut() {
+            items.push(value);
+        } else {
+            self.value = Some(value);
+        }
+    }
 }
 
 /// Encode an unsigned integer (`[0, 2^64 - 1]`) as shortest-form LEB128.
@@ -212,168 +260,6 @@ fn encode_into(value: &Value, out: &mut Vec<u8>) {
                 pending.extend(tuple.items().iter().rev());
             }
         }
-    }
-}
-
-struct Reader<'a> {
-    input: &'a [u8],
-    pos: usize,
-    limits: DecodeLimits,
-}
-
-impl Reader<'_> {
-    /// Reads one value rooted at `depth`, with an explicit stack of the tuples still being
-    /// filled rather than one native frame per level. A recursive reader spends a stack frame
-    /// per nesting level, and on wasm32 (a 1 MiB stack) that trapped before the harmonized
-    /// default depth of 1024 (ontos-codec.md §4.1 invariant 1). Each value's header is read
-    /// and checked in the recursive reader's order (depth, then tag, then length or arity),
-    /// with the same errors carrying the same numbers, and a completed value is handed to its
-    /// parent, closing every tuple it fills. Mirrors codec/ts (ontos-internal#345) and codec/py (ontos-internal#349).
-    fn read_value(&mut self, depth: usize) -> Result<Value, DecodeError> {
-        // (items, arity) of each tuple still being filled; the next value sits at
-        // depth + open.len().
-        let mut open: Vec<(Vec<Value>, usize)> = Vec::new();
-        loop {
-            let level = depth + open.len();
-            if level > self.limits.max_depth {
-                return Err(DecodeError::LimitExceeded {
-                    limit: "decode depth",
-                    value: level as u64,
-                    max: self.limits.max_depth as u64,
-                });
-            }
-
-            let offset = self.pos;
-            let tag = self.read_byte()?;
-            let mut done = match tag {
-                TAG_ATOM => {
-                    let length = self.read_length("atom byte length")?;
-                    if length > self.limits.max_atom_bytes {
-                        return Err(DecodeError::LimitExceeded {
-                            limit: "atom byte length",
-                            value: length as u64,
-                            max: self.limits.max_atom_bytes as u64,
-                        });
-                    }
-                    let bytes = self.read_exact(length)?.to_vec();
-                    Value::Atom(Atom::new(bytes))
-                }
-                TAG_TUPLE => {
-                    let arity = self.read_length("tuple arity")?;
-                    if arity > self.limits.max_tuple_arity {
-                        return Err(DecodeError::LimitExceeded {
-                            limit: "tuple arity",
-                            value: arity as u64,
-                            max: self.limits.max_tuple_arity as u64,
-                        });
-                    }
-                    // Every encoded value is at least two bytes (tag + zero uvarint),
-                    // so an arity larger than half the remaining bytes is impossible.
-                    // Guards against allocating/looping on malformed input.
-                    let remaining = self.input.len().saturating_sub(self.pos);
-                    if arity > remaining / 2 {
-                        return Err(DecodeError::UnexpectedEof);
-                    }
-                    if arity > 0 {
-                        open.push((Vec::with_capacity(arity), arity));
-                        continue;
-                    }
-                    Value::Tuple(Tuple::new(Vec::new()))
-                }
-                other => return Err(DecodeError::UnknownTag { tag: other, offset }),
-            };
-
-            // Hand the completed value to its parent, closing every tuple it completes.
-            loop {
-                let Some((items, arity)) = open.last_mut() else {
-                    return Ok(done);
-                };
-                items.push(done);
-                if items.len() < *arity {
-                    break;
-                }
-                let (items, _) = open.pop().expect("the tuple just filled is open");
-                done = Value::Tuple(Tuple::new(items));
-            }
-        }
-    }
-
-    fn read_byte(&mut self) -> Result<u8, DecodeError> {
-        let Some(byte) = self.input.get(self.pos).copied() else {
-            return Err(DecodeError::UnexpectedEof);
-        };
-        self.pos += 1;
-        Ok(byte)
-    }
-
-    fn read_exact(&mut self, length: usize) -> Result<&[u8], DecodeError> {
-        let end = self
-            .pos
-            .checked_add(length)
-            .ok_or(DecodeError::UnexpectedEof)?;
-        if end > self.input.len() {
-            return Err(DecodeError::UnexpectedEof);
-        }
-        let out = &self.input[self.pos..end];
-        self.pos = end;
-        Ok(out)
-    }
-
-    /// Read a uvarint and narrow it to the native length type (`usize`).
-    ///
-    /// The value is accumulated and validated in `u64` first, so a uvarint whose
-    /// value would be `>= 2^64` is rejected as `uvarint_overflow`. A *valid* `u64`
-    /// that does not fit `usize` — only possible on 32-bit targets, where
-    /// `usize::MAX < u64::MAX` — is rejected as `limit_exceeded` (a resource-limit
-    /// class), never `uvarint_overflow`.
-    fn read_length(&mut self, limit: &'static str) -> Result<usize, DecodeError> {
-        let value = self.read_uvarint()?;
-        usize::try_from(value).map_err(|_| DecodeError::LimitExceeded {
-            limit,
-            value,
-            max: usize::MAX as u64,
-        })
-    }
-
-    /// Read one canonical uvarint into a 64-bit accumulator.
-    ///
-    /// A value `>= 2^64` is detected **structurally** — an 11th (or later)
-    /// continuation byte, or a 10th byte whose value bits exceed the single bit
-    /// that fits below the `u64` ceiling — and rejected as `uvarint_overflow`
-    /// before any narrowing. Canonicality is then checked against the 64-bit value.
-    fn read_uvarint(&mut self) -> Result<u64, DecodeError> {
-        let start = self.pos;
-        let mut result: u64 = 0;
-        let mut shift: u32 = 0;
-
-        loop {
-            let byte = self.read_byte()?;
-            let low = (byte & 0x7f) as u64;
-
-            if shift >= 64 {
-                // An 11th (or later) byte: the value is necessarily >= 2^64.
-                return Err(DecodeError::UvarintOverflow { offset: start });
-            }
-            if shift == 63 && low > 1 {
-                // 10th byte: only bit 0 fits below 2^64; any higher bit overflows.
-                return Err(DecodeError::UvarintOverflow { offset: start });
-            }
-
-            result |= low << shift;
-            if byte & 0x80 == 0 {
-                break;
-            }
-            shift += 7;
-        }
-
-        // Canonicality: the bytes just read must equal the shortest-form encoding
-        // of the 64-bit value.
-        let mut canonical = Vec::new();
-        encode_uvarint(result, &mut canonical);
-        if canonical.as_slice() != &self.input[start..self.pos] {
-            return Err(DecodeError::NonCanonicalUvarint { offset: start });
-        }
-        Ok(result)
     }
 }
 

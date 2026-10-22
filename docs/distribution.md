@@ -32,9 +32,9 @@ tuple's `i`-th child, must come from the same code in every face.
 
 ```jsonc
 "dependencies": {
-  "@bitspark/ontos-core":  "^0.14.0",
-  "@bitspark/ontos-codec": "^0.14.0",
-  "@bitspark/ontos-data":  "^0.14.0"
+  "@bitspark/ontos-core":  "^0.15.0",
+  "@bitspark/ontos-codec": "^0.15.0",
+  "@bitspark/ontos-data":  "^0.15.0"
 }
 ```
 ```ts
@@ -48,9 +48,9 @@ library names do not, so the code you write is the same:
 
 ```toml
 [dependencies]
-ontos-core  = { package = "bitspark-ontos-core",  version = "0.13" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.13" }
-ontos-data  = { package = "bitspark-ontos-data",  version = "0.13" }
+ontos-core  = { package = "bitspark-ontos-core",  version = "0.15" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.15" }
+ontos-data  = { package = "bitspark-ontos-data",  version = "0.15" }
 ```
 ```rust
 use ontos_core::Value;
@@ -66,7 +66,7 @@ Go's minimal version selection and npm's deduplication make this a Rust-specific
 **Go:**
 
 ```sh
-go get github.com/bitspark/ontos@v0.14.0
+go get github.com/bitspark/ontos@v0.15.0
 ```
 ```go
 import (

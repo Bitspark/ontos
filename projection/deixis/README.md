@@ -29,10 +29,10 @@ dependency direction is `ontos → deixis`, one-way, and only along this edge.
 ## Go
 
 The Go face is a nested module, versioned by a path-prefixed tag cut at the same commit as each
-ontos release: `projection/deixis/go/v0.14.0` goes with `v0.14.0`.
+ontos release: `projection/deixis/go/v0.15.0` goes with `v0.15.0`.
 
 ```sh
-go get github.com/bitspark/ontos/projection/deixis/go@v0.14.0
+go get github.com/bitspark/ontos/projection/deixis/go@v0.15.0
 ```
 
 ```go
@@ -57,7 +57,7 @@ carrying the ontos index `Path` to the offending node and a `Reason`.
 
 ```toml
 [dependencies]
-ontos-deixis-projection = { package = "bitspark-ontos-deixis-projection", version = "0.14.0" }
+ontos-deixis-projection = { package = "bitspark-ontos-deixis-projection", version = "0.15.0" }
 ```
 
 The library name is `ontos_deixis_projection`. The crate pulls deixis's `bitspark-deixis-core`

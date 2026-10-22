@@ -42,6 +42,9 @@
 //!   a type switch / type assertion on the `Value` interface, and TS with
 //!   `instanceof` plus the `kind` discriminant — so neither needs parallel
 //!   methods.
+//! - **Rust ownership** — [`Tuple::into_items`] consumes a tuple and transfers
+//!   its ordered children without cloning. This changes who owns the storage,
+//!   not the children's values or structural identity.
 //! - **TypeScript** — a `kind` discriminant and `toJSON()`/`toHex()`. JavaScript
 //!   lacks Rust enums and Go interfaces, so the discriminant restores exhaustive
 //!   narrowing and `toJSON` gives structured-clone/JSON consumers a stable shape.
@@ -154,6 +157,24 @@ impl Tuple {
     /// The tuple's ordered children.
     pub fn items(&self) -> &[Value] {
         &self.items
+    }
+
+    /// Consume the tuple and return its ordered children without cloning them.
+    ///
+    /// The existing child vector is transferred to the caller. The consumed
+    /// tuple no longer owns any children; returned values retain their usual
+    /// stack-safe drop behavior, including when an iterator is only partly consumed.
+    ///
+    /// ```
+    /// use ontos_core::{Tuple, Value};
+    ///
+    /// let tuple = Tuple::new([Value::atom([0x61]), Value::atom([0x62])]);
+    /// let mut children = tuple.into_items().into_iter();
+    /// assert_eq!(children.next(), Some(Value::atom([0x61])));
+    /// // The remaining child is dropped with the iterator.
+    /// ```
+    pub fn into_items(mut self) -> Vec<Value> {
+        core::mem::take(&mut self.items)
     }
 
     /// The arity (number of children).

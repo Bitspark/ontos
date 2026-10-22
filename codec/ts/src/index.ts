@@ -126,8 +126,7 @@ export function encode(value: Value): Uint8Array {
       out.set(b, at);
       at += b.length;
     } else {
-      out[at++] = TAG_TUPLE;
-      at = writeUvarint(out, at, v.length);
+      at = writeTupleHeader(out, at, v.length);
     }
   }
   return out;
@@ -154,6 +153,13 @@ function writeUvarint(out: Uint8Array, at: number, n: number): number {
   return at;
 }
 
+// Shared by the whole-value encoder and the public framing helper. The former
+// writes into its single output buffer, without allocating a header per tuple.
+function writeTupleHeader(out: Uint8Array, at: number, arity: number): number {
+  out[at++] = TAG_TUPLE;
+  return writeUvarint(out, at, arity);
+}
+
 export function decode(input: BytesLike, options: DecodeOptions = {}): Value {
   const bytes = copyBytes(input);
   const state = { pos: 0 };
@@ -166,12 +172,33 @@ export function decode(input: BytesLike, options: DecodeOptions = {}): Value {
 }
 
 export function encodeUvarint(n: number): Uint8Array {
-  if (!Number.isSafeInteger(n) || n < 0) {
-    throw new RangeError(`uvarint requires a non-negative safe integer, got ${n}`);
-  }
+  requireSafeUvarint(n);
   const out = new Uint8Array(uvarintLength(n));
   writeUvarint(out, 0, n);
   return out;
+}
+
+/**
+ * The canonical tuple tag and arity, without child encodings. Append exactly
+ * `arity` complete canonical child encodings, in order, to obtain the same bytes
+ * as `encode(tuple(children))`. This does not inspect or validate those children;
+ * decoding the assembled value still applies the ordinary whole-value limits.
+ *
+ * Like `encodeUvarint`, accepts non-negative safe integers and otherwise throws
+ * `RangeError`. The result is a fresh buffer of at most nine bytes; no children
+ * or placeholder values are allocated.
+ */
+export function encodeTupleHeader(arity: number): Uint8Array {
+  requireSafeUvarint(arity);
+  const out = new Uint8Array(1 + uvarintLength(arity));
+  writeTupleHeader(out, 0, arity);
+  return out;
+}
+
+function requireSafeUvarint(n: number): void {
+  if (!Number.isSafeInteger(n) || n < 0) {
+    throw new RangeError(`uvarint requires a non-negative safe integer, got ${n}`);
+  }
 }
 
 // Shortest-form LEB128 encoding of a bigint in the u64 domain. Shared by the

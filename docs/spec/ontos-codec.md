@@ -58,6 +58,18 @@ The encoding is **self-delimiting** (length/arity-prefixed): the end of every
 value's bytes is determined without a terminator. This makes the byte string
 **prefix-free**, which §6 relies on.
 
+The TypeScript binding exposes `encodeTupleHeader(arity)` for callers that already
+own the separately encoded children. It returns the tuple tag and canonical arity
+from this equation, sharing the whole-value encoder's framing implementation.
+The caller must append exactly `arity` complete canonical child encodings in
+order. A header alone is a complete encoding only at arity zero; the helper does
+not inspect children or validate an assembled value. Ordinary decoding still
+applies the limits to the complete value, including its root depth and arity.
+The helper accepts the same non-negative safe integers as `encodeUvarint` and
+throws `RangeError` otherwise. It allocates only a fresh header buffer, not
+placeholder children. This is a binding convenience, with no new value, byte
+mapping, or operational limit.
+
 ### 2.1 The tag set is CLOSED
 
 The complete tag set is `{0x00, 0x01}`. Tag bytes `0x02`–`0xFF` are **reserved**;

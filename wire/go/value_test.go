@@ -256,3 +256,25 @@ func TestConcurrentImmutableObservations(t *testing.T) {
 		t.Fatal("concurrent caller mutated owned storage")
 	}
 }
+
+func TestEmbeddingDepthRefusalDoesNotScaleWithWidth(t *testing.T) {
+	children := make([]core.Value, 4096)
+	for i := range children {
+		children[i] = core.NewTuple()
+	}
+	wide := core.NewTuple(children...)
+	narrow := core.NewTuple(children[0])
+	l := wire.Limits{MaxDepth: 0, MaxNodes: 10000, MaxBytes: 1 << 20}
+	allocations := func(value core.Value) float64 {
+		return testing.AllocsPerRun(20, func() {
+			got, err := wire.Embed[*handle](value, l)
+			if got.Valid() {
+				t.Fatal("depth refusal published a value")
+			}
+			requireCode(t, err, wire.Exhausted, nil)
+		})
+	}
+	if small, large := allocations(narrow), allocations(wide); large > small+1 {
+		t.Fatalf("depth refusal allocations grow with width: %v -> %v", small, large)
+	}
+}

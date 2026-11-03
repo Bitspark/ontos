@@ -190,7 +190,9 @@ type budget struct {
 }
 
 func (b *budget) node(depth, childCount int, path []int) error {
-	if depth > b.limits.MaxDepth || b.nodes >= b.limits.MaxNodes || childCount > b.limits.MaxNodes-b.nodes-1 {
+	// A nonempty node already proves that the next depth is needed. Refuse
+	// before computing keys or allocating storage for any of its children.
+	if depth > b.limits.MaxDepth || (childCount > 0 && depth >= b.limits.MaxDepth) || b.nodes >= b.limits.MaxNodes || childCount > b.limits.MaxNodes-b.nodes-1 {
 		return fail(Exhausted, path, "node or depth budget exceeded")
 	}
 	b.nodes++

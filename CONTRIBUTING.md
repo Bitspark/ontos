@@ -21,9 +21,9 @@ expressed as L0 values is not another L1/L2 layer. The [design records](docs/des
 show the criterion applied.
 
 The owner's 3 November 2026 [scope amendment](docs/design/0007-optional-wire-extension.md)
-selects a separate optional `ontos/wire` value profile over Deixis, with types owned
+selects a separate optional `ontos/wire` value profile over deixis, with types owned
 by optional `horos/wire`. This broadens repository ownership, not L0 valuehood or
-the existing ground profiles. It replaces the Bittype-owned contract-model
+the existing ground profiles. It replaces the bittype-owned contract-model
 proposal. Its mixed values need not be ground, and have no total pure projection
 to L0. Keep the historical layered-architecture decision and frozen specifications
 intact; neither existing APIs nor existing identities silently acquire live values.
@@ -31,8 +31,8 @@ The extension is documentation only: its native APIs, dependency graph and runti
 integration require a separately qualified implementation.
 
 The core, the codec and the embeddings have **no runtime dependency outside this
-repository**: each language uses its standard library. The existing optional Deixis
-projection under [projection/deixis/](projection/deixis/) depends on Deixis and
+repository**: each language uses its standard library. The existing optional deixis
+projection under [projection/deixis/](projection/deixis/) depends on deixis and
 lives in its own Go module and Rust crate, keeping that dependency out of ordinary
 core imports. The proposed Wire extension must preserve this isolation: an opaque
 capability parameter does not require importing bitwire for an interface or

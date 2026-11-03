@@ -79,9 +79,9 @@ Each ground layer listed above is a conservative extension: it adds readings tha
 back to L0, and never defines its own equality.
 
 The proposed [optional Wire value extension](docs/design/0007-optional-wire-extension.md)
-is a separate mixed data/capability profile over Deixis. The owner selected
+is a separate mixed data/capability profile over deixis. The owner selected
 `ontos/wire` for that value model and optional `horos/wire` for its types on
-3 November 2026; Bittype remains tooling for those definitions. The frozen ground
+3 November 2026; bittype remains tooling for those definitions. The frozen ground
 layers, APIs and byte formats stay unchanged. This is a documentation proposal,
 not an implemented package, a new L0 constructor or a runtime migration.
 

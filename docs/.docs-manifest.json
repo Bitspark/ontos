@@ -88,6 +88,19 @@
       "go--goprivate--git-auth-pinned-to-a-tag",
       "what-adopting-workspaces-cost"
     ],
+    "docs/design/0007-optional-wire-extension.md": [
+      "optional-wire-value-extension",
+      "1-the-explicit-scope-amendment",
+      "2-existing-ground-values-and-their-deixis-projection",
+      "3-proposed-mixed-profile",
+      "construction-and-observation",
+      "ground-embedding-and-recovery",
+      "identity-aliasing-and-bytes",
+      "bounded-operations",
+      "4-dependency-and-runtime-boundaries",
+      "5-preserved-concepts-and-forbidden-shortcuts",
+      "6-qualification-before-implementation-is-called-delivered"
+    ],
     "docs/design/convergence-panel/README.md": [
       "ontos-convergence-panel",
       "the-experiment",

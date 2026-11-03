@@ -27,17 +27,17 @@ the existing ground profiles. It replaces the bittype-owned contract-model
 proposal. Its mixed values need not be ground, and have no total pure projection
 to L0. Keep the historical layered-architecture decision and frozen specifications
 intact; neither existing APIs nor existing identities silently acquire live values.
-The extension is documentation only: its native APIs, dependency graph and runtime
-integration require a separately qualified implementation.
+The optional [Go value package](wire/README.md) implements the profile with
+bounded construction, exact admission and ground recovery. Runtime integration
+and other native language bindings remain separate qualification work.
 
 The core, the codec and the embeddings have **no runtime dependency outside this
 repository**: each language uses its standard library. The existing optional deixis
 projection under [projection/deixis/](projection/deixis/) depends on deixis and
 lives in its own Go module and Rust crate, keeping that dependency out of ordinary
-core imports. The proposed Wire extension must preserve this isolation: an opaque
+core imports. The Wire extension also has its own Go module. An opaque
 capability parameter does not require importing bitwire for an interface or
-bitruntime for recognition. It must not implement hydration. No new dependency
-is added by the proposal. A change that adds a dependency needs a reason in the
+bitruntime for recognition. It must not implement hydration. A change that adds a dependency needs a reason in the
 pull request.
 
 ## Frozen means frozen
@@ -81,7 +81,7 @@ the specification.
 
 - `main` takes no direct push. A change is a branch, a pull request and green checks, and
   it lands as a squash merge. Prefix the title with the part it touches: `core:`,
-  `codec:`, `data:`, `cli:`, `tooling:`, `vectors:`, `CI:` or `Docs:`.
+  `codec:`, `data:`, `wire:`, `cli:`, `tooling:`, `vectors:`, `CI:` or `Docs:`.
 - Run the checks before you push. `scripts/check.sh <target>` (`scripts/check.ps1` on
   Windows) runs the checks CI runs, one target per concern: `lint`, `test`, `vectors`,
   `conformance`, `producer` and `fuzz`, or `all` for everything but `fuzz`. Each CI job

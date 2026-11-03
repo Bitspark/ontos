@@ -1,11 +1,13 @@
 # Optional Wire value extension
 
-**Owner direction, 3 November 2026. Status: reviewed documentation proposal;
-implementation and qualification remain future work.** The owner selected optional
+**Owner direction, 3 November 2026. Status: Go value implementation; runtime
+integration and other language bindings remain future work.** The owner selected optional
 `ontos/wire` and `horos/wire` extensions, replacing the proposed bittype-owned
-contract model, and required preservation of the existing concepts. No extension
-package, implementation, dependency, vector, release or consumer migration is
-introduced here. The coordinated work is tracked in [ontos issue 23](https://github.com/Bitspark/ontos/issues/23),
+contract model, and required preservation of the existing concepts. The optional
+[Go package](../../wire/README.md) implements construction, admission and recovery;
+it introduces no release or consumer migration. Implementation is tracked in
+[ontos issue 25](https://github.com/Bitspark/ontos/issues/25). The preceding
+coordinated design is tracked in [ontos issue 23](https://github.com/Bitspark/ontos/issues/23),
 [horos issue 17](https://github.com/Bitspark/horos/issues/17) and
 [bittype issue 35](https://github.com/Bitspark/bittype/issues/35).
 
@@ -272,7 +274,15 @@ contract-model proposal is introduced.
 
 ## 6. Qualification before implementation is called delivered
 
-Future implementation must name the profile and its version, define its native
+The [Go package tests](../../wire/go/value_test.go) exercise the profile/version,
+native admission, byte/child capture, opaque aliasing, ground identity/codec
+preservation and node/depth/byte bounds. Maintained CI discovers the isolated
+module and runs its tests with the race detector. Native APIs take explicit
+limits; immutable atom payloads and native deixis nodes provide the storage
+contract without calling arbitrary tree implementations. Runtime recognition,
+attenuation, transport and protocol qualification remain future work.
+
+Every further implementation must name the profile and its version, define its native
 admission boundaries and preserve the ground embedding/recovery laws. Authored
 positive and refusal cases must cover empty atom/tuple separation, nesting,
 multiplicity, exact positional keys, bytes resembling references and rejected
@@ -289,7 +299,7 @@ operation. Runtime alignment must additionally qualify recognition, sending-only
 attenuation, export/import, stale references, endpoint/scope lifetime and
 local/network behavior against the existing contracts. A stale handle must not
 become a malformed tree; closing a scope must not close a borrowed endpoint.
-No such checks are represented as having run for this documentation-only proposal.
+Those runtime checks are not established by the optional value-package tests.
 
 The evaluated consultation and the coordinated preservation map establish the
 design requirements recorded here. The commitment is optional extension ownership

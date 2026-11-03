@@ -101,9 +101,9 @@ do_test() {
   # Mirrors .github/workflows/ci.yml; keep the two in sync.
   go_nested_mods
   for m in "${go_mods[@]}"; do
-    step "go nested module $m (go test -count=1 -cover)"
+    step "go nested module $m (go test -race -count=1 -cover)"
     go_nested_ok "$m" || continue
-    ( cd "$m" && go test -count=1 -cover ./... )
+    ( cd "$m" && go test -race -count=1 -cover ./... )
   done
   step "ts (node --test)";              ts_build
   # DISCOVERED, not enumerated — an enumerated directory list silently skips a NEW

@@ -69,6 +69,20 @@ jobs:
             exit 1
           fi
 
+      - name: Capture Go formatting corrections
+        if: failure()
+        run: |
+          git ls-files -z '*.go' | xargs -0 -r gofmt -w
+          git diff --binary -- '*.go' > "$RUNNER_TEMP/gofmt.patch"
+      - name: Save Go formatting corrections
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: gofmt-patch
+          path: ${{ runner.temp }}/gofmt.patch
+          if-no-files-found: ignore
+          retention-days: 7
+
   test:
     name: test
     runs-on: ubuntu-latest

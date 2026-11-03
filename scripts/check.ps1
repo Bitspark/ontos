@@ -110,10 +110,10 @@ function Invoke-Test {
   # those files are not in the test cache key and a stale PASS would otherwise stand.
   # Mirrors scripts/check.sh and .github/workflows/ci.yml; keep the three in sync.
   foreach ($m in @(Get-GoNestedModule)) {
-    Step "go nested module $m (go test -count=1 -cover)"
+    Step "go nested module $m (go test -race -count=1 -cover)"
     if (-not (Test-GoNestedResolves $m)) { continue }
     Push-Location $m
-    try { Invoke-Checked { go test -count=1 -cover ./... } } finally { Pop-Location }
+    try { Invoke-Checked { go test -race -count=1 -cover ./... } } finally { Pop-Location }
   }
   Step "ts (node --test)";              Invoke-TsBuild
   # DISCOVERED, not enumerated — an enumerated directory list silently skips a NEW

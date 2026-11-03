@@ -45,7 +45,7 @@ node := projection.Project(value)          // P — TOTAL, cannot fail
 value, err := projection.Recognize(node)   // R — PARTIAL, exact or refusal
 ```
 
-`projection.Node` is `deixis.Node[[]byte]`. A refusal returns `*projection.Unrecognized`,
+`projection.Node` is `deixis.Node[deixis.Option[[]byte]]`. A refusal returns `*projection.Unrecognized`,
 carrying the ontos index `Path` to the offending node and a `Reason`.
 
 > **Do not branch on the `Reason` text.** It is informative, not normative

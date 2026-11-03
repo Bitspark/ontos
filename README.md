@@ -53,7 +53,7 @@ exactly when they have the same structure. That uniformity is what makes the mod
 The richness (numbers, text, lists, records, whatever a domain needs) does not come from adding
 special cases to the floor. It comes from naming. *Structural* and *opinion-free* describe the
 floor, L0, and above all **equality**, which is fixed there and inherited unchanged by every
-layer above. The naming layer `ontos/data` (L2) does take positions, but only about
+ground layer above. The naming layer `ontos/data` (L2) does take positions, but only about
 **representation**: the single canonical spelling of an integer or a decimal. Those are
 canonical *forms*, never a new equality, and never arithmetic.
 
@@ -75,8 +75,15 @@ canonical *forms*, never a new equality, and never arithmetic.
 | `ontos/data` (L2) | **v1 frozen.** The registered embeddings: `int`, `utf8-text`, `bool`, `list`, `map`, `set`, `decimal`, `null` | [ontos-data.md](docs/spec/ontos-data.md) |
 | `ontos-data-json/1` | the named, total projection of a JSON document to an `ontos/data` value | [ontos-data-json.md](docs/spec/ontos-data-json.md) |
 
-Each layer above the floor is a conservative extension: it adds readings that project totally
+Each ground layer listed above is a conservative extension: it adds readings that project totally
 back to L0, and never defines its own equality.
+
+The proposed [optional Wire value extension](docs/design/0007-optional-wire-extension.md)
+is a separate mixed data/capability profile over Deixis. The owner selected
+`ontos/wire` for that value model and optional `horos/wire` for its types on
+3 November 2026; Bittype remains tooling for those definitions. The frozen ground
+layers, APIs and byte formats stay unchanged. This is a documentation proposal,
+not an implemented package, a new L0 constructor or a runtime migration.
 
 ## One model, four languages
 

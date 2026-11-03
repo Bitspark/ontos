@@ -12,18 +12,33 @@ A change belongs here only if it can be stated without saying what a value *mean
 explaining it needs the vocabulary of truth, authority, storage, time or validation, it
 belongs in a layer above this one.
 
-The layers above L0 inside ontos are conservative extensions. L1, the compound reading,
+The ground layers above L0 inside ontos are conservative extensions. L1, the compound reading,
 and L2, the registered embeddings (`int`, `utf8-text`, `bool`, `list`, `map`, `set`,
 `decimal`, `null`), add readings that project totally back to L0 values. They fix one
 canonical *spelling* for each datum, and they never define an equality of their own:
-equality is L0's, everywhere. A change that cannot be expressed as L0 values is a fork,
-not a layer. The [design records](docs/design/) show the criterion applied.
+equality is L0's throughout those layers. A claimed ground reading that cannot be
+expressed as L0 values is not another L1/L2 layer. The [design records](docs/design/)
+show the criterion applied.
+
+The owner's 3 November 2026 [scope amendment](docs/design/0007-optional-wire-extension.md)
+selects a separate optional `ontos/wire` value profile over deixis, with types owned
+by optional `horos/wire`. This broadens repository ownership, not L0 valuehood or
+the existing ground profiles. It replaces the bittype-owned contract-model
+proposal. Its mixed values need not be ground, and have no total pure projection
+to L0. Keep the historical layered-architecture decision and frozen specifications
+intact; neither existing APIs nor existing identities silently acquire live values.
+The extension is documentation only: its native APIs, dependency graph and runtime
+integration require a separately qualified implementation.
 
 The core, the codec and the embeddings have **no runtime dependency outside this
-repository**: each language uses its standard library. The one exception is the deixis projection under
-[projection/deixis/](projection/deixis/), which depends on deixis and lives in its own Go
-module and Rust crate so that nobody who imports the core gets deixis with it. A change
-that adds a dependency needs a reason in the pull request.
+repository**: each language uses its standard library. The existing optional deixis
+projection under [projection/deixis/](projection/deixis/) depends on deixis and
+lives in its own Go module and Rust crate, keeping that dependency out of ordinary
+core imports. The proposed Wire extension must preserve this isolation: an opaque
+capability parameter does not require importing bitwire for an interface or
+bitruntime for recognition. It must not implement hydration. No new dependency
+is added by the proposal. A change that adds a dependency needs a reason in the
+pull request.
 
 ## Frozen means frozen
 

@@ -15,6 +15,15 @@ floor the panel converged on.
 > text below is preserved unchanged; read it as "as of the decision," with this note
 > as the only pointer to the current state.
 
+> **Scope amendment (3 November 2026):** the owner selected an optional
+> [`ontos/wire` sibling profile](0007-optional-wire-extension.md) over Deixis for
+> mixed data/capability values. It is outside the conservative L0/L1/L2 ground
+> stack described by this historical record: live values do not project totally
+> to L0 or inherit a portable live-capability identity from it. The new record
+> explicitly broadens repository ownership without changing the ground stack,
+> frozen identities, encodings or the original decision body below. The optional
+> extension remains a documentation proposal; no implementation is added.
+
 ## The governing rule
 
 > **Every higher ontos layer is a *conservative extension*: it adds vocabulary

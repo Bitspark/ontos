@@ -133,10 +133,10 @@ test('capture snapshots inputs and limits before policy callbacks', () => {
   const factory = new NativeFactory(value => { input[1] = first; return value; });
   assert.equal(nativeItems(factory.tuple(input))![1], second);
   const request = { ...limits, maxBytes: 1 };
-  const policy = new NativeFactory(value => { request.maxBytes = 0; return value; });
+  const policy = new NativeFactory(value => { request.maxNodes = 0; return value; });
   const result = projectNative(policy, first, request);
   assert.equal(result.handle(), first);
-  const changing = { maxDepth: 0, maxNodes: 1, maxBytes: 1 };
+  const changing = { maxDepth: 0, maxNodes: 2, maxBytes: 2 };
   const inputValues = [newWire(first)];
   Object.defineProperty(inputValues, '0', { get() { changing.maxDepth = 100; changing.maxNodes = 100; changing.maxBytes = 100; return newWire(first); } });
   assert.throws(() => newTuple(inputValues, changing), isCode('exhausted'));

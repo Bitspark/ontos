@@ -382,7 +382,8 @@
       "ontos--distribution",
       "consume",
       "verify-what-you-installed",
-      "how-a-release-is-made"
+      "how-a-release-is-made",
+      "first-publication-of-a-new-npm-name"
     ],
     "docs/releases/v0.13.0.md": [
       "ontos-v0130",

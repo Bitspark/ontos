@@ -105,6 +105,15 @@ and the workflow/run identity. Signature and exact certificate identity are
 verified before the bundle is saved beside the archive. No npm credential is
 needed to produce this evidence.
 
+The first resolved dependency uses the certificate's actual `GITHUB_REF` and
+`GITHUB_SHA`, as npm requires. If the release checkout differs, another dependency
+records that checkout's exact commit; the statement also records the actual
+dispatch inputs. Neither GitHub context nor the immutable tag is rewritten.
+The signer comes from the executing workflow revision, so a signing-tool repair
+can rebuild an older release tag. Supply `expected_candidate_sha256` with the
+previous `candidate.json` digest to require identical rebuilt archives before
+signing. Re-signing previously downloaded bytes is not represented as a new build.
+
 After reviewed green-main integration and successful rehearsal, the release
 operator can use normal native npm authentication and its provider MFA to publish
 that unchanged archive with `--provenance-file=<archive>.sigstore.json`,

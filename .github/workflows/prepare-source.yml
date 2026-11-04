@@ -23,6 +23,7 @@ jobs:
       # pinned implementation so no private atlas checkout/token is required.
       - name: Prepare source artifacts on the runner
         run: |
+          node --test tools/release/npm-provenance.test.cjs
           git clone --quiet https://github.com/Bitspark/atlas-gate.git "$RUNNER_TEMP/atlas-gate"
           git -C "$RUNNER_TEMP/atlas-gate" checkout --quiet 978f6720e995281ffb890ea4e92293eaaaf47978
           node --input-type=module <<'JS'

@@ -264,6 +264,15 @@ jobs:
             console.log(JSON.stringify(out, null, 2));
           '
 
+      - name: Save verified provenance for first-package bootstrap
+        if: inputs.mode == 'rehearse'
+        run: |
+          set -euo pipefail
+          export PROVENANCE_TOOLS="$RUNNER_TEMP/provenance-tools"
+          npm install --prefix "$PROVENANCE_TOOLS" --ignore-scripts --no-audit --no-fund sigstore@5.0.0
+          node --test tools/release/npm-provenance.test.cjs
+          node tools/release/npm-provenance.cjs
+
       - name: Compare the candidate with what the registries already hold
         # absent -> publish; identical -> reuse; different or unreadable -> stop.
         run: |
@@ -538,6 +547,7 @@ jobs:
             ${{ runner.temp }}/release/release-manifest.json
             ${{ runner.temp }}/release/SHA256SUMS
             ${{ runner.temp }}/release/npm/*.tgz
+            ${{ runner.temp }}/release/npm/*.sigstore.json
             ${{ runner.temp }}/release/crates/*.crate
           if-no-files-found: ignore
 

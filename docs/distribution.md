@@ -94,3 +94,31 @@ npmjs with provenance, and the crates to crates.io, both by trusted publishing, 
 token exists. Every run waits on the `release` environment, a dispatched rehearsal publishes
 nothing, and each release ends with a round trip that installs what it published. The Go
 modules need no publish step: a Go module is its repository, and the tag is the release.
+
+### First publication of a new npm name
+
+npm requires an existing package before its trusted publisher can be configured.
+For a new name, the same release rehearsal builds the exact archive and signs an
+external provenance bundle on the GitHub-hosted runner. The bundle contains one
+npm purl and the archive's SHA-512 digest, the actual checked-out release commit,
+and the workflow/run identity. Signature and exact certificate identity are
+verified before the bundle is saved beside the archive. No npm credential is
+needed to produce this evidence.
+
+After reviewed green-main integration and successful rehearsal, the release
+operator can use normal native npm authentication and its provider MFA to publish
+that unchanged archive with `--provenance-file=<archive>.sigstore.json`,
+`--access=public` and `--ignore-scripts`. First verify the artifact's run/commit,
+subject, signature and byte digest. Never rebuild or edit the downloaded archive,
+generate provenance locally or simulate a CI identity. The manifest of a new
+bootstrap package must leave `publishConfig.provenance` unset: npm treats its
+automatic-provenance setting and `provenance-file` as mutually exclusive.
+
+Configure the exact package's GitHub repository, release workflow and environment
+publisher after it exists. Normal publication continues through `release.yml`
+with its explicit `--provenance` flag; it compares and reuses identical already
+published artifacts and completes registry and installed-consumer verification.
+The bootstrap is not complete merely because npm accepted an upload. Record the
+registry integrity and attestation, trusted-publisher read-back and outside
+consumer result. This path avoids a reusable bootstrap token while retaining
+the release's provenance requirement.

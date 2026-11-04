@@ -7,10 +7,12 @@ credential is needed to install any of it.
 | --- | --- | --- |
 | TypeScript | `@bitspark/ontos-core`, `@bitspark/ontos-codec`, `@bitspark/ontos-data`, `@bitspark/ontos-data-json` | npmjs, with provenance |
 | TypeScript | `@bitspark/ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | npmjs, with provenance |
+| TypeScript | `@bitspark/ontos-wire`, the optional mixed profile and compact native realization (from v0.16.0) | npmjs, with provenance |
 | Rust | `bitspark-ontos-core`, `bitspark-ontos-codec`, `bitspark-ontos-data`, `bitspark-ontos-data-json` | crates.io |
 | Rust | `bitspark-ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | crates.io |
 | Go | `github.com/bitspark/ontos/{core,codec,data,data/json}/go` | the Go module proxy (one module, `github.com/bitspark/ontos`) |
 | Go | `github.com/bitspark/ontos/projection/deixis/go`, the `ontos-over-deixis-v1` bridge | a nested module, tagged `projection/deixis/go/vX.Y.Z` at the same commit as each release |
+| Go | `github.com/bitspark/ontos/wire/go`, the optional mixed profile and compact native realization | a nested module, tagged `wire/go/vX.Y.Z` at the same commit as each release |
 
 Every lane carries the release's number: the TypeScript packages and the crates are versioned
 `X.Y.Z` for the repository tag `vX.Y.Z`, and the Go modules resolve at the tag. The first public
@@ -32,9 +34,9 @@ tuple's `i`-th child, must come from the same code in every face.
 
 ```jsonc
 "dependencies": {
-  "@bitspark/ontos-core":  "^0.15.0",
-  "@bitspark/ontos-codec": "^0.15.0",
-  "@bitspark/ontos-data":  "^0.15.0"
+  "@bitspark/ontos-core":  "^0.16.0",
+  "@bitspark/ontos-codec": "^0.16.0",
+  "@bitspark/ontos-data":  "^0.16.0"
 }
 ```
 ```ts
@@ -48,9 +50,9 @@ library names do not, so the code you write is the same:
 
 ```toml
 [dependencies]
-ontos-core  = { package = "bitspark-ontos-core",  version = "0.15" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.15" }
-ontos-data  = { package = "bitspark-ontos-data",  version = "0.15" }
+ontos-core  = { package = "bitspark-ontos-core",  version = "0.16" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.16" }
+ontos-data  = { package = "bitspark-ontos-data",  version = "0.16" }
 ```
 ```rust
 use ontos_core::Value;
@@ -61,12 +63,14 @@ graph that pulls ontos from crates.io in one place and from a git dependency (or
 incompatible version) in another links two different `ontos_core::Value` types, and any
 boundary that passes a `Value` fails with "expected `Value`, found `Value`". Keep every ontos
 dependency in the graph, transitive ones included, on one compatible version from one source.
-Go's minimal version selection and npm's deduplication make this a Rust-specific concern.
+Go uses one module path per value family. TypeScript also needs one compatible package
+instance wherever native class identity crosses a boundary; npm deduplication alone cannot
+reconcile the former bitwire mirror with public ontos classes.
 
 **Go:**
 
 ```sh
-go get github.com/bitspark/ontos@v0.15.0
+go get github.com/bitspark/ontos@v0.16.0
 ```
 ```go
 import (

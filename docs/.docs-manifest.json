@@ -403,6 +403,9 @@
       "typescript-encode-the-canonical-tuple-header",
       "upgrade-together"
     ],
+    "docs/releases/v0.16.0.md": [
+      "ontos-v0160"
+    ],
     "docs/spec/ontos-cli.md": [
       "ontos-cli--the-ontos-cli-contract",
       "tri-core-no-favored-language",

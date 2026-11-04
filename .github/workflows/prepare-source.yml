@@ -1,0 +1,46 @@
+name: prepare-source
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # The public gate exports atlas's exact docs-manifest assembler. Use its
+      # pinned implementation so no private atlas checkout/token is required.
+      - name: Prepare source artifacts on the runner
+        run: |
+          git clone --quiet https://github.com/Bitspark/atlas-gate.git "$RUNNER_TEMP/atlas-gate"
+          git -C "$RUNNER_TEMP/atlas-gate" checkout --quiet 978f6720e995281ffb890ea4e92293eaaaf47978
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { pathToFileURL } from 'node:url';
+          const { shipped } = await import(pathToFileURL(process.env.RUNNER_TEMP + '/atlas-gate/profile.mjs'));
+          const { assembleDocsManifest, DOCS_MANIFEST } = shipped();
+          const result = assembleDocsManifest(process.cwd());
+          if (result.findings.some(f => f.severity === 'error')) throw new Error(JSON.stringify(result.findings));
+          writeFileSync(DOCS_MANIFEST('docs'), JSON.stringify(result.doc, null, 2) + '\n');
+          JS
+          git ls-files -z '*.go' | xargs -0 -r gofmt -w
+          node scripts/naming.mjs --fix
+          git diff --binary > "$RUNNER_TEMP/source-preparation.patch"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: source-preparation
+          path: ${{ runner.temp }}/source-preparation.patch
+          retention-days: 7
+      - name: Prepared artifacts must be committed
+        run: git diff --exit-code

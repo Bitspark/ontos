@@ -27,9 +27,10 @@ the existing ground profiles. It replaces the bittype-owned contract-model
 proposal. Its mixed values need not be ground, and have no total pure projection
 to L0. Keep the historical layered-architecture decision and frozen specifications
 intact; neither existing APIs nor existing identities silently acquire live values.
-The optional [Go value package](wire/README.md) implements the profile with
-bounded construction, exact admission and ground recovery. Runtime integration
-and other native language bindings remain separate qualification work.
+The optional [Go and TypeScript value packages](wire/README.md) implement the
+profile with bounded construction, exact admission and ground recovery. Their
+[compact native realization](wire/NATIVE.md) leaves leaf recognition to consuming
+runtimes; hydration and additional language bindings require separate qualification.
 
 The core, the codec and the embeddings have **no runtime dependency outside this
 repository**: each language uses its standard library. The existing optional deixis

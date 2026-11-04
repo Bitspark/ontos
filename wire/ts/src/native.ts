@@ -3,11 +3,10 @@ import { Atom, Tuple as GroundTuple, tuple as groundTuple, type Value as GroundV
 import { key } from '@bitspark/deixis-pos';
 import { Value, newAtom, newTuple, newWire, checkLimits, captureLimits, WireValueError, type Limits, type Payload } from './index.js';
 import type { Node } from '@bitspark/deixis-core';
+import { atomLength, tupleLength, atomBytes, tupleAt } from './ground.js';
 
 export type NativeValue<C> = GroundValue | NativeTuple<C> | C;
 const CONSTRUCT = Symbol('native tuple');
-const atomLength = Object.getOwnPropertyDescriptor(Atom.prototype, 'length')!.get!;
-const tupleLength = Object.getOwnPropertyDescriptor(GroundTuple.prototype, 'length')!.get!;
 const owners = new WeakMap<object, object>();
 export class NativeTuple<C> {
   readonly kind = 'tuple' as const;
@@ -38,7 +37,7 @@ export class NativeFactory<C> {
   constructor(capture: (value: unknown) => C) { this.#capture = capture; Object.freeze(this); }
   capture(value: unknown): NativeValue<C> {
     if (value instanceof Atom || value instanceof GroundTuple) {
-      try { (value instanceof Atom ? atomLength : tupleLength).call(value); }
+      try { if (value instanceof Atom) atomLength(value); else tupleLength(value); }
       catch { throw new NativeValueError(); }
       return value;
     }
@@ -75,13 +74,14 @@ export function projectNative<C>(factory: NativeFactory<C>, value: NativeValue<C
   const captured = factory.capture(value);
   let nodes = 0, bytes = 0;
   const visit = (v: NativeValue<C>, depth: number, path: readonly number[]): Value<C> => {
-    const count = v instanceof GroundTuple || v instanceof NativeTuple ? v.length : 0;
+    const count = v instanceof GroundTuple ? tupleLength(v) : v instanceof NativeTuple ? v.length : 0;
     if (depth > limits.maxDepth || (count > 0 && depth >= limits.maxDepth) || nodes >= limits.maxNodes || count > limits.maxNodes - nodes - 1) throw new WireValueError('exhausted', path, 'node or depth budget exceeded');
     nodes++;
     if (v instanceof Atom) {
-      if (v.length > limits.maxBytes - bytes) throw new WireValueError('exhausted', path, 'atom byte budget exceeded');
-      bytes += v.length;
-      return newAtom(v.bytes(), limits);
+      const length = atomLength(v);
+      if (length > limits.maxBytes - bytes) throw new WireValueError('exhausted', path, 'atom byte budget exceeded');
+      bytes += length;
+      return newAtom(atomBytes(v), limits);
     }
     if (v instanceof GroundTuple || v instanceof NativeTuple) {
       for (let i = 0; i < count; i++) {
@@ -90,7 +90,7 @@ export function projectNative<C>(factory: NativeFactory<C>, value: NativeValue<C
         bytes += n;
       }
       const children: Value<C>[] = [];
-      for (let i = 0; i < count; i++) children.push(visit(v.at(i)!, depth + 1, [...path, i]));
+      for (let i = 0; i < count; i++) children.push(visit(v instanceof GroundTuple ? tupleAt(v, i)! : v.at(i)!, depth + 1, [...path, i]));
       return newTuple(children, limits);
     }
     return newWire(v as C);

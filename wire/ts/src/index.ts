@@ -2,6 +2,7 @@
 import { Node } from '@bitspark/deixis-core';
 import { key, PROFILE as POSITION_SPELLING } from '@bitspark/deixis-pos';
 import { Atom, Tuple, atom, tuple, type Value as GroundValue } from '@bitspark/ontos-core';
+import { atomLength, tupleLength, byteLength, atomBytes, tupleAt } from './ground.js';
 
 export { POSITION_SPELLING };
 export const PROFILE = 'ontos/wire';
@@ -38,7 +39,7 @@ export class Payload<C> {
     payloadStates.set(this, { kind, atom: value, handle });
     Object.freeze(this);
   }
-  bytes(): Uint8Array | undefined { return this.#atom?.bytes(); }
+  bytes(): Uint8Array | undefined { return this.#atom === undefined ? undefined : atomBytes(this.#atom); }
   atom(): Atom | undefined { return this.#atom; }
   handle(): C {
     if (this.kind !== 'wire') throw new TypeError('Not a WireCase');
@@ -47,6 +48,7 @@ export class Payload<C> {
 }
 export const bytesPayload = <C>(value: Atom): Payload<C> => {
   if (!(value instanceof Atom)) return fail('invalid', [], 'expected a ground atom');
+  try { atomLength(value); } catch { return fail('invalid', [], 'expected native atom storage'); }
   return new Payload<C>(CONSTRUCT, 'atom', value);
 };
 export const tuplePayload = <C>(): Payload<C> => new Payload<C>(CONSTRUCT, 'tuple');
@@ -101,8 +103,11 @@ export function checkLimits<C>(value: Value<C>, limits: Limits): void {
 export function newAtom<C>(bytes: Uint8Array, limits: Limits): Value<C> {
   limits = captureLimits(limits);
   if (!(bytes instanceof Uint8Array)) return fail('invalid', [], 'expected bytes');
-  if (bytes.length > limits.maxBytes) return fail('exhausted', [], 'atom byte budget exceeded');
-  return new Value(CONSTRUCT, Node.compose(bytesPayload<C>(atom(bytes)), []), { nodes: 1, bytes: bytes.length, depth: 0 });
+  let length: number;
+  try { length = byteLength(bytes); } catch { return fail('invalid', [], 'expected native byte storage'); }
+  if (length > limits.maxBytes) return fail('exhausted', [], 'atom byte budget exceeded');
+  const captured = atom(bytes);
+  return new Value(CONSTRUCT, Node.compose(bytesPayload<C>(captured), []), { nodes: 1, bytes: atomLength(captured), depth: 0 });
 }
 /** Constant structural work; even undefined is an opaque C, never authority. */
 export function newWire<C>(handle: C): Value<C> {
@@ -157,8 +162,8 @@ export function admit<C>(node: Node<Payload<C>>, limits: Limits): Value<C> {
       if (count !== 0) return fail('invalid', path, 'payload leaf has children');
       if (own.kind === 'wire') return newWire(own.handle as C);
       const a = own.atom!;
-      budget.take(a.length, path);
-      return newAtom(a.bytes(), limits);
+      budget.take(atomLength(a), path);
+      return newAtom(atomBytes(a), limits);
     }
     // Charge all immediate keys before allocating a child collection.
     for (let i = 0; i < count; i++) budget.take(key(BigInt(i)).length, path);
@@ -178,14 +183,18 @@ export function embed<C>(value: GroundValue, limits: Limits): Value<C> {
   const budget = new Budget(limits);
   const visit = (v: GroundValue, depth: number, path: readonly number[]): Value<C> => {
     if (v instanceof Atom) {
-      budget.node(depth, 0, path); budget.take(v.length, path);
-      return newAtom(v.bytes(), limits);
+      let length: number;
+      try { length = atomLength(v); } catch { return fail('invalid', path, 'expected native atom storage'); }
+      budget.node(depth, 0, path); budget.take(length, path);
+      return newAtom(atomBytes(v), limits);
     }
     if (!(v instanceof Tuple)) return fail('invalid', path, 'expected a ground Atom or Tuple');
-    budget.node(depth, v.length, path);
-    for (let i = 0; i < v.length; i++) budget.take(key(BigInt(i)).length, path);
+    let length: number;
+    try { length = tupleLength(v); } catch { return fail('invalid', path, 'expected native tuple storage'); }
+    budget.node(depth, length, path);
+    for (let i = 0; i < length; i++) budget.take(key(BigInt(i)).length, path);
     const children: Value<C>[] = [];
-    for (let i = 0; i < v.length; i++) children.push(visit(v.at(i)!, depth + 1, [...path, i]));
+    for (let i = 0; i < length; i++) children.push(visit(tupleAt(v, i)!, depth + 1, [...path, i]));
     return newTuple(children, limits);
   };
   return visit(value, 0, []);

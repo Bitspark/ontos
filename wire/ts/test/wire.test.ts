@@ -141,3 +141,29 @@ test('capture snapshots inputs and limits before policy callbacks', () => {
   Object.defineProperty(inputValues, '0', { get() { changing.maxDepth = 100; changing.maxNodes = 100; changing.maxBytes = 100; return newWire(first); } });
   assert.throws(() => newTuple(inputValues, changing), isCode('exhausted'));
 });
+
+test('byte budgets and payload admission use genuine storage', () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  Object.defineProperty(bytes, 'length', { value: 0 });
+  assert.throws(() => newAtom(bytes, { ...limits, maxBytes: 0 }), isCode('exhausted'));
+  assert.equal(newAtom(bytes, limits).measures().bytes, 3);
+  let called = false;
+  const fake = Object.create(Atom.prototype);
+  Object.defineProperties(fake, {
+    length: { get() { called = true; return 0; } },
+    bytes: { value() { called = true; return new Uint8Array(20); } },
+  });
+  assert.throws(() => bytesPayload(fake), isCode('invalid'));
+  assert.throws(() => embed(fake, limits), isCode('invalid'));
+  assert.equal(called, false);
+  class SpoofedAtom extends Atom {
+    override get length() { return 0; }
+    override bytes() { called = true; return new Uint8Array(); }
+  }
+  const real = new SpoofedAtom(new Uint8Array([9]));
+  assert.throws(() => admit(Node.compose(bytesPayload(real), []), { ...limits, maxBytes: 0 }), isCode('exhausted'));
+  assert.deepEqual(embed(real, limits).bytes(), new Uint8Array([9]));
+  const factory = new NativeFactory<unknown>(v => v);
+  assert.deepEqual(projectNative(factory, real, limits).bytes(), new Uint8Array([9]));
+  assert.equal(called, false);
+});

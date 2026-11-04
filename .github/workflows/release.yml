@@ -1,13 +1,13 @@
 # Release ontos: rehearse, publish or verify one version.
 #
 # What a release is, and where each part goes:
-#   npm        @bitspark/ontos-core, -codec, -data, -data-json, -deixis-projection
+#   npm        @bitspark/ontos-core, -codec, -data, -data-json, -deixis-projection, -wire
 #                                                                npmjs, with provenance
 #   crates.io  bitspark-ontos-core, -codec, -data, -data-json, -deixis-projection
 #                                                                library names ontos_core, ...
 #   Go         nothing is uploaded. The module proxy fetches from this repository, so the TAGS
 #              are the Go release: `vX.Y.Z` (the root module) and
-#              `projection/deixis/go/vX.Y.Z` (the nested projection module), both on one commit.
+#              `projection/deixis/go/vX.Y.Z` and `wire/go/vX.Y.Z`, all on one commit.
 #   Python     source-only: core/py, codec/py, data/py and cli/py are not packaged.
 #   deferred   none since v0.14.0. The class stays, so a face that has to wait for a registry
 #              (as the deixis projection's Rust crate and TypeScript face did until deixis was on
@@ -27,7 +27,7 @@
 #                       registry was slow to serve what it had accepted.
 # DISPATCH FROM main, in every mode:
 #   gh workflow run release.yml --ref main -f version=X.Y.Z -f mode=rehearse
-#   (then tag vX.Y.Z and projection/deixis/go/vX.Y.Z on the release commit, and push both together)
+#   (then tag vX.Y.Z, projection/deixis/go/vX.Y.Z and wire/go/vX.Y.Z on the release commit, and push all three together)
 #   gh workflow run release.yml --ref main -f version=X.Y.Z -f mode=publish
 # publish and verify always CHECK OUT the tag, whatever the dispatch ref: the tag fixes what is
 # released, and this file stays the copy on main. A dispatch on the tag ref would run the
@@ -210,9 +210,11 @@ jobs:
               echo "::error::$name is a crate in no class (published, deferred, private)"; fail=1
             fi
           done < <(node -e 'for (const p of require(process.argv[1]).packages) console.log([p.name, p.version, JSON.stringify(p.publish)].join("\t"))' "$RUNNER_TEMP/meta.json")
-          # Go: the nested module requires the root module at this same release.
+          # Go: both nested modules require the root module at this same release.
           grep -qE "^	github\.com/bitspark/ontos v${VERSION//./\\.}$" projection/deixis/go/go.mod \
             || { echo "::error::projection/deixis/go/go.mod does not require github.com/bitspark/ontos v$VERSION"; fail=1; }
+          grep -qE "^	github\.com/bitspark/ontos v${VERSION//./\\.}$" wire/go/go.mod \
+            || { echo "::error::wire/go/go.mod does not require github.com/bitspark/ontos v$VERSION"; fail=1; }
           exit $fail
 
       - name: The gate is the one every pull request passes

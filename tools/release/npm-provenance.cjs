@@ -15,13 +15,15 @@ function subjectFor(candidate, bytes) {
   return { name: `pkg:npm/${candidate.name.replace(/^@/, '%40')}@${candidate.version}`, digest: { sha512: digest.toString('hex') } };
 }
 
-function contextFor(env, checkout) {
+function contextFor(env, checkout, inputs = {}) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'sign only on the actual GitHub runner');
   assert.equal(env.RUNNER_ENVIRONMENT, 'github-hosted');
   assert.equal(env.GITHUB_SERVER_URL, 'https://github.com');
   assert.equal(env.GITHUB_REPOSITORY, 'Bitspark/ontos');
   assert.match(checkout, /^[0-9a-f]{40}$/);
   assert.equal(checkout, env.RELEASE_SHA, 'checked-out source changed after qualification');
+  assert.match(env.GITHUB_SHA, /^[0-9a-f]{40}$/);
+  assert.match(env.GITHUB_REF, /^refs\/(heads|tags)\/.+/);
   const prefix = `${env.GITHUB_REPOSITORY}/`;
   assert.ok(env.GITHUB_WORKFLOW_REF?.startsWith(prefix));
   const relative = env.GITHUB_WORKFLOW_REF.slice(prefix.length);
@@ -34,7 +36,8 @@ function contextFor(env, checkout) {
   assert.match(env.GITHUB_RUN_ATTEMPT, /^\d+$/);
   return {
     repository: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`,
-    checkout, path, ref,
+    checkout, path, ref, dispatchRef: env.GITHUB_REF, dispatchCommit: env.GITHUB_SHA,
+    inputs: Object.fromEntries(Object.entries(inputs).filter(([, value]) => value !== '')),
     identity: `${env.GITHUB_SERVER_URL}/${env.GITHUB_WORKFLOW_REF}`,
     invocation: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}`,
     event: env.GITHUB_EVENT_NAME,
@@ -44,6 +47,13 @@ function contextFor(env, checkout) {
 }
 
 function statementFor(subject, context) {
+  // npm binds the first dependency to the GitHub certificate's repository ref
+  // and digest. That is the dispatch input, not necessarily actions/checkout's
+  // release source. Record the latter independently instead of rewriting either.
+  const dependencies = [{ uri: `git+${context.repository}@${context.dispatchRef}`, digest: { gitCommit: context.dispatchCommit } }];
+  if (context.checkout !== context.dispatchCommit) {
+    dependencies.push({ name: 'release-checkout', uri: `git+${context.repository}@${context.checkout}`, digest: { gitCommit: context.checkout } });
+  }
   return {
     _type: 'https://in-toto.io/Statement/v1',
     subject: [subject],
@@ -51,11 +61,9 @@ function statementFor(subject, context) {
     predicate: {
       buildDefinition: {
         buildType: 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1',
-        externalParameters: { workflow: { ref: context.ref, repository: context.repository, path: context.path } },
+        externalParameters: { workflow: { ref: context.ref, repository: context.repository, path: context.path }, inputs: context.inputs },
         internalParameters: { github: { event_name: context.event, repository_id: context.repositoryID, repository_owner_id: context.ownerID } },
-        // The dispatch workflow and checked-out release source may differ. Name
-        // the source actually built, never substitute the dispatch's GITHUB_SHA.
-        resolvedDependencies: [{ uri: `git+${context.repository}@${context.checkout}`, digest: { gitCommit: context.checkout } }],
+        resolvedDependencies: dependencies,
       },
       runDetails: {
         builder: { id: 'https://github.com/actions/runner/github-hosted' },
@@ -67,10 +75,16 @@ function statementFor(subject, context) {
 
 async function main() {
   const checkout = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  const context = contextFor(process.env, checkout);
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+  const context = contextFor(process.env, checkout, event.inputs);
   const { attest, verify } = createRequire(join(process.env.PROVENANCE_TOOLS, 'package.json'))('sigstore');
   const work = process.env.WORK;
-  const candidates = JSON.parse(readFileSync(join(work, 'candidate.json'), 'utf8')).npm;
+  const candidateBytes = readFileSync(join(work, 'candidate.json'));
+  if (process.env.EXPECTED_CANDIDATE_SHA256) {
+    assert.match(process.env.EXPECTED_CANDIDATE_SHA256, /^[0-9a-f]{64}$/);
+    assert.equal(createHash('sha256').update(candidateBytes).digest('hex'), process.env.EXPECTED_CANDIDATE_SHA256, 'rebuilt candidate differs from the previously qualified archives');
+  }
+  const candidates = JSON.parse(candidateBytes).npm;
   const identityPattern = `^${context.identity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
   for (const candidate of candidates) {
     assert.equal(basename(candidate.filename), candidate.filename);

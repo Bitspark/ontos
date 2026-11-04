@@ -66,6 +66,9 @@ on:
         description: "rehearse only: the commit or branch to rehearse. publish and verify always use the tag."
         required: false
         default: main
+      expected_candidate_sha256:
+        description: "rehearse only: optional SHA-256 of a prior candidate.json, requiring identical rebuilt archives before signing."
+        required: false
 
 permissions:
   contents: write   # the GitHub release and its assets
@@ -266,12 +269,20 @@ jobs:
 
       - name: Save verified provenance for first-package bootstrap
         if: inputs.mode == 'rehearse'
+        env:
+          EXPECTED_CANDIDATE_SHA256: ${{ inputs.expected_candidate_sha256 }}
         run: |
           set -euo pipefail
           export PROVENANCE_TOOLS="$RUNNER_TEMP/provenance-tools"
           npm install --prefix "$PROVENANCE_TOOLS" --ignore-scripts --no-audit --no-fund sigstore@5.0.0
-          node --test tools/release/npm-provenance.test.cjs
-          node tools/release/npm-provenance.cjs
+          # Run the signer belonging to this workflow revision. The checkout is
+          # the immutable release source and can predate a signing-tool repair.
+          mkdir "$PROVENANCE_TOOLS/workflow"
+          for file in npm-provenance.cjs npm-provenance.test.cjs; do
+            git show "$GITHUB_WORKFLOW_SHA:tools/release/$file" > "$PROVENANCE_TOOLS/workflow/$file"
+          done
+          node --test "$PROVENANCE_TOOLS/workflow/npm-provenance.test.cjs"
+          node "$PROVENANCE_TOOLS/workflow/npm-provenance.cjs"
 
       - name: Compare the candidate with what the registries already hold
         # absent -> publish; identical -> reuse; different or unreadable -> stop.

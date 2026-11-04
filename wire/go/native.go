@@ -84,10 +84,10 @@ func (f *NativeFactory[C]) Tuple(items ...NativeValue) (NativeValue, error) {
 	if f == nil || f.owner == nil || f.capture == nil {
 		return nil, ErrNativeValue
 	}
-	captured := make([]NativeValue, len(items))
+	captured := slices.Clone(items)
 	ground := make([]core.Value, len(items))
 	live := false
-	for i, item := range items {
+	for i, item := range captured {
 		v, err := f.Capture(item)
 		if err != nil {
 			return nil, err
@@ -151,6 +151,10 @@ func ProjectNative[C any](factory *NativeFactory[C], value NativeValue, limits L
 		default:
 			if err := work.node(depth, 0, path); err != nil {
 				return Value[C]{}, err
+			}
+			if value == nil {
+				var handle C
+				return NewWire(handle), nil
 			}
 			handle, ok := value.(C)
 			if !ok {

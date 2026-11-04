@@ -13,7 +13,9 @@ Neither representation adds live capabilities to ground ontos.
 Its caller supplies one leaf-capture function. A runtime uses that function to
 recognize its sending faces and to project endpoint owners to those faces.
 The function must not send, export or test liveness. Recognition is separate
-from whether a later operation succeeds.
+from whether a later operation succeeds. Capturing an already recognized carrier
+must preserve that exact carrier; projecting an owner must return its stable
+sending face. These caller policy laws preserve aliases across repeated capture.
 
 Each factory has an unforgeable private identity. Its tuples retain that identity
 and immutable immediate children. Capturing one of its own tuples is constant

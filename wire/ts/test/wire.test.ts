@@ -96,3 +96,48 @@ test('explicit WireCase never silently collapses to a structural alternative', (
   assert.throws(() => nativeFromValue(factory, newWire(tuple([])), limits), NativeValueError);
   assert.throws(() => new NativeFactory<Atom>(() => a()).capture({}), NativeValueError);
 });
+
+test('caller array methods and forged prototypes cannot confer qualification', () => {
+  const face = {}, owner = { close() {} };
+  const factory = new NativeFactory(value => {
+    if (value !== face) throw new NativeValueError();
+    return face;
+  });
+  const children = [owner];
+  let called = false;
+  children.map = (() => { called = true; return [owner]; }) as typeof children.map;
+  assert.throws(() => factory.tuple(children), NativeValueError);
+  assert.equal(called, false);
+  const fakeValue = Object.assign(Object.create(Value.prototype), {
+    measures() { called = true; return { nodes: 1, bytes: 0, depth: 0 }; },
+    node() { called = true; return Node.compose(tuplePayload(), [[key(1n), Node.compose(tuplePayload(), [])]]); },
+  });
+  assert.throws(() => newTuple([fakeValue], limits), isCode('invalid'));
+  assert.throws(() => recover(fakeValue, limits), isCode('invalid'));
+  assert.equal(called, false);
+  const fakePayload = Object.assign(Object.create(Payload.prototype), {
+    kind: 'wire', handle() { called = true; return owner; },
+  });
+  assert.throws(() => admit(Node.compose(fakePayload, []), limits), isCode('invalid'));
+  assert.equal(called, false);
+  const good = newWire(face), input = [good];
+  input.map = (() => { called = true; return [fakeValue]; }) as typeof input.map;
+  assert.equal(newTuple(input, limits).at(0, limits).handle(), face);
+  assert.equal(called, false);
+  assert.throws(() => factory.capture(Object.create(Atom.prototype)), NativeValueError);
+  assert.throws(() => factory.capture(Object.create(Tuple.prototype)), NativeValueError);
+});
+
+test('capture snapshots inputs and limits before policy callbacks', () => {
+  const first = {}, second = {}, input = [first, second];
+  const factory = new NativeFactory(value => { input[1] = first; return value; });
+  assert.equal(nativeItems(factory.tuple(input))![1], second);
+  const request = { ...limits, maxBytes: 1 };
+  const policy = new NativeFactory(value => { request.maxBytes = 0; return value; });
+  const result = projectNative(policy, first, request);
+  assert.equal(result.handle(), first);
+  const changing = { maxDepth: 0, maxNodes: 1, maxBytes: 1 };
+  const inputValues = [newWire(first)];
+  Object.defineProperty(inputValues, '0', { get() { changing.maxDepth = 100; changing.maxNodes = 100; changing.maxBytes = 100; return newWire(first); } });
+  assert.throws(() => newTuple(inputValues, changing), isCode('exhausted'));
+});

@@ -111,3 +111,22 @@ func TestNativeWireCaseCannotCollapse(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeOpaqueNilAndSnapshot(t *testing.T) {
+	factory := wire.NewNativeFactory(func(v any) (any, error) { return v, nil })
+	v, err := wire.ProjectNative(factory, nil, limits)
+	if err != nil || v.Kind() != wire.Capability { t.Fatal("nil carrier lost", err) }
+	back, err := wire.NativeFromValue(factory, v, limits)
+	if err != nil || back != nil { t.Fatal("nil carrier changed", err) }
+	first, second := &handle{}, &handle{}
+	input := []any{first, second}
+	policy := wire.NewNativeFactory(func(v any) (*handle, error) {
+		input[1] = first
+		return v.(*handle), nil
+	})
+	tuple, err := policy.Tuple(input...)
+	if err != nil { t.Fatal(err) }
+	items, _ := wire.NativeItems[*handle](tuple)
+	if items[1] != second { t.Fatal("callback changed the captured input") }
+	if _, err := wire.NativeFromValue(factory, wire.NewWire[any](wire.NativeTuple[*handle]{}), limits); !errors.Is(err, wire.ErrNativeValue) { t.Fatal("foreign structural case collapsed", err) }
+}

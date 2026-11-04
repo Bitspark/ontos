@@ -1,18 +1,22 @@
 /** Compact native realization of ontos/wire. Runtime policy is supplied explicitly. */
 import { Atom, Tuple as GroundTuple, tuple as groundTuple, type Value as GroundValue } from '@bitspark/ontos-core';
 import { key } from '@bitspark/deixis-pos';
-import { Value, newAtom, newTuple, newWire, checkLimits, WireValueError, type Limits, type Payload } from './index.js';
+import { Value, newAtom, newTuple, newWire, checkLimits, captureLimits, WireValueError, type Limits, type Payload } from './index.js';
 import type { Node } from '@bitspark/deixis-core';
 
 export type NativeValue<C> = GroundValue | NativeTuple<C> | C;
 const CONSTRUCT = Symbol('native tuple');
+const atomLength = Object.getOwnPropertyDescriptor(Atom.prototype, 'length')!.get!;
+const tupleLength = Object.getOwnPropertyDescriptor(GroundTuple.prototype, 'length')!.get!;
 const owners = new WeakMap<object, object>();
 export class NativeTuple<C> {
   readonly kind = 'tuple' as const;
   readonly #items: readonly NativeValue<C>[];
   constructor(token: symbol, owner: object, items: readonly NativeValue<C>[]) {
     if (token !== CONSTRUCT) throw new TypeError('Use a NativeFactory');
-    this.#items = Object.freeze([...items]);
+    const copied: NativeValue<C>[] = [];
+    for (let i = 0; i < items.length; i++) copied.push(items[i]!);
+    this.#items = Object.freeze(copied);
     owners.set(this, owner);
     Object.freeze(this);
   }
@@ -33,7 +37,11 @@ export class NativeFactory<C> {
   readonly #capture: (value: unknown) => C;
   constructor(capture: (value: unknown) => C) { this.#capture = capture; Object.freeze(this); }
   capture(value: unknown): NativeValue<C> {
-    if (value instanceof Atom || value instanceof GroundTuple) return value;
+    if (value instanceof Atom || value instanceof GroundTuple) {
+      try { (value instanceof Atom ? atomLength : tupleLength).call(value); }
+      catch { throw new NativeValueError(); }
+      return value;
+    }
     if (value instanceof NativeTuple) {
       if (owners.get(value) !== this.#identity) throw new NativeValueError();
       return value as NativeTuple<C>;
@@ -44,10 +52,16 @@ export class NativeFactory<C> {
   }
   /** Shallow immutable capture, preserving shared descendants and ground identity. */
   tuple(items: readonly NativeValue<C>[]): NativeValue<C> {
-    const captured = items.map(item => this.capture(item));
-    return captured.every(item => item instanceof Atom || item instanceof GroundTuple)
-      ? groundTuple(captured as GroundValue[])
-      : new NativeTuple(CONSTRUCT, this.#identity, captured);
+    if (!Array.isArray(items)) throw new NativeValueError();
+    const length = items.length, captured: NativeValue<C>[] = [];
+    for (let i = 0; i < length; i++) captured.push(items[i]!);
+    let ground = true;
+    for (let i = 0; i < length; i++) {
+      const item = this.capture(captured[i]);
+      captured[i] = item;
+      if (!(item instanceof Atom) && !(item instanceof GroundTuple)) ground = false;
+    }
+    return ground ? groundTuple(captured as GroundValue[]) : new NativeTuple(CONSTRUCT, this.#identity, captured);
   }
 }
 /** Observation is structural; it establishes no runtime qualification. */
@@ -57,7 +71,7 @@ export function nativeItems<C>(value: NativeValue<C>): readonly NativeValue<C>[]
 /** Explicit structural projection; these limits never become native send limits. */
 export function projectNative<C>(factory: NativeFactory<C>, value: NativeValue<C>, limits: Limits): Value<C> {
   // Validate before consulting the caller's leaf policy.
-  checkLimits(newWire(undefined), limits);
+  limits = captureLimits(limits);
   const captured = factory.capture(value);
   let nodes = 0, bytes = 0;
   const visit = (v: NativeValue<C>, depth: number, path: readonly number[]): Value<C> => {
@@ -85,6 +99,7 @@ export function projectNative<C>(factory: NativeFactory<C>, value: NativeValue<C
 }
 /** Qualifies explicit WireCase leaves under the receiving factory's own policy. */
 export function nativeFromValue<C>(factory: NativeFactory<C>, value: Value<C>, limits: Limits): NativeValue<C> {
+  limits = captureLimits(limits);
   checkLimits(value, limits);
   const visit = (node: Node<Payload<C>>): NativeValue<C> => {
     const payload = node.own();

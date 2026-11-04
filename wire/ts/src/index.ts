@@ -19,6 +19,13 @@ export class WireValueError extends Error {
 }
 const fail = (code: Code, path: readonly number[], message: string): never => { throw new WireValueError(code, path, message); };
 const CONSTRUCT = Symbol('ontos/wire construction');
+interface PayloadState { readonly kind: Kind; readonly atom: Atom | undefined; readonly handle: unknown }
+const payloadStates = new WeakMap<object, PayloadState>();
+function payloadState(value: unknown, path: readonly number[] = []): PayloadState {
+  const state = payloadStates.get(value as object);
+  if (!state) return fail('invalid', path, 'expected a constructed profile payload');
+  return state;
+}
 
 /** A closed, immutable payload sum; handles remain opaque and retain identity. */
 export class Payload<C> {
@@ -28,6 +35,7 @@ export class Payload<C> {
     if (token !== CONSTRUCT) throw new TypeError('Use the payload constructors');
     this.#atom = value;
     this.#handle = handle;
+    payloadStates.set(this, { kind, atom: value, handle });
     Object.freeze(this);
   }
   bytes(): Uint8Array | undefined { return this.#atom?.bytes(); }
@@ -45,6 +53,13 @@ export const tuplePayload = <C>(): Payload<C> => new Payload<C>(CONSTRUCT, 'tupl
 export const wirePayload = <C>(handle: C): Payload<C> => new Payload<C>(CONSTRUCT, 'wire', undefined, handle);
 
 interface Measures { readonly nodes: number; readonly bytes: number; readonly depth: number }
+interface ValueState { readonly node: Node<Payload<unknown>>; readonly measures: Measures }
+const valueStates = new WeakMap<object, ValueState>();
+function valueState(value: unknown, path: readonly number[] = []): ValueState {
+  const state = valueStates.get(value as object);
+  if (!state) return fail('invalid', path, 'expected a constructed profile value');
+  return state;
+}
 /** An admitted Deixis representation. No equality, codec, hydration or send method. */
 export class Value<C> {
   readonly #node: Node<Payload<C>>;
@@ -53,6 +68,7 @@ export class Value<C> {
     if (token !== CONSTRUCT) throw new TypeError('Use the value constructors or admit');
     this.#node = node;
     this.#measures = Object.freeze({ ...measures });
+    valueStates.set(this, { node, measures: this.#measures });
     Object.freeze(this);
   }
   get kind(): Kind { return this.#node.own().kind; }
@@ -66,20 +82,24 @@ export class Value<C> {
     return admit(this.#node.get(key(BigInt(index)))!, limits);
   }
 }
-function validate(limits: Limits): void {
-  if (!limits || !Number.isSafeInteger(limits.maxDepth) || limits.maxDepth < 0 || limits.maxDepth > 512 ||
-      !Number.isSafeInteger(limits.maxNodes) || limits.maxNodes < 1 || !Number.isSafeInteger(limits.maxBytes) || limits.maxBytes < 0) {
-    fail('invalid-limits', [], 'invalid depth, node or byte budget');
+/** Capture operational limits once, before consulting caller-owned values. */
+export function captureLimits(request: Limits): Limits {
+  if (!request) return fail('invalid-limits', [], 'missing limits');
+  const maxDepth = request.maxDepth, maxNodes = request.maxNodes, maxBytes = request.maxBytes;
+  if (!Number.isSafeInteger(maxDepth) || maxDepth < 0 || maxDepth > 512 ||
+      !Number.isSafeInteger(maxNodes) || maxNodes < 1 || !Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    return fail('invalid-limits', [], 'invalid depth, node or byte budget');
   }
+  return Object.freeze({ maxDepth, maxNodes, maxBytes });
 }
+
 export function checkLimits<C>(value: Value<C>, limits: Limits): void {
-  validate(limits);
-  if (!(value instanceof Value)) fail('invalid', [], 'expected an admitted value');
-  const m = value.measures();
+  limits = captureLimits(limits);
+  const m = valueState(value).measures;
   if (m.nodes > limits.maxNodes || m.bytes > limits.maxBytes || m.depth > limits.maxDepth) fail('exhausted', [], 'conversion budget exceeded');
 }
 export function newAtom<C>(bytes: Uint8Array, limits: Limits): Value<C> {
-  validate(limits);
+  limits = captureLimits(limits);
   if (!(bytes instanceof Uint8Array)) return fail('invalid', [], 'expected bytes');
   if (bytes.length > limits.maxBytes) return fail('exhausted', [], 'atom byte budget exceeded');
   return new Value(CONSTRUCT, Node.compose(bytesPayload<C>(atom(bytes)), []), { nodes: 1, bytes: bytes.length, depth: 0 });
@@ -89,23 +109,29 @@ export function newWire<C>(handle: C): Value<C> {
   return new Value(CONSTRUCT, Node.compose(wirePayload(handle), []), { nodes: 1, bytes: 0, depth: 0 });
 }
 export function newTuple<C>(items: readonly Value<C>[], limits: Limits): Value<C> {
-  validate(limits);
-  if (items.length > limits.maxNodes - 1) return fail('exhausted', [], 'tuple node budget exceeded');
+  limits = captureLimits(limits);
+  if (!Array.isArray(items)) return fail('invalid', [], 'expected a native child array');
+  const length = items.length;
+  if (length > limits.maxNodes - 1) return fail('exhausted', [], 'tuple node budget exceeded');
   let nodes = 1, bytes = 0, depth = 0;
-  for (let i = 0; i < items.length; i++) {
-    const child = items[i];
-    if (!(child instanceof Value)) return fail('invalid', [i], 'invalid tuple child');
-    const m = child.measures(), k = key(BigInt(i)).length;
+  const entries: [Uint8Array, Node<Payload<C>>][] = [];
+  for (let i = 0; i < length; i++) {
+    // Capture once, then observe only module-private records. Caller collection
+    // methods and forged prototype objects cannot change the admitted tree.
+    const child = valueState(items[i], [i]);
+    const m = child.measures, position = key(BigInt(i)), k = position.length;
     if (m.depth >= limits.maxDepth || m.nodes > limits.maxNodes - nodes || k > limits.maxBytes - bytes || m.bytes > limits.maxBytes - bytes - k) return fail('exhausted', [i], 'tuple depth, node or byte budget exceeded');
     nodes += m.nodes; bytes += k + m.bytes; depth = Math.max(depth, m.depth + 1);
+    entries.push([position, child.node as Node<Payload<C>>]);
   }
-  return new Value(CONSTRUCT, Node.compose(tuplePayload<C>(), items.map((v, i) => [key(BigInt(i)), v.node()] as const)), { nodes, bytes, depth });
+  return new Value(CONSTRUCT, Node.compose(tuplePayload<C>(), entries), { nodes, bytes, depth });
 }
 
 class Budget {
   nodes = 0;
   bytes = 0;
-  constructor(readonly limits: Limits) { validate(limits); }
+  readonly limits: Limits;
+  constructor(limits: Limits) { this.limits = captureLimits(limits); }
   node(depth: number, children: number, path: readonly number[]): void {
     if (depth > this.limits.maxDepth || (children > 0 && depth >= this.limits.maxDepth) || this.nodes >= this.limits.maxNodes || children > this.limits.maxNodes - this.nodes - 1) fail('exhausted', path, 'node or depth budget exceeded');
     this.nodes++;
@@ -118,6 +144,7 @@ class Budget {
 const nodeLength = Object.getOwnPropertyDescriptor(Node.prototype, 'length')!.get!;
 /** Exact admission copies structure and never calls a foreign tree interface. */
 export function admit<C>(node: Node<Payload<C>>, limits: Limits): Value<C> {
+  limits = captureLimits(limits);
   const budget = new Budget(limits);
   const visit = (n: Node<Payload<C>>, depth: number, path: readonly number[]): Value<C> => {
     if (!(n instanceof Node)) return fail('invalid', path, 'expected a native deixis node');
@@ -125,11 +152,11 @@ export function admit<C>(node: Node<Payload<C>>, limits: Limits): Value<C> {
     try { count = nodeLength.call(n) as number; payload = Node.prototype.own.call(n) as Payload<C>; }
     catch { return fail('invalid', path, 'expected a native deixis node'); }
     budget.node(depth, count, path);
-    if (!(payload instanceof Payload)) return fail('invalid', path, 'expected a closed profile payload');
-    if (payload.kind !== 'tuple') {
+    const own = payloadState(payload, path);
+    if (own.kind !== 'tuple') {
       if (count !== 0) return fail('invalid', path, 'payload leaf has children');
-      if (payload.kind === 'wire') return newWire(payload.handle());
-      const a = payload.atom()!;
+      if (own.kind === 'wire') return newWire(own.handle as C);
+      const a = own.atom!;
       budget.take(a.length, path);
       return newAtom(a.bytes(), limits);
     }
@@ -147,6 +174,7 @@ export function admit<C>(node: Node<Payload<C>>, limits: Limits): Value<C> {
 }
 /** Ground embedding preserves exact bytes, positions and empty alternatives. */
 export function embed<C>(value: GroundValue, limits: Limits): Value<C> {
+  limits = captureLimits(limits);
   const budget = new Budget(limits);
   const visit = (v: GroundValue, depth: number, path: readonly number[]): Value<C> => {
     if (v instanceof Atom) {
@@ -166,12 +194,12 @@ export function embed<C>(value: GroundValue, limits: Limits): Value<C> {
 export function recover<C>(value: Value<C>, limits: Limits): GroundValue {
   checkLimits(value, limits);
   const visit = (node: Node<Payload<C>>, path: readonly number[]): GroundValue => {
-    const p = node.own();
-    if (p.kind === 'atom') return p.atom()!;
+    const p = payloadState(node.own(), path);
+    if (p.kind === 'atom') return p.atom!;
     if (p.kind === 'wire') return fail('not-ground', path, 'live capability has no pure ground recovery');
     const children: GroundValue[] = [];
     for (let i = 0; i < node.length; i++) children.push(visit(node.get(key(BigInt(i)))!, [...path, i]));
     return tuple(children);
   };
-  return visit(value.node(), []);
+  return visit(valueState(value).node as Node<Payload<C>>, []);
 }

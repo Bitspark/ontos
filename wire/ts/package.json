@@ -1,0 +1,14 @@
+{
+  "name": "@bitspark/ontos-wire",
+  "version": "0.16.0",
+  "license": "Apache-2.0",
+  "description": "Optional ontos/wire mixed values and qualified compact native realization, without runtime or transport dependencies.",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/Bitspark/ontos.git", "directory": "wire/ts" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/", "provenance": true },
+  "files": ["dist/src", "LICENSE", "NOTICE"],
+  "exports": { ".": "./dist/src/index.js", "./native": "./dist/src/native.js", "./package.json": "./package.json" },
+  "dependencies": { "@bitspark/ontos-core": "^0.16.0", "@bitspark/deixis-core": "0.6.0", "@bitspark/deixis-pos": "0.6.0" },
+  "devDependencies": { "@bitspark/ontos-codec": "^0.16.0" },
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "node --test test/*.test.ts" }
+}

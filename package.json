@@ -9,6 +9,7 @@
     "data/ts",
     "data/json/ts",
     "projection/deixis/ts",
+    "wire/ts",
     "cli/ts"
   ],
   "devDependencies": {

@@ -1,9 +1,10 @@
 # Optional wire values
 
-The Go module `github.com/bitspark/ontos/wire/go` implements revision 1 of the
+The Go module `github.com/bitspark/ontos/wire/go` and TypeScript package
+`@bitspark/ontos-wire` implement revision 1 of the
 [optional mixed profile](../docs/design/0007-optional-wire-extension.md). It is
-separate from the dependency-free ground module. Rust and TypeScript continue to
-provide the existing ground projection; this new optional API is Go-only.
+separate from the dependency-free ground modules. Rust continues to provide
+the existing ground projection; no Rust mixed-value API is claimed.
 
 `Value[C]` contains an admitted immutable deixis node. Its opaque carrier `C`
 comes from runtime composition. Supply sending faces; this package neither
@@ -33,4 +34,7 @@ No mixed equality, hashing, ordering, codec, hydration or protocol is provided.
 Maintained test/lint targets discover this nested module. Tests cover exact
 recognition, immutable capture, repeated handles, operational limits, ground
 identity/codec preservation, authored negative cases and concurrent observations.
-No runtime integration, package release or cross-language optional API is claimed.
+The [compact native realization](NATIVE.md) shares tuple structure with consumers
+while leaving leaf recognition to their own private factories. Its native costs
+and limits are distinct from the explicit Deixis conversions described above.
+Runtime hydration and sending remain separate consumer implementations.

@@ -36,5 +36,5 @@ recognition, immutable capture, repeated handles, operational limits, ground
 identity/codec preservation, authored negative cases and concurrent observations.
 The [compact native realization](NATIVE.md) shares tuple structure with consumers
 while leaving leaf recognition to their own private factories. Its native costs
-and limits are distinct from the explicit Deixis conversions described above.
+and limits are distinct from the explicit deixis conversions described above.
 Runtime hydration and sending remain separate consumer implementations.

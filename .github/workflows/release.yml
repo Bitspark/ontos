@@ -490,7 +490,10 @@ jobs:
           	if r, err := projection.Recognize(projection.Project(v)); err != nil || !core.Equal(r, v) {
           		panic("projection round trip")
           	}
-          	fmt.Println("Go: core, codec, data, data/json and the deixis projection work from the proxy")
+            mixed, err := wire.Embed[any](v, wire.DefaultLimits())
+            if err != nil { panic(err) }
+            if r, err := wire.Recover(mixed, wire.DefaultLimits()); err != nil || !core.Equal(r, v) { panic("wire ground recovery") }
+            fmt.Println("Go: ground, projection and optional Wire packages work from the proxy")
           }
           EOF
           go mod tidy

@@ -7,10 +7,12 @@ credential is needed to install any of it.
 | --- | --- | --- |
 | TypeScript | `@bitspark/ontos-core`, `@bitspark/ontos-codec`, `@bitspark/ontos-data`, `@bitspark/ontos-data-json` | npmjs, with provenance |
 | TypeScript | `@bitspark/ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | npmjs, with provenance |
+| TypeScript | `@bitspark/ontos-wire`, the optional mixed profile and compact native realization (from v0.16.0) | npmjs, with provenance |
 | Rust | `bitspark-ontos-core`, `bitspark-ontos-codec`, `bitspark-ontos-data`, `bitspark-ontos-data-json` | crates.io |
 | Rust | `bitspark-ontos-deixis-projection`, the `ontos-over-deixis-v1` bridge (from v0.14.0) | crates.io |
 | Go | `github.com/bitspark/ontos/{core,codec,data,data/json}/go` | the Go module proxy (one module, `github.com/bitspark/ontos`) |
 | Go | `github.com/bitspark/ontos/projection/deixis/go`, the `ontos-over-deixis-v1` bridge | a nested module, tagged `projection/deixis/go/vX.Y.Z` at the same commit as each release |
+| Go | `github.com/bitspark/ontos/wire/go`, the optional mixed profile and compact native realization | a nested module, tagged `wire/go/vX.Y.Z` at the same commit as each release |
 
 Every lane carries the release's number: the TypeScript packages and the crates are versioned
 `X.Y.Z` for the repository tag `vX.Y.Z`, and the Go modules resolve at the tag. The first public

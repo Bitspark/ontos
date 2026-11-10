@@ -1,0 +1,883 @@
+{
+  "codec": "ontos-codec-v1",
+  "description": "measure (ontos-codec.md §10, design record 0008, ontos issue 35): a value's canonical encoded length (encoded_bytes), its expanded occurrence count (occurrences) and its height, computed without expanding shared subtrees and checked against bounds the caller states. Hand-authored (Class A): every expected number is computed from the equations of §10.1, never from an implementation, and each case's note shows the arithmetic. NOT part of the byte corpus: vectors/codec.json is that, and the CLIs never read this file. A value is written as a node table, {\"nodes\": [{\"atom\": \"<hex>\"} | {\"tuple\": [<earlier node index>, ...]}, ...], \"root\": <index>}: a tuple names only earlier nodes, so the table is acyclic, and an index may appear more than once. A face that can share builds one in-memory node per table entry, so a node named twice is one shared node. Each face measures the root under `bounds` (one bound per measure, each at most 2^53 - 1) and MUST produce `expect`: either {\"measures\": the three exact measures}, when every measure is within its bound (less than or equal to it), or {\"exceeded\": the identifiers of every measure over its bound, in ascending order}. `expandable` is true when the expanded tree has at most 4096 occurrences: a face that cannot share subtrees (Rust) builds such a value by copying, and replays only those cases.",
+  "count": 31,
+  "cases": [
+    {
+      "name": "empty_atom",
+      "note": "1 + len(uvarint(0)) + 0 = 2 bytes; 1 occurrence; height 0",
+      "value": {
+        "nodes": [
+          {"atom": ""}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 2, "occurrences": 1, "height": 0 }
+      }
+    },
+    {
+      "name": "atom_1_byte",
+      "note": "x0 = Atom(00): 1 + 1 + 1 = 3 bytes",
+      "value": {
+        "nodes": [
+          {"atom": "00"}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 3, "occurrences": 1, "height": 0 }
+      }
+    },
+    {
+      "name": "atom_127_bytes",
+      "note": "127 < 2^7, a one-byte length: 1 + 1 + 127 = 129 bytes",
+      "value": {
+        "nodes": [
+          {"atom": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 129, "occurrences": 1, "height": 0 }
+      }
+    },
+    {
+      "name": "atom_128_bytes",
+      "note": "128 = 2^7, a two-byte length: 1 + 2 + 128 = 131 bytes",
+      "value": {
+        "nodes": [
+          {"atom": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 131, "occurrences": 1, "height": 0 }
+      }
+    },
+    {
+      "name": "empty_tuple",
+      "note": "1 + len(uvarint(0)) = 2 bytes; 1 occurrence; height 0 (no children)",
+      "value": {
+        "nodes": [
+          {"tuple": []}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 2, "occurrences": 1, "height": 0 }
+      }
+    },
+    {
+      "name": "tuple_of_empty_tuple",
+      "note": "Tuple(Tuple()): 1 + 1 + 2 = 4 bytes; 1 + 1 = 2 occurrences; height 1 + 0 = 1",
+      "value": {
+        "nodes": [
+          {"tuple": []},
+          {"tuple": [0]}
+        ],
+        "root": 1
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 4, "occurrences": 2, "height": 1 }
+      }
+    },
+    {
+      "name": "arity_127_of_one_shared_atom",
+      "note": "arity 127 < 2^7: 1 + 1 + 127*3 = 383 bytes; 1 + 127 = 128 occurrences; height 1",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
+        ],
+        "root": 1
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 383, "occurrences": 128, "height": 1 }
+      }
+    },
+    {
+      "name": "arity_128_of_one_shared_atom",
+      "note": "arity 128 = 2^7, a two-byte arity: 1 + 2 + 128*3 = 387 bytes; 1 + 128 = 129 occurrences; height 1",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
+        ],
+        "root": 1
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 387, "occurrences": 129, "height": 1 }
+      }
+    },
+    {
+      "name": "same_node_three_times",
+      "note": "a = Atom(616263) is 1 + 1 + 3 = 5 bytes; Tuple(a, a, a) is 1 + 1 + 3*5 = 17 bytes, 1 + 3 = 4 occurrences, height 1",
+      "value": {
+        "nodes": [
+          {"atom": "616263"},
+          {"tuple": [0, 0, 0]}
+        ],
+        "root": 1
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 17, "occurrences": 4, "height": 1 }
+      }
+    },
+    {
+      "name": "diamond_with_shared_atom",
+      "note": "a = Atom() 2 bytes, b = Atom(ff) 3 bytes, p = Tuple(a, b) 1 + 1 + 2 + 3 = 7 bytes, 3 occurrences, height 1; root = Tuple(p, p, a): 1 + 1 + 7 + 7 + 2 = 18 bytes, 1 + 3 + 3 + 1 = 8 occurrences, height 2",
+      "value": {
+        "nodes": [
+          {"atom": ""},
+          {"atom": "ff"},
+          {"tuple": [0, 1]},
+          {"tuple": [2, 2, 0]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 18, "occurrences": 8, "height": 2 }
+      }
+    },
+    {
+      "name": "doubling_chain_k1",
+      "note": "5*2^1 - 2 = 8 bytes; 2^2 - 1 = 3 occurrences; height 1",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]}
+        ],
+        "root": 1
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 8, "occurrences": 3, "height": 1 }
+      }
+    },
+    {
+      "name": "doubling_chain_k2",
+      "note": "5*2^2 - 2 = 18 bytes; 2^3 - 1 = 7 occurrences; height 2",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]}
+        ],
+        "root": 2
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 18, "occurrences": 7, "height": 2 }
+      }
+    },
+    {
+      "name": "doubling_chain_k3",
+      "note": "5*2^3 - 2 = 38 bytes; 2^4 - 1 = 15 occurrences; height 3",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 38, "occurrences": 15, "height": 3 }
+      }
+    },
+    {
+      "name": "doubling_chain_k10",
+      "note": "5*2^10 - 2 = 5118 bytes; 2^11 - 1 = 2047 occurrences; height 10",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]}
+        ],
+        "root": 10
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 5118, "occurrences": 2047, "height": 10 }
+      }
+    },
+    {
+      "name": "doubling_chain_k20",
+      "note": "5*2^20 - 2 = 5242878 bytes; 2^21 - 1 = 2097151 occurrences; height 20",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]}
+        ],
+        "root": 20
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": false,
+      "expect": {
+        "measures": { "encoded_bytes": 5242878, "occurrences": 2097151, "height": 20 }
+      }
+    },
+    {
+      "name": "doubling_chain_k50",
+      "note": "5*2^50 - 2 = 5629499534213118 bytes; 2^51 - 1 = 2251799813685247 occurrences; height 50",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]}
+        ],
+        "root": 50
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": false,
+      "expect": {
+        "measures": { "encoded_bytes": 5629499534213118, "occurrences": 2251799813685247, "height": 50 }
+      }
+    },
+    {
+      "name": "doubling_chain_k3_every_bound_equal",
+      "note": "38 bytes, 15 occurrences, height 3, each exactly at its bound",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 38, "occurrences": 15, "height": 3 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 38, "occurrences": 15, "height": 3 }
+      }
+    },
+    {
+      "name": "doubling_chain_k50_every_bound_equal",
+      "note": "5*2^50 - 2 bytes, 2^51 - 1 occurrences, height 50, each exactly at its bound",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]}
+        ],
+        "root": 50
+      },
+      "bounds": { "encoded_bytes": 5629499534213118, "occurrences": 2251799813685247, "height": 50 },
+      "expandable": false,
+      "expect": {
+        "measures": { "encoded_bytes": 5629499534213118, "occurrences": 2251799813685247, "height": 50 }
+      }
+    },
+    {
+      "name": "doubling_chain_k3_bytes_over",
+      "note": "38 bytes > 37; 15 <= 15; 3 <= 3",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 37, "occurrences": 15, "height": 3 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["encoded_bytes"]
+      }
+    },
+    {
+      "name": "doubling_chain_k3_occurrences_over",
+      "note": "38 <= 38; 15 occurrences > 14; 3 <= 3",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 38, "occurrences": 14, "height": 3 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["occurrences"]
+      }
+    },
+    {
+      "name": "doubling_chain_k3_height_over",
+      "note": "38 <= 38; 15 <= 15; height 3 > 2",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 38, "occurrences": 15, "height": 2 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["height"]
+      }
+    },
+    {
+      "name": "doubling_chain_k50_bytes_one_past_bound",
+      "note": "5*2^50 - 2 = 5629499534213118 bytes > 5629499534213117; the others within",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]}
+        ],
+        "root": 50
+      },
+      "bounds": { "encoded_bytes": 5629499534213117, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": false,
+      "expect": {
+        "exceeded": ["encoded_bytes"]
+      }
+    },
+    {
+      "name": "doubling_chain_k51_bytes_past_2^53",
+      "note": "5*2^51 - 2 = 11258999068426238 bytes > 2^53 - 1; 2^52 - 1 = 4503599627370495 occurrences and height 51 within",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]},
+          {"tuple": [50, 50]}
+        ],
+        "root": 51
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": false,
+      "expect": {
+        "exceeded": ["encoded_bytes"]
+      }
+    },
+    {
+      "name": "doubling_chain_k3_all_over",
+      "note": "38 > 37, 15 > 14, 3 > 2",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]}
+        ],
+        "root": 3
+      },
+      "bounds": { "encoded_bytes": 37, "occurrences": 14, "height": 2 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["encoded_bytes", "height", "occurrences"]
+      }
+    },
+    {
+      "name": "doubling_chain_k64",
+      "note": "5*2^64 - 2 bytes > 2^64 > 2^53 - 1; 2^65 - 1 occurrences > 2^53 - 1; height 64 at its bound 64, within",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]},
+          {"tuple": [50, 50]},
+          {"tuple": [51, 51]},
+          {"tuple": [52, 52]},
+          {"tuple": [53, 53]},
+          {"tuple": [54, 54]},
+          {"tuple": [55, 55]},
+          {"tuple": [56, 56]},
+          {"tuple": [57, 57]},
+          {"tuple": [58, 58]},
+          {"tuple": [59, 59]},
+          {"tuple": [60, 60]},
+          {"tuple": [61, 61]},
+          {"tuple": [62, 62]},
+          {"tuple": [63, 63]}
+        ],
+        "root": 64
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 64 },
+      "expandable": false,
+      "expect": {
+        "exceeded": ["encoded_bytes", "occurrences"]
+      }
+    },
+    {
+      "name": "doubling_chain_k64_height_bound_63",
+      "note": "as doubling_chain_k64, and height 64 > 63",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0, 0]},
+          {"tuple": [1, 1]},
+          {"tuple": [2, 2]},
+          {"tuple": [3, 3]},
+          {"tuple": [4, 4]},
+          {"tuple": [5, 5]},
+          {"tuple": [6, 6]},
+          {"tuple": [7, 7]},
+          {"tuple": [8, 8]},
+          {"tuple": [9, 9]},
+          {"tuple": [10, 10]},
+          {"tuple": [11, 11]},
+          {"tuple": [12, 12]},
+          {"tuple": [13, 13]},
+          {"tuple": [14, 14]},
+          {"tuple": [15, 15]},
+          {"tuple": [16, 16]},
+          {"tuple": [17, 17]},
+          {"tuple": [18, 18]},
+          {"tuple": [19, 19]},
+          {"tuple": [20, 20]},
+          {"tuple": [21, 21]},
+          {"tuple": [22, 22]},
+          {"tuple": [23, 23]},
+          {"tuple": [24, 24]},
+          {"tuple": [25, 25]},
+          {"tuple": [26, 26]},
+          {"tuple": [27, 27]},
+          {"tuple": [28, 28]},
+          {"tuple": [29, 29]},
+          {"tuple": [30, 30]},
+          {"tuple": [31, 31]},
+          {"tuple": [32, 32]},
+          {"tuple": [33, 33]},
+          {"tuple": [34, 34]},
+          {"tuple": [35, 35]},
+          {"tuple": [36, 36]},
+          {"tuple": [37, 37]},
+          {"tuple": [38, 38]},
+          {"tuple": [39, 39]},
+          {"tuple": [40, 40]},
+          {"tuple": [41, 41]},
+          {"tuple": [42, 42]},
+          {"tuple": [43, 43]},
+          {"tuple": [44, 44]},
+          {"tuple": [45, 45]},
+          {"tuple": [46, 46]},
+          {"tuple": [47, 47]},
+          {"tuple": [48, 48]},
+          {"tuple": [49, 49]},
+          {"tuple": [50, 50]},
+          {"tuple": [51, 51]},
+          {"tuple": [52, 52]},
+          {"tuple": [53, 53]},
+          {"tuple": [54, 54]},
+          {"tuple": [55, 55]},
+          {"tuple": [56, 56]},
+          {"tuple": [57, 57]},
+          {"tuple": [58, 58]},
+          {"tuple": [59, 59]},
+          {"tuple": [60, 60]},
+          {"tuple": [61, 61]},
+          {"tuple": [62, 62]},
+          {"tuple": [63, 63]}
+        ],
+        "root": 64
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 63 },
+      "expandable": false,
+      "expect": {
+        "exceeded": ["encoded_bytes", "height", "occurrences"]
+      }
+    },
+    {
+      "name": "empty_atom_zero_bounds",
+      "note": "2 bytes > 0; 1 occurrence > 0; height 0 <= 0",
+      "value": {
+        "nodes": [
+          {"atom": ""}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 0, "occurrences": 0, "height": 0 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["encoded_bytes", "occurrences"]
+      }
+    },
+    {
+      "name": "empty_tuple_zero_bounds",
+      "note": "2 bytes > 0; 1 occurrence > 0; height 0 <= 0",
+      "value": {
+        "nodes": [
+          {"tuple": []}
+        ],
+        "root": 0
+      },
+      "bounds": { "encoded_bytes": 0, "occurrences": 0, "height": 0 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["encoded_bytes", "occurrences"]
+      }
+    },
+    {
+      "name": "shared_subtree_reached_deeper_second",
+      "note": "S (height 4) is a child of the root and also sits under three more tuples in its sibling: 30 bytes, 14 occurrences, height 1 + max(4, 3 + 4) = 8",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0]},
+          {"tuple": [1]},
+          {"tuple": [2]},
+          {"tuple": [3]},
+          {"tuple": [4]},
+          {"tuple": [5]},
+          {"tuple": [6]},
+          {"tuple": [4, 7]}
+        ],
+        "root": 8
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 9007199254740991 },
+      "expandable": true,
+      "expect": {
+        "measures": { "encoded_bytes": 30, "occurrences": 14, "height": 8 }
+      }
+    },
+    {
+      "name": "shared_subtree_reached_deeper_second_height_over",
+      "note": "as shared_subtree_reached_deeper_second, height 8 > 7: the second, deeper path to S is what makes it 8",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0]},
+          {"tuple": [1]},
+          {"tuple": [2]},
+          {"tuple": [3]},
+          {"tuple": [4]},
+          {"tuple": [5]},
+          {"tuple": [6]},
+          {"tuple": [4, 7]}
+        ],
+        "root": 8
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 7 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["height"]
+      }
+    },
+    {
+      "name": "shared_subtree_reached_deeper_first_height_over",
+      "note": "the same value with the root's children swapped: height 8 > 7",
+      "value": {
+        "nodes": [
+          {"atom": "00"},
+          {"tuple": [0]},
+          {"tuple": [1]},
+          {"tuple": [2]},
+          {"tuple": [3]},
+          {"tuple": [4]},
+          {"tuple": [5]},
+          {"tuple": [6]},
+          {"tuple": [7, 4]}
+        ],
+        "root": 8
+      },
+      "bounds": { "encoded_bytes": 9007199254740991, "occurrences": 9007199254740991, "height": 7 },
+      "expandable": true,
+      "expect": {
+        "exceeded": ["height"]
+      }
+    }
+  ]
+}

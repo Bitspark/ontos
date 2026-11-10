@@ -35,7 +35,8 @@
           "2-the-encoding",
           "3-uvarint--the-lengtharity-encoding",
           "4-decoding--rejection-codes",
-          "9-conformance"
+          "9-conformance",
+          "10-measuring-a-value-without-expanding-it"
         ]
       },
       {

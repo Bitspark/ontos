@@ -99,6 +99,44 @@ distinctions, and atom/tuple disjointness. Pure model — no bytes, no codec.
   corpus; this one is policy, which the CLIs never read and whose output they do not
   change (ontos-internal#352, research 0003 row 14).
 
+### `codec-measure.json` — `measure` *(pins `ontos-codec.md` §10, **not** the byte contract)*
+
+```text
+{
+  "codec": "ontos-codec-v1",
+  "cases": [ { "name", "note",
+               "value":  { "nodes": [ { "atom": "<hex>" } | { "tuple": [ <earlier index>, … ] }, … ],
+                           "root": <index> },
+               "bounds": { "encoded_bytes", "occurrences", "height" },
+               "expandable": <bool>,
+               "expect": { "measures": { "encoded_bytes", "occurrences", "height" } }
+                       | { "exceeded": [ "<identifier>", … ] } }, … ]
+}
+```
+
+- A value here is a **node table**, not the nested notation above, so that a case can say
+  which subtrees are *shared*. A tuple names only earlier entries, so the table is acyclic by
+  construction, and the same index may appear more than once. A face that can share subtrees
+  (Go, TypeScript, Python) builds one in-memory node per entry, so an index named twice is one
+  node reached twice, and measures it without expanding it.
+- Each face calls its **library** `measure` on the root under `bounds` and MUST produce
+  `expect`: the three exact measures when each is within its bound (less than or equal to
+  it), or the identifiers of every measure over its bound (`encoded_bytes`, `height`,
+  `occurrences`), in ascending order. Every bound is at most `2^53 − 1`, which every face
+  represents exactly.
+- `expandable` is `true` when the expanded tree has at most 4096 occurrences. A face that
+  cannot share subtrees (Rust, whose values own their children) builds those values by
+  copying and replays only them; it never has to guess which cases are small.
+- Cases cover atoms and arities across a uvarint width (127 and 128), the empty tuple, the
+  doubling chain (`x0 = Atom(00)`, `xk = Tuple(x(k−1), x(k−1))`: `5·2^k − 2` bytes,
+  `2^(k+1) − 1` occurrences, height `k`) exact up to `k = 50` and over its bounds at
+  `k = 51` and `k = 64`, one measure over while the others stay within, all three over,
+  bounds of zero, bounds exactly equal to the measures, and a shared subtree reached first
+  on a shallow path and then on a deeper one, which must still count toward the height.
+- Hand-authored (Class A): every expected number comes from the equations of §10.1, and each
+  case's `note` shows the arithmetic. Like `codec-limits.json`, this file is kept apart from
+  the byte corpus, and the CLIs never read it.
+
 ### `data.json` — `ontos/data` (L2) embeddings *(pins `ontos-data-v1`)*
 
 ```text

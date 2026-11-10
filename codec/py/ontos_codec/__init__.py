@@ -9,6 +9,10 @@ trailing bytes, non-canonical uvarints, uvarints outside the u64 domain
 (``uvarint_overflow``), and inputs exceeding the configured limits
 (``limit_exceeded``).
 
+``measure`` reports a value's canonical encoded length, its expanded occurrence
+count and its height without expanding shared subtrees, against bounds the
+caller states (ontos-codec.md §10, pinned by vectors/codec-measure.json).
+
 This codec is kept beside the model (it depends on ``ontos_core``, never the
 reverse). The byte mapping is frozen (any change ships as a new version).
 Conformance is pinned by vectors/codec.json (codec: ``ontos-codec-v1``).
@@ -24,7 +28,7 @@ structurally).
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, NamedTuple, Optional
 
 from ontos_core import Atom, Tuple, Value, atom, tuple_
 
@@ -37,6 +41,12 @@ __all__ = [
     "encode",
     "decode",
     "encode_uvarint",
+    "MEASURE_ENCODED_BYTES",
+    "MEASURE_HEIGHT",
+    "MEASURE_OCCURRENCES",
+    "MeasureError",
+    "Measures",
+    "measure",
 ]
 
 _TAG_ATOM = 0x00
@@ -286,3 +296,169 @@ def _read_uvarint(reader: _Reader) -> int:
         raise DecodeError("non_canonical_uvarint", f"non-canonical uvarint at offset {start}")
 
     return result
+
+
+# The measures ``measure`` reports (ontos-codec.md §10), by their stable identifiers. The
+# vocabulary is append-only, as the limit kinds' is: a name never changes meaning, but a
+# later version may add names, so treat an unrecognized name as over limit all the same.
+MEASURE_ENCODED_BYTES = "encoded_bytes"  # the length of the canonical encoding
+MEASURE_HEIGHT = "height"  # how deep the value is nested, as max_depth counts it
+MEASURE_OCCURRENCES = "occurrences"  # the number of values in the expanded tree
+
+
+class Measures(NamedTuple):
+    """A value's three measures, each exact, as ``measure`` returns them."""
+
+    encoded_bytes: int
+    occurrences: int
+    height: int
+
+
+class MeasureError(Exception):
+    """The over-limit outcome of ``measure``.
+
+    ``exceeded`` names every measure that exceeded its bound, in ascending order of the
+    names (``encoded_bytes``, ``height``, ``occurrences``), and is never empty. It is a
+    function of the value and the bounds alone (ontos-codec.md §10.2). It carries no
+    numbers: a measure past its bound was not counted to the end.
+    """
+
+    def __init__(self, exceeded) -> None:
+        self.exceeded = tuple(exceeded)
+        super().__init__("over limit: " + ", ".join(self.exceeded))
+
+
+def measure(value: Value, *, max_encoded_bytes: int, max_occurrences: int, max_height: int) -> Measures:
+    """The length of ``value``'s canonical encoding, the number of values in its expanded
+    tree, and its height, computed without expanding it (ontos-codec.md §10).
+
+    Every bound is required, keyword-only and a non-negative ``int`` (``TypeError`` for
+    another type, ``bool`` included; ``ValueError`` for a negative one). A measure equal to
+    its bound is within it. Returns the three measures exactly when each is within its
+    bound; otherwise raises ``MeasureError`` naming every measure over its bound.
+
+    A tuple may be a child of several parents, and a chain of k such tuples can denote a
+    tree whose encoding is 5·2^k − 2 bytes long. ``measure`` visits each distinct tuple
+    object once and adds its measures once per incoming edge, so its work is linear in the
+    distinct tuples plus their child edges, whatever the bounds. It walks with an explicit
+    stack, so a value of any height can be measured. Its arithmetic saturates at each
+    bound, so every number it handles stays at most a bound. Structurally equal tuples
+    built separately are measured correctly, just not shared.
+    """
+    meter = _Meter(
+        _require_bound("max_encoded_bytes", max_encoded_bytes),
+        _require_bound("max_occurrences", max_occurrences),
+        _require_bound("max_height", max_height),
+    )
+    got = meter.measure(value)
+    exceeded = []
+    if meter.over_bytes:
+        exceeded.append(MEASURE_ENCODED_BYTES)
+    if meter.over_height:
+        exceeded.append(MEASURE_HEIGHT)
+    if meter.over_occurrences:
+        exceeded.append(MEASURE_OCCURRENCES)
+    if exceeded:
+        raise MeasureError(exceeded)
+    return got
+
+
+def _require_bound(name: str, bound: object) -> int:
+    if not isinstance(bound, int) or isinstance(bound, bool):
+        raise TypeError(f"{name} must be a non-negative int, got {type(bound).__name__}")
+    if bound < 0:
+        raise ValueError(f"{name} must be a non-negative int, got {bound}")
+    return bound
+
+
+def _uvarint_length(n: int) -> int:
+    """The length of ``n``'s shortest-form uvarint (ontos-codec.md §3)."""
+    return max(1, (n.bit_length() + 6) // 7)
+
+
+class _Meter:
+    """One walk: the bounds, the memo of measured tuples, and for each measure whether any
+    partial result passed its bound.
+
+    No subtree's measure is larger than the whole value's, so a partial result past a bound
+    proves the value's measure is too: one flag per measure is exact, and a number held at
+    its bound never changes the outcome (ontos-codec.md §10.2). The memo is keyed on
+    ``id(tuple)``: every tuple stays reachable from the root for the whole walk, so no id
+    is reused while the memo lives.
+    """
+
+    __slots__ = ("max_bytes", "max_occurrences", "max_height", "memo", "over_bytes", "over_occurrences", "over_height")
+
+    def __init__(self, max_bytes: int, max_occurrences: int, max_height: int) -> None:
+        self.max_bytes = max_bytes
+        self.max_occurrences = max_occurrences
+        self.max_height = max_height
+        self.memo: Dict[int, Measures] = {}
+        self.over_bytes = False
+        self.over_occurrences = False
+        self.over_height = False
+
+    def _add_bytes(self, a: int, b: int) -> int:
+        if a + b > self.max_bytes:
+            self.over_bytes = True
+            return self.max_bytes
+        return a + b
+
+    def _add_occurrences(self, a: int, b: int) -> int:
+        if a + b > self.max_occurrences:
+            self.over_occurrences = True
+            return self.max_occurrences
+        return a + b
+
+    def _atom(self, v: Atom) -> Measures:
+        n = len(v)
+        return Measures(self._add_bytes(1 + _uvarint_length(n), n), self._add_occurrences(0, 1), 0)
+
+    def _open(self, t: Tuple) -> list:
+        items = t.items()
+        # [tuple, items, next child, bytes, occurrences, deepest child height]
+        return [t, items, 0, self._add_bytes(1, _uvarint_length(len(items))), self._add_occurrences(0, 1), 0]
+
+    def _add_child(self, frame: list, child: Measures) -> None:
+        frame[3] = self._add_bytes(frame[3], child.encoded_bytes)
+        frame[4] = self._add_occurrences(frame[4], child.occurrences)
+        if child.height > frame[5]:
+            frame[5] = child.height
+
+    def measure(self, value: Value) -> Measures:
+        """Post-order with an explicit stack of open tuples. A tuple is opened the first
+        time it is reached; it cannot be reached again while open, because a value is
+        acyclic, so each distinct tuple is opened once and every later edge to it is a memo
+        hit that adds its measures, height included."""
+        if isinstance(value, Atom):
+            return self._atom(value)
+        if not isinstance(value, Tuple):
+            raise TypeError("expected an ontos Value")
+        stack = [self._open(value)]
+        while True:
+            top = stack[-1]
+            items = top[1]
+            if top[2] < len(items):
+                child = items[top[2]]
+                top[2] += 1
+                if isinstance(child, Atom):
+                    self._add_child(top, self._atom(child))
+                else:
+                    seen = self.memo.get(id(child))
+                    if seen is not None:
+                        self._add_child(top, seen)
+                    else:
+                        stack.append(self._open(child))
+                continue
+            height = 0
+            if items:
+                height = top[5] + 1
+                if height > self.max_height:
+                    self.over_height = True
+                    height = self.max_height
+            done = Measures(top[3], top[4], height)
+            self.memo[id(top[0])] = done
+            stack.pop()
+            if not stack:
+                return done
+            self._add_child(stack[-1], done)

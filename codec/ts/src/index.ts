@@ -10,6 +10,10 @@
  * (uvarint_overflow), and inputs exceeding the configured/native limits
  * (limit_exceeded, whose DecodeError.limitKind names the bound; §4.2).
  *
+ * measure reports a value's canonical encoded length, its expanded occurrence
+ * count and its height without expanding shared subtrees, against bounds the
+ * caller states (§10, pinned by vectors/codec-measure.json).
+ *
  * This codec is kept beside the model (it depends on ontos-core, never the
  * reverse). The byte mapping is frozen (any change ships as a new version).
  * Conformance is pinned by vectors/codec.json (codec: ontos-codec-v1).
@@ -367,3 +371,197 @@ function normalizeDecodeOptions(options: DecodeOptions): Required<DecodeOptions>
   return { maxDepth, maxAtomBytes, maxTupleArity };
 }
 
+
+/**
+ * The measures {@link measure} reports (ontos-codec.md §10), by their stable identifiers.
+ * The vocabulary is append-only, as {@link DecodeLimitKind}'s is: a name never changes
+ * meaning, but a later version may add names, which is why the type is open. Treat a name
+ * outside this object as over limit all the same.
+ */
+export const MeasureKind = {
+  /** The length of the value's canonical encoding: `encode(value).length`. */
+  EncodedBytes: "encoded_bytes",
+  /**
+   * How deep the value is nested, as the decoder's `maxDepth` counts it: 0 for an atom and
+   * for the empty tuple, 1 + the deepest child otherwise.
+   */
+  Height: "height",
+  /** The number of values in the expanded tree, the root included. */
+  Occurrences: "occurrences",
+} as const;
+
+/** A measure identifier. Open on purpose: see {@link MeasureKind}. */
+export type MeasureKind = (typeof MeasureKind)[keyof typeof MeasureKind] | (string & {});
+
+/**
+ * One bound for each measure, and no defaults: each is a non-negative safe integer, and a
+ * measure equal to its bound is within it.
+ */
+export interface MeasureBounds {
+  readonly maxEncodedBytes: number;
+  readonly maxOccurrences: number;
+  readonly maxHeight: number;
+}
+
+/** A value's three measures, each exact, as {@link measure} returns them. */
+export interface Measures {
+  readonly encodedBytes: number;
+  readonly occurrences: number;
+  readonly height: number;
+}
+
+/**
+ * The over-limit outcome of {@link measure}. `exceeded` names every measure that exceeded
+ * its bound, in ascending order of the names (`encoded_bytes`, `height`, `occurrences`),
+ * and is never empty. It is a function of the value and the bounds alone (§10.2). It
+ * carries no numbers: a measure past its bound was not counted to the end.
+ */
+export class MeasureError extends Error {
+  readonly exceeded: readonly MeasureKind[];
+  constructor(exceeded: readonly MeasureKind[]) {
+    super(`over limit: ${exceeded.join(", ")}`);
+    this.name = "MeasureError";
+    this.exceeded = Object.freeze([...exceeded]);
+  }
+}
+
+/**
+ * The length of `value`'s canonical encoding, the number of values in its expanded tree,
+ * and its height, computed without expanding it (ontos-codec.md §10). Returns them exactly
+ * when each is within its bound; otherwise throws a {@link MeasureError} naming every
+ * measure over its bound. Throws `RangeError` for a bound that is not a non-negative safe
+ * integer.
+ *
+ * A tuple may be a child of several parents, and a chain of k such tuples can denote a
+ * tree whose encoding is 5·2^k − 2 bytes long. `measure` visits each distinct tuple object
+ * once and adds its measures once per incoming edge, so its work is linear in the distinct
+ * tuples plus their child edges, whatever the bounds. It walks with an explicit stack, so a
+ * value of any height can be measured, and its arithmetic saturates at each bound, so every
+ * number it handles stays a safe integer. Structurally equal tuples built separately are
+ * measured correctly, just not shared.
+ */
+export function measure(value: Value, bounds: MeasureBounds): Measures {
+  const meter = new Meter(bounds);
+  const got = meter.measure(value);
+  const exceeded: MeasureKind[] = [];
+  if (meter.overBytes) exceeded.push(MeasureKind.EncodedBytes);
+  if (meter.overHeight) exceeded.push(MeasureKind.Height);
+  if (meter.overOccurrences) exceeded.push(MeasureKind.Occurrences);
+  if (exceeded.length > 0) throw new MeasureError(exceeded);
+  return got;
+}
+
+interface MeasureFrame {
+  readonly tuple: Tuple;
+  readonly items: readonly Value[];
+  next: number;
+  bytes: number;
+  occurrences: number;
+  deepest: number;
+}
+
+// One walk: the bounds, the memo of measured tuples, and for each measure whether any partial
+// result passed its bound. No subtree's measure is larger than the whole value's, so a partial
+// result past a bound proves the value's measure is too: one flag per measure is exact, and a
+// number held at its bound never changes the outcome (§10.2).
+class Meter {
+  readonly maxBytes: number;
+  readonly maxOccurrences: number;
+  readonly maxHeight: number;
+  readonly memo = new Map<Tuple, Measures>();
+  overBytes = false;
+  overOccurrences = false;
+  overHeight = false;
+
+  constructor(bounds: MeasureBounds) {
+    this.maxBytes = requireBound("maxEncodedBytes", bounds.maxEncodedBytes);
+    this.maxOccurrences = requireBound("maxOccurrences", bounds.maxOccurrences);
+    this.maxHeight = requireBound("maxHeight", bounds.maxHeight);
+  }
+
+  // a + b, held at the bound once past it. Both stay at most a bound, a safe integer, so the
+  // comparison and the sum are exact.
+  private addBytes(a: number, b: number): number {
+    if (a > this.maxBytes || b > this.maxBytes - a) {
+      this.overBytes = true;
+      return this.maxBytes;
+    }
+    return a + b;
+  }
+
+  private addOccurrences(a: number, b: number): number {
+    if (a > this.maxOccurrences || b > this.maxOccurrences - a) {
+      this.overOccurrences = true;
+      return this.maxOccurrences;
+    }
+    return a + b;
+  }
+
+  private atom(v: Atom): Measures {
+    const n = v.length;
+    return { encodedBytes: this.addBytes(1 + uvarintLength(n), n), occurrences: this.addOccurrences(0, 1), height: 0 };
+  }
+
+  private open(tuple: Tuple): MeasureFrame {
+    const items = tuple.items();
+    return {
+      tuple,
+      items,
+      next: 0,
+      bytes: this.addBytes(1, uvarintLength(items.length)),
+      occurrences: this.addOccurrences(0, 1),
+      deepest: 0,
+    };
+  }
+
+  private addChild(frame: MeasureFrame, child: Measures): void {
+    frame.bytes = this.addBytes(frame.bytes, child.encodedBytes);
+    frame.occurrences = this.addOccurrences(frame.occurrences, child.occurrences);
+    if (child.height > frame.deepest) frame.deepest = child.height;
+  }
+
+  // Post-order with an explicit stack of open tuples. A tuple is opened the first time it is
+  // reached; it cannot be reached again while open, because a value is acyclic, so each
+  // distinct tuple is opened once and every later edge to it is a memo hit that adds its
+  // measures, height included.
+  measure(value: Value): Measures {
+    if (value instanceof Atom) return this.atom(value);
+    const stack: MeasureFrame[] = [this.open(value)];
+    for (;;) {
+      const top = stack[stack.length - 1]!;
+      if (top.next < top.items.length) {
+        const child = top.items[top.next]!;
+        top.next += 1;
+        if (child instanceof Atom) {
+          this.addChild(top, this.atom(child));
+        } else {
+          const seen = this.memo.get(child);
+          if (seen !== undefined) this.addChild(top, seen);
+          else stack.push(this.open(child));
+        }
+        continue;
+      }
+      let height = 0;
+      if (top.items.length > 0) {
+        height = top.deepest + 1;
+        if (top.deepest >= this.maxHeight) {
+          this.overHeight = true;
+          height = this.maxHeight;
+        }
+      }
+      const done: Measures = { encodedBytes: top.bytes, occurrences: top.occurrences, height };
+      this.memo.set(top.tuple, done);
+      stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent === undefined) return done;
+      this.addChild(parent, done);
+    }
+  }
+}
+
+function requireBound(name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer`);
+  }
+  return value;
+}

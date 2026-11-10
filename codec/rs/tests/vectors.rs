@@ -4,7 +4,8 @@
 //! `ontos-core` and `ontos-codec` stay dependency-free.
 
 use ontos_codec::{
-    decode, decode_with_limits, encode, encode_uvarint, DecodeError, DecodeLimitKind, DecodeLimits,
+    decode, decode_with_limits, encode, encode_uvarint, measure, DecodeError, DecodeLimitKind,
+    DecodeLimits, MeasureBounds, MeasureKind, Measures,
 };
 use ontos_core::Value;
 
@@ -500,4 +501,96 @@ fn compatibility_of_decode_error() {
         ("limit_exceeded", None)
     );
     assert_eq!(DecodeLimitKind::TupleArity.to_string(), "tuple_arity");
+}
+
+/// Builds a `codec-measure.json` node table by copying: a Rust value owns its children, so
+/// an index named twice becomes two equal subtrees. Only `expandable` cases are small enough.
+fn measure_value_from_table(table: &Json) -> Value {
+    let mut built: Vec<Value> = Vec::new();
+    for (i, node) in table.get("nodes").unwrap().arr().iter().enumerate() {
+        if let Some(a) = node.get("atom") {
+            built.push(Value::atom(hex_to_bytes(a.str())));
+        } else {
+            let items: Vec<Value> = node
+                .get("tuple")
+                .unwrap()
+                .arr()
+                .iter()
+                .map(|r| {
+                    let r = r.int() as usize;
+                    assert!(r < i, "node {i} names {r}, which is not an earlier node");
+                    built[r].clone()
+                })
+                .collect();
+            built.push(Value::tuple(items));
+        }
+    }
+    built.swap_remove(table.get("root").unwrap().int() as usize)
+}
+
+/// Replays `vectors/codec-measure.json`: every case marked `expandable`, the ones whose
+/// expanded tree a face without sharing can build (record 0008 §7).
+#[test]
+fn codec_measure_vectors() {
+    let doc = read_vectors("codec-measure.json");
+    let cases = doc.get("cases").unwrap().arr();
+    assert_eq!(cases.len() as u64, doc.get("count").unwrap().int());
+    let mut replayed = 0;
+    for case in cases {
+        let name = case.get("name").unwrap().str();
+        if !case.get("expandable").unwrap().boolean() {
+            continue;
+        }
+        replayed += 1;
+        let value = measure_value_from_table(case.get("value").unwrap());
+        let b = case.get("bounds").unwrap();
+        let bounds = MeasureBounds {
+            max_encoded_bytes: b.get("encoded_bytes").unwrap().int(),
+            max_occurrences: b.get("occurrences").unwrap().int(),
+            max_height: b.get("height").unwrap().int(),
+        };
+        let expect = case.get("expect").unwrap();
+        if let Some(want) = expect.get("measures") {
+            let want = Measures {
+                encoded_bytes: want.get("encoded_bytes").unwrap().int(),
+                occurrences: want.get("occurrences").unwrap().int(),
+                height: want.get("height").unwrap().int(),
+            };
+            assert_eq!(measure(&value, bounds), Ok(want), "{name}");
+            assert_eq!(encode(&value).len() as u64, want.encoded_bytes, "{name}");
+        } else {
+            let want: Vec<&str> = expect
+                .get("exceeded")
+                .unwrap()
+                .arr()
+                .iter()
+                .map(Json::str)
+                .collect();
+            assert!(!want.is_empty(), "{name}: expects nothing");
+            let err = measure(&value, bounds).expect_err(name);
+            let got: Vec<&str> = err.exceeded().iter().map(|k| k.as_str()).collect();
+            assert_eq!(got, want, "{name}");
+        }
+    }
+    assert!(replayed >= 20, "only {replayed} expandable cases");
+}
+
+/// The identifiers are the spec's, and an over-limit error lists them in ascending order.
+#[test]
+fn measure_kind_identifiers() {
+    assert_eq!(MeasureKind::EncodedBytes.as_str(), "encoded_bytes");
+    assert_eq!(MeasureKind::Height.as_str(), "height");
+    assert_eq!(MeasureKind::Occurrences.as_str(), "occurrences");
+    let zero = MeasureBounds {
+        max_encoded_bytes: 0,
+        max_occurrences: 0,
+        max_height: 0,
+    };
+    let deep = Value::tuple([Value::atom(vec![0])]);
+    let err = measure(&deep, zero).unwrap_err();
+    let got: Vec<&str> = err.exceeded().iter().map(|k| k.as_str()).collect();
+    let mut sorted = got.clone();
+    sorted.sort_unstable();
+    assert_eq!(got, sorted);
+    assert_eq!(got, ["encoded_bytes", "height", "occurrences"]);
 }

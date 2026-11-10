@@ -10,6 +10,10 @@
 // implementation's native materialization width (limit_exceeded, whose
 // DecodeError.LimitKind names the bound; spec §4.2).
 //
+// Measure reports a value's canonical encoded length, its expanded occurrence count and
+// its height without expanding shared subtrees, against bounds the caller states
+// (spec §10, pinned by vectors/codec-measure.json).
+//
 // This codec is kept beside the model (it imports core, never the reverse).
 // Conformance is pinned by vectors/codec.json (codec id: ontos-codec-v1) and
 // specified normatively in docs/spec/ontos-codec.md.

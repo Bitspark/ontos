@@ -53,6 +53,10 @@ For the cases whose bytes a human can compute by eye: the codec vectors
 nesting `int` children: it is codec-independent (canonical form is purely structural),
 so its hex is the `decimal` tuple wrapper composed over the already-pinned `int` child
 encodings — mechanical to compute and check by eye.
+[`vectors/codec-measure.json`](../vectors/codec-measure.json), which pins `measure`
+([ontos-codec §10](spec/ontos-codec.md)), is Class A as well: it carries numbers rather than
+bytes, each computed from the equations of §10.1 or the doubling chain's closed forms, and
+each case's `note` shows the arithmetic.
 
 Requirements:
 

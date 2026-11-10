@@ -25,6 +25,14 @@
       "codec-version-relativity",
       "how-to-regenerate--verify"
     ],
+    "docs/consults/0001-reversible-json-projection.md": [
+      "consultation-0001-a-reversible-json-projection-of-ground-values",
+      "decided-before-the-consultation",
+      "the-question",
+      "the-options-as-seen",
+      "what-depends-on-the-answer",
+      "answer"
+    ],
     "docs/design/0001-convergence-test-sealed-prediction.md": [
       "ontos-foundational-semantics--sealed-prediction-pre-registration",
       "predicted-core--we-expect-convergence-here",

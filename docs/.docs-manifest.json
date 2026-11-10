@@ -448,7 +448,14 @@
       "6-the-canonical-total-order-over-values-unblocks-map",
       "7-versioning-frozen",
       "8-relationship-to-the-plexis-nil-drop",
-      "9-conformance"
+      "9-conformance",
+      "10-measuring-a-value-without-expanding-it",
+      "101-the-three-measures",
+      "102-bounds-and-the-outcome",
+      "103-sharing-and-the-work-it-takes",
+      "104-worked-example-the-doubling-chain",
+      "105-the-api-in-each-face",
+      "106-out-of-scope"
     ],
     "docs/spec/ontos-compound.md": [
       "ontoscompound-l1--the-labeled-compound-reading",
@@ -550,7 +557,8 @@
         "2-the-encoding",
         "3-uvarint--the-lengtharity-encoding",
         "4-decoding--rejection-codes",
-        "9-conformance"
+        "9-conformance",
+        "10-measuring-a-value-without-expanding-it"
       ],
       "unknownAnchors": []
     },

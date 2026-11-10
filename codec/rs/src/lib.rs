@@ -197,20 +197,43 @@ pub fn encode_uvarint(mut value: u64, out: &mut Vec<u8>) {
 /// Pre-order with an explicit stack (ontos-internal#340), so the depth of a value this writes is never a
 /// property of the native stack. Children are pushed in reverse so they are written in order;
 /// the bytes are exactly the recursive walk's.
+///
+/// An atom, or a tuple whose items are all atoms, is the common case and is written directly in
+/// the same order, without allocating a stack (Bitspark/ontos#31).
 fn encode_into(value: &Value, out: &mut Vec<u8>) {
+    let shallow = match value {
+        Value::Atom(_) => true,
+        Value::Tuple(tuple) => tuple.items().iter().all(Value::is_atom),
+    };
+    if shallow {
+        write_head(value, out);
+        if let Value::Tuple(tuple) = value {
+            for item in tuple.items() {
+                write_head(item, out);
+            }
+        }
+        return;
+    }
     let mut pending = vec![value];
     while let Some(value) = pending.pop() {
-        match value {
-            Value::Atom(atom) => {
-                out.push(TAG_ATOM);
-                encode_uvarint(atom.bytes().len() as u64, out);
-                out.extend_from_slice(atom.bytes());
-            }
-            Value::Tuple(tuple) => {
-                out.push(TAG_TUPLE);
-                encode_uvarint(tuple.len() as u64, out);
-                pending.extend(tuple.items().iter().rev());
-            }
+        write_head(value, out);
+        if let Value::Tuple(tuple) = value {
+            pending.extend(tuple.items().iter().rev());
+        }
+    }
+}
+
+/// Writes what a value contributes before its items: all of an atom, or a tuple's tag and arity.
+fn write_head(value: &Value, out: &mut Vec<u8>) {
+    match value {
+        Value::Atom(atom) => {
+            out.push(TAG_ATOM);
+            encode_uvarint(atom.bytes().len() as u64, out);
+            out.extend_from_slice(atom.bytes());
+        }
+        Value::Tuple(tuple) => {
+            out.push(TAG_TUPLE);
+            encode_uvarint(tuple.len() as u64, out);
         }
     }
 }

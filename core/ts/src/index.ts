@@ -151,27 +151,143 @@ export function assertValue(value: unknown): asserts value is Value {
   }
 }
 
+/**
+ * Copies `input` into a fresh Uint8Array that nothing else references.
+ *
+ * - An ArrayBuffer is copied whole; any ArrayBufferView (a Uint8Array or another
+ *   typed array, or a DataView) is copied as its byteOffset..byteOffset+byteLength
+ *   range of its buffer. Objects from another realm are accepted alike.
+ * - A number[] is read exactly once: its `length` once, then each index once, in
+ *   order. Every element must be an integer 0..255, and the byte stored is the very
+ *   element that passed that check. A hole reads as `undefined` and is refused.
+ *
+ * Nothing the caller can redefine is consulted (ontos#32). An array's elements are read
+ * by index, never through its iterator, so a getter that answers differently on a second
+ * read never gets one. A buffer's or view's geometry is read from its internal slots
+ * through the built-in accessors, never through properties that an own getter, a
+ * subclass or a borrowed prototype could override.
+ */
 export function copyBytes(input: BytesLike): Uint8Array {
-  if (input instanceof Uint8Array) {
-    return new Uint8Array(input);
+  const value: unknown = input;
+  if (ArrayBuffer.isView(value)) {
+    return copyView(value);
   }
-  if (input instanceof ArrayBuffer) {
-    return new Uint8Array(input.slice(0));
+  if (Array.isArray(value)) {
+    return copyByteArray(value);
   }
-  if (ArrayBuffer.isView(input)) {
-    const start = input.byteOffset;
-    const end = input.byteOffset + input.byteLength;
-    return new Uint8Array(input.buffer.slice(start, end));
-  }
-  if (Array.isArray(input)) {
-    for (const byte of input) {
-      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
-        throw new RangeError(`byte array element out of range: ${byte}`);
-      }
-    }
-    return Uint8Array.from(input);
+  // Last of the three: its brand check throws and catches on every input that fails it.
+  const bufferLength = arrayBufferByteLength(value);
+  if (bufferLength !== undefined) {
+    return copyRange(value as ArrayBuffer, 0, bufferLength);
   }
   throw new TypeError("expected bytes as Uint8Array, ArrayBuffer, ArrayBufferView, or number[]");
+}
+
+// Built-in accessors, taken once when the module loads. Each reads an internal slot,
+// so it answers the same from any realm and runs no caller code.
+type Accessor = (target: unknown) => unknown;
+
+function builtinGetter(prototype: object, key: PropertyKey): Accessor {
+  const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get;
+  if (getter === undefined) {
+    throw new Error(`ontos-core: built-in accessor ${String(key)} is missing`);
+  }
+  return (target) => Reflect.apply(getter, target, []);
+}
+
+function builtinMethod(prototype: object, key: PropertyKey): Accessor {
+  const method: unknown = Reflect.get(prototype, key);
+  if (typeof method !== "function") {
+    throw new Error(`ontos-core: built-in method ${String(key)} is missing`);
+  }
+  return (target) => Reflect.apply(method, target, []);
+}
+
+const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+// The element type's name for a typed array; undefined for anything else, never a throw.
+const typedArrayName = builtinGetter(typedArrayPrototype, Symbol.toStringTag);
+// Throws a TypeError when a typed array's buffer is detached or has shrunk below it.
+const assertTypedArrayInBounds = builtinMethod(typedArrayPrototype, "keys");
+const typedArrayBuffer = builtinGetter(typedArrayPrototype, "buffer");
+const typedArrayByteOffset = builtinGetter(typedArrayPrototype, "byteOffset");
+const typedArrayByteLength = builtinGetter(typedArrayPrototype, "byteLength");
+// The DataView accessors throw on a detached or out-of-bounds view themselves.
+const dataViewBuffer = builtinGetter(DataView.prototype, "buffer");
+const dataViewByteOffset = builtinGetter(DataView.prototype, "byteOffset");
+const dataViewByteLength = builtinGetter(DataView.prototype, "byteLength");
+const arrayBufferByteLengthGetter = builtinGetter(ArrayBuffer.prototype, "byteLength");
+
+/** Its byte length if `value` is an ArrayBuffer (not shared) from any realm, else undefined. */
+function arrayBufferByteLength(value: unknown): number | undefined {
+  try {
+    return arrayBufferByteLengthGetter(value) as number;
+  } catch {
+    return undefined;
+  }
+}
+
+function copyView(view: ArrayBufferView): Uint8Array {
+  const name = typedArrayName(view);
+  if (name === "Uint8Array") {
+    // The fast path, for an atom cut from a byte buffer (e.g. the codec's per-atom
+    // subarray). The brand says it is a genuine Uint8Array, from any realm, possibly a
+    // subclass. Copying it with the constructor reads its internal slots only, runs no
+    // caller code (no getter, no `constructor`, no species), throws a TypeError if its
+    // buffer is detached or shrank below it, and never shares memory, even when the
+    // source is backed by a SharedArrayBuffer.
+    return new Uint8Array(view as Uint8Array);
+  }
+  if (name !== undefined) {
+    assertTypedArrayInBounds(view);
+    return copyRange(
+      typedArrayBuffer(view) as ArrayBufferLike,
+      typedArrayByteOffset(view) as number,
+      typedArrayByteLength(view) as number,
+    );
+  }
+  // Every ArrayBufferView that is not a typed array is a DataView.
+  return copyRange(
+    dataViewBuffer(view) as ArrayBufferLike,
+    dataViewByteOffset(view) as number,
+    dataViewByteLength(view) as number,
+  );
+}
+
+/** A fresh, unshared copy of `buffer`'s bytes byteOffset..byteOffset+byteLength. */
+function copyRange(buffer: ArrayBufferLike, byteOffset: number, byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  bytes.set(new Uint8Array(buffer, byteOffset, byteLength));
+  return bytes;
+}
+
+// The range of an array's `length`. Only a Proxy can report anything else.
+const MAX_ARRAY_LENGTH = 2 ** 32 - 1;
+
+function copyByteArray(source: readonly unknown[]): Uint8Array {
+  const length: unknown = source.length;
+  if (typeof length !== "number" || !Number.isInteger(length) || length < 0 || length > MAX_ARRAY_LENGTH) {
+    throw new RangeError(`byte array length out of range: ${describe(length)}`);
+  }
+  const bytes = new Uint8Array(length);
+  for (let index = 0; index < length; index += 1) {
+    const byte: unknown = source[index];
+    if (typeof byte !== "number" || !Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new RangeError(`byte array element out of range: ${describe(byte)}`);
+    }
+    bytes[index] = byte;
+  }
+  return bytes;
+}
+
+/**
+ * Names a refused value for an error message without running caller code: a
+ * primitive (a symbol included) as String renders it, an object or function only by
+ * its typeof, since converting it would call its toString or Symbol.toPrimitive.
+ */
+function describe(value: unknown): string {
+  return (typeof value === "object" && value !== null) || typeof value === "function"
+    ? typeof value
+    : String(value);
 }
 
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {

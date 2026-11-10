@@ -64,7 +64,9 @@ use core::hash::{Hash, Hasher};
 /// `Clone`, `PartialEq`/`Eq`, `Hash`, `Debug`, `Display` and dropping all walk
 /// with an explicit heap stack, never one native frame per nesting level, so a
 /// value of any depth can be handled and dropped (ontos-internal#340). Their results are the
-/// ones `#[derive]` would give.
+/// ones `#[derive]` would give. An atom, or a tuple whose items are all atoms, needs no
+/// stack: `Clone`, `PartialEq` and `Hash` handle it directly, and dropping one allocates
+/// nothing (Bitspark/ontos#31).
 pub enum Value {
     Atom(Atom),
     Tuple(Tuple),
@@ -120,6 +122,15 @@ impl Value {
     /// True if this value is a tuple.
     pub fn is_tuple(&self) -> bool {
         matches!(self, Self::Tuple(_))
+    }
+
+    /// An atom, or a tuple whose items are all atoms: a value at most two levels deep, which the
+    /// structural traits below handle without a work stack (Bitspark/ontos#31).
+    fn is_shallow(&self) -> bool {
+        match self {
+            Self::Atom(_) => true,
+            Self::Tuple(tuple) => tuple.items.iter().all(Value::is_atom),
+        }
     }
 }
 
@@ -204,6 +215,12 @@ impl Tuple {
 // equality, the same `Hash` write sequence (so the same hash, not merely one consistent with
 // `Eq`), and the same `Debug` text under every format flag, pretty or not.
 //
+// A shallow value (`Value::is_shallow`: an atom, or a tuple whose items are all atoms) is the
+// common case, and a stack for it cost a heap allocation on every call (Bitspark/ontos#31).
+// `Clone`, `PartialEq` and `Hash` therefore run the derive's own body on
+// one: it recurses once, into atoms, which cannot nest, so the depth stays bounded. `Drop`
+// needs no such path, because it reuses the tuple's own item vector as its stack.
+//
 // `Atom` keeps its derives: it holds bytes, not values, so it cannot nest.
 
 impl Drop for Tuple {
@@ -221,6 +238,13 @@ impl Drop for Tuple {
 
 impl Clone for Value {
     fn clone(&self) -> Self {
+        if self.is_shallow() {
+            // `Tuple::clone` clones each item, an atom, through this arm.
+            return match self {
+                Value::Atom(atom) => Value::Atom(atom.clone()),
+                Value::Tuple(tuple) => Value::Tuple(tuple.clone()),
+            };
+        }
         enum Step<'a> {
             Visit(&'a Value),
             Close(usize),
@@ -256,6 +280,14 @@ impl Clone for Tuple {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
+        if self.is_shallow() {
+            // `Tuple::eq` compares each item, an atom, through this arm, whatever `other` holds.
+            return match (self, other) {
+                (Value::Atom(a), Value::Atom(b)) => a == b,
+                (Value::Tuple(a), Value::Tuple(b)) => a == b,
+                _ => false,
+            };
+        }
         let mut pairs = vec![(self, other)];
         while let Some(pair) = pairs.pop() {
             match pair {
@@ -294,6 +326,16 @@ impl Hash for Value {
     /// by its items. A slice hashes its length with `write_length_prefix`, whose stable
     /// behaviour is `write_usize`; that is the call made here.
     fn hash<H: Hasher>(&self, state: &mut H) {
+        if self.is_shallow() {
+            // The same writes as the walk below; `Tuple::hash` hashes each item, an atom,
+            // through this arm.
+            core::mem::discriminant(self).hash(state);
+            match self {
+                Value::Atom(atom) => atom.hash(state),
+                Value::Tuple(tuple) => tuple.hash(state),
+            }
+            return;
+        }
         let mut pending = vec![self];
         while let Some(value) = pending.pop() {
             core::mem::discriminant(value).hash(state);

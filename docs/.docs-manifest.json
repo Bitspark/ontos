@@ -421,6 +421,13 @@
     "docs/releases/v0.16.0.md": [
       "ontos-v0160"
     ],
+    "docs/releases/v0.17.0.md": [
+      "ontos-v0170",
+      "codec-measure-a-value-without-expanding-it",
+      "rust-no-work-stack-for-atoms-and-atom-only-tuples",
+      "typescript-copybytes-reads-the-callers-bytes-once",
+      "upgrade-together"
+    ],
     "docs/spec/ontos-cli.md": [
       "ontos-cli--the-ontos-cli-contract",
       "tri-core-no-favored-language",

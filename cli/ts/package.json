@@ -16,9 +16,9 @@
     "dist/src"
   ],
   "dependencies": {
-    "@bitspark/ontos-codec": "^0.16.0",
-    "@bitspark/ontos-core": "^0.16.0",
-    "@bitspark/ontos-data": "^0.16.0"
+    "@bitspark/ontos-codec": "^0.17.0",
+    "@bitspark/ontos-core": "^0.17.0",
+    "@bitspark/ontos-data": "^0.17.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6"

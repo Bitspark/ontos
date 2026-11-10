@@ -449,7 +449,7 @@ and `2k` edge additions. At `k = 64` its encoding is `5·2^64 − 2` bytes, more
 | Python | `measure(value, *, max_encoded_bytes, max_occurrences, max_height)`, bounds non-negative `int`s | a `Measures` named tuple, or a raised `MeasureError` whose `exceeded` lists the identifiers |
 
 A Go `MeasureBounds` field left out of a composite literal is a bound of zero, enforced as
-given, as `Limits` fields are (§4.1).
+given, as the fields of the Go decoder's `Limits` are.
 
 ### 10.6 Out of scope
 

@@ -34,9 +34,9 @@ tuple's `i`-th child, must come from the same code in every face.
 
 ```jsonc
 "dependencies": {
-  "@bitspark/ontos-core":  "^0.16.0",
-  "@bitspark/ontos-codec": "^0.16.0",
-  "@bitspark/ontos-data":  "^0.16.0"
+  "@bitspark/ontos-core":  "^0.17.0",
+  "@bitspark/ontos-codec": "^0.17.0",
+  "@bitspark/ontos-data":  "^0.17.0"
 }
 ```
 ```ts
@@ -50,9 +50,9 @@ library names do not, so the code you write is the same:
 
 ```toml
 [dependencies]
-ontos-core  = { package = "bitspark-ontos-core",  version = "0.16" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.16" }
-ontos-data  = { package = "bitspark-ontos-data",  version = "0.16" }
+ontos-core  = { package = "bitspark-ontos-core",  version = "0.17" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.17" }
+ontos-data  = { package = "bitspark-ontos-data",  version = "0.17" }
 ```
 ```rust
 use ontos_core::Value;
@@ -70,7 +70,7 @@ reconcile the former bitwire mirror with public ontos classes.
 **Go:**
 
 ```sh
-go get github.com/bitspark/ontos@v0.16.0
+go get github.com/bitspark/ontos@v0.17.0
 ```
 ```go
 import (

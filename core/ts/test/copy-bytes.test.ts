@@ -196,9 +196,16 @@ function lyingGetters(target: object, keys: readonly string[]): () => number {
   return () => reads;
 }
 
+// A genuine Uint8Array takes the fast path (`new Uint8Array(view)`); these pin that it
+// still consults nothing the caller controls, including what a copy constructor of an
+// older spec looked up: the buffer's `constructor` and the species.
 test("a Uint8Array subclass overriding its geometry and iterator is copied as its real bytes", () => {
   let overrides = 0;
   class Lying extends Uint8Array {
+    static get [Symbol.species](): Uint8ArrayConstructor {
+      overrides += 1;
+      return Uint8Array;
+    }
     override get length(): number {
       overrides += 1;
       return 9;
@@ -220,11 +227,14 @@ test("a Uint8Array subclass overriding its geometry and iterator is copied as it
       yield 300;
     }
   }
-  const source = new Lying([1, 2, 3]);
+  const backing = new Uint8Array([0, 1, 2, 3, 4]).buffer;
+  const source = new Lying(backing, 1, 3);
+  const reads = lyingGetters(source, ["constructor"]);
+  const bufferReads = lyingGetters(backing, ["constructor"]);
   for (const [, read] of entries) {
     assert.deepEqual(read(source), [1, 2, 3]);
   }
-  assert.equal(overrides, 0);
+  assert.equal(overrides + reads() + bufferReads(), 0);
 });
 
 test("views whose buffer and range getters are redefined are copied as their real range", () => {
@@ -334,14 +344,21 @@ test("a view over a detached or shrunk buffer is refused with a TypeError", () =
     detached((buffer) => new Uint16Array(buffer)),
     detached((buffer) => new DataView(buffer)),
   ];
-  for (const make of [(b: ArrayBuffer) => new Uint8Array(b, 2, 2), (b: ArrayBuffer) => new DataView(b, 2, 2)]) {
+  const shrunk: ReadonlyArray<(buffer: ArrayBuffer) => ArrayBufferView> = [
+    (buffer) => new Uint8Array(buffer, 2, 2),
+    (buffer) => new Uint16Array(buffer, 2, 1),
+    (buffer) => new DataView(buffer, 2, 2),
+  ];
+  for (const make of shrunk) {
     const buffer = new ArrayBuffer(4, { maxByteLength: 8 });
     const view = make(buffer);
     buffer.resize(1);
     inputs.push(view);
   }
   for (const input of inputs) {
-    assert.throws(() => copyBytes(input), TypeError);
+    for (const [, read] of entries) {
+      assert.throws(() => read(input), TypeError);
+    }
   }
 });
 
@@ -369,10 +386,35 @@ test("views, buffers and arrays from another realm are accepted with their range
 
 test("a view from another realm with redefined getters is still copied as its real range", () => {
   const realm = vm.createContext({});
-  const view = vm.runInContext("new DataView(new Uint8Array([1, 2, 3, 4]).buffer, 1, 2)", realm) as DataView;
-  const reads = lyingGetters(view, ["buffer", "byteOffset", "byteLength"]);
-  assert.deepEqual(list(copyBytes(view)), [2, 3]);
-  assert.equal(reads(), 0);
+  for (const source of [
+    "new DataView(new Uint8Array([1, 2, 3, 4]).buffer, 1, 2)",
+    "new Uint8Array([1, 2, 3, 4]).subarray(1, 3)",
+  ]) {
+    const view = vm.runInContext(source, realm) as ArrayBufferView;
+    const reads = lyingGetters(view, ["buffer", "byteOffset", "byteLength", "length", "constructor"]);
+    for (const [, read] of entries) {
+      assert.deepEqual(read(view), [2, 3], source);
+    }
+    assert.equal(reads(), 0, source);
+  }
+});
+
+test("a detached or shrunk Uint8Array from another realm is refused with a TypeError", () => {
+  const realm = vm.createContext({});
+  const views = vm.runInContext(
+    `const detached = new ArrayBuffer(4);
+     const shrinking = new ArrayBuffer(4, { maxByteLength: 8 });
+     const views = [new Uint8Array(detached), new Uint8Array(shrinking, 2, 2)];
+     detached.transfer();
+     shrinking.resize(1);
+     views`,
+    realm,
+  ) as Uint8Array[];
+  for (const view of views) {
+    for (const [, read] of entries) {
+      assert.throws(() => read(view), TypeError);
+    }
+  }
 });
 
 // --- kinds that are not bytes stay refused --------------------------------------

@@ -227,7 +227,17 @@ function arrayBufferByteLength(value: unknown): number | undefined {
 }
 
 function copyView(view: ArrayBufferView): Uint8Array {
-  if (typedArrayName(view) !== undefined) {
+  const name = typedArrayName(view);
+  if (name === "Uint8Array") {
+    // The fast path, for an atom cut from a byte buffer (e.g. the codec's per-atom
+    // subarray). The brand says it is a genuine Uint8Array, from any realm, possibly a
+    // subclass. Copying it with the constructor reads its internal slots only, runs no
+    // caller code (no getter, no `constructor`, no species), throws a TypeError if its
+    // buffer is detached or shrank below it, and never shares memory, even when the
+    // source is backed by a SharedArrayBuffer.
+    return new Uint8Array(view as Uint8Array);
+  }
+  if (name !== undefined) {
     assertTypedArrayInBounds(view);
     return copyRange(
       typedArrayBuffer(view) as ArrayBufferLike,

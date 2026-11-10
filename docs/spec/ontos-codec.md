@@ -141,8 +141,8 @@ policy, not part of the byte contract (mirrors [ontos-core §5](ontos-core.md)).
 two cores with different ceilings do not thereby disagree about *which byte strings
 are valid encodings* — only about which they have resources to materialize. This
 section discharges the "documented per implementation" obligation by stating every
-core's defaults in one place, and pins **why those differences can never make one
-core accept an encoding another rejects.**
+core's defaults in one place and describing the agreement zone of the complete-buffer
+APIs. The Rust progressive API described below uses the same defaults and field checks.
 
 | limit (default) | `go` | `rs` | `ts` | `py` |
 |---|---|---|---|---|
@@ -151,8 +151,7 @@ core accept an encoding another rejects.**
 | max tuple arity | unbounded (`maxInt`) | unbounded (`usize::MAX`) | unbounded (`Number.MAX_SAFE_INTEGER`) | unbounded |
 | uvarint host-width ceiling → `limit_exceeded` | `2^63−1` (`maxInt`) | `usize::MAX` — `2^64−1` on 64-bit, so it **never fires** there; only reachable on a 32-bit target | **`2^53−1`** (`Number.MAX_SAFE_INTEGER`) | none — Python ints are unbounded; the only over-domain code is `uvarint_overflow` (`≥ 2^64`, §3.1) |
 
-Two invariants hold across this table, and together they guarantee the cores never
-disagree on **validity**:
+Two invariants apply to those complete-buffer APIs:
 
 1. **The one limit that *could* bite a valid input — `max depth` — is identical
    (1024) in all four cores.** A value is *nested N deep* when its deepest value is at
@@ -161,9 +160,9 @@ disagree on **validity**:
    `limit_exceeded` by every core; a 1024-deep one is accepted by every core. (A
    consumer may override `maxDepth` per call, but the shipped default is harmonized,
    so the conformance corpus never diverges on depth.)
-2. **The differing host-width ceilings cannot bite an input a core can receive.** That
+2. **The differing host-width ceilings cannot bite an input a complete-buffer API can receive.** That
    ceiling applies to a uvarint used as an **atom byte length** or **tuple arity**, and
-   every core decodes from one complete, in-memory buffer. No core can be handed a
+   these APIs decode from one complete, in-memory buffer. No core can be handed a
    buffer longer than its own host-width ceiling: a TS typed array is at most `2^53−1`
    long, a Go slice at most `maxInt` (`2^63−1`, or `2^31−1` on a 32-bit build), and a
    Rust slice at most `isize::MAX`, which is below the 32-bit `usize::MAX` (`2^32−1`). So
@@ -173,9 +172,37 @@ disagree on **validity**:
    length itself as `limit_exceeded`. The disagreement is therefore confined to inputs
    that are **already truncated in every core**. They differ only on *which* rejection
    code fires, never on whether the input is valid. (The claim is about the buffers a
-   core can receive, not about which lengths the format permits: a canonical encoding
-   that really contains `2^32` bytes is valid, and a 32-bit core simply cannot be handed
-   it.)
+   complete-buffer API can receive, not about which lengths the format permits: a
+   canonical encoding that really contains `2^32` bytes is valid, and a 32-bit
+   complete-buffer API simply cannot be handed it.)
+
+Rust also exposes an additive `EventDecoder` for one input supplied in chunks. It
+requires the exact total encoded `logical_len: usize` and explicit `DecodeLimits`;
+it does not infer a total from a chunk or alter a configured limit. The total need
+not be one contiguous allocation. Cumulative positions remain bounded by that
+declared native-width total, and atom lengths and tuple arities retain their
+existing canonical-u64, native-width and configured-bound checks. In particular,
+tuple arity is checked against **total logical remaining bytes**, not the current
+chunk. For an exact-length transfer, any chunk partition has the same codec result
+and Rust error fields as the complete-buffer API with the same limits and target.
+This binding convenience adds no value, byte mapping, or operational cap.
+
+`push` consumes the decoder and returns it only on success so far; `finish` consumes
+it and is the only successful terminal operation. Events are provisional
+`TupleStart`/`TupleEnd` and `AtomStart`/borrowed `AtomChunk`/`AtomEnd` observations.
+Empty atoms emit no chunk. The scanner stores only nesting counters and bounded
+header state, while consumers choose what to retain. No event validates the whole
+input or commits consumer state. A consumer that encounters its own semantic error
+may retain that error and ignore later events while codec validation continues.
+A codec error or callback unwind leaves no resumable decoder.
+
+The additive `EventDecodeError` wraps existing `DecodeError` without changing it.
+`InputOverrun` rejects an offending chunk before processing any of its bytes;
+`InputUnderfill` reports a transfer that ends before its declared total. These are
+transfer errors, not codec-limit kinds. A malformed encoding supplied at its exact
+declared length still reports the existing codec error, including `unexpected_eof`.
+An already-detected codec error can terminate before a later transfer mismatch
+becomes observable; the partition guarantee applies to exact-length transfers.
 
 This is why the frozen vector corpus (which stays inside the agreement zone) is
 byte-for-byte identical across all four cores, while the **generative** differential

@@ -312,3 +312,148 @@ Pinned by [`vectors/codec.json`](../../vectors/codec.json) (codec id
 for each code in §4. A conforming codec MUST agree with every vector. As of this
 writing the `go`, `rs`, and `ts` codecs under [`codec/`](../../codec/) replay it
 green.
+
+`measure` (§10) is pinned separately, by
+[`vectors/codec-measure.json`](../../vectors/codec-measure.json), which each face replays
+through its library API. Its cases write a value as a table of nodes, so a face that can
+share subtrees builds each case with real sharing, and a face that cannot (Rust) replays
+the cases marked `expandable`. A conforming codec MUST agree with every case it replays.
+
+## 10. Measuring a value without expanding it
+
+*Status: decided 10 November 2026 in
+[design record 0008](../design/0008-measuring-shared-values.md), answering
+[ontos issue 35](https://github.com/Bitspark/ontos/issues/35). This is additive API. The
+`ontos-codec-v1` bytes (§2–§3), decoding and its limits (§4), and the vectors in
+[`vectors/codec.json`](../../vectors/codec.json) and
+[`vectors/codec-limits.json`](../../vectors/codec-limits.json) are unchanged.*
+
+An implementation may hold a value as a DAG ([ontos-core §6](ontos-core.md)), but the value
+still denotes its finite tree, and `encode` writes the whole tree. A DAG of `k + 1` distinct
+nodes can denote a tree whose encoding is `5·2^k − 2` bytes long (§10.4), so a bound on
+distinct nodes or on depth does not bound the encoding. `measure` reports what the encoding
+of the tree would cost, without expanding it, and stops counting at bounds the caller
+states.
+
+### 10.1 The three measures
+
+Each measure is defined on the expanded tree. `len(uvarint(m))` is the length of the
+canonical uvarint of `m` (§3): `w` bytes when `2^(7(w−1)) ≤ m < 2^(7w)`, and one byte for
+`m = 0`.
+
+```text
+encoded_bytes(Atom(b))             = 1 + len(uvarint(len(b))) + len(b)
+encoded_bytes(Tuple(v0 … v_{n-1})) = 1 + len(uvarint(n)) + Σ encoded_bytes(vi)
+
+occurrences(Atom(b))               = 1
+occurrences(Tuple(v0 … v_{n-1}))   = 1 + Σ occurrences(vi)
+
+height(Atom(b))                    = 0
+height(Tuple())                    = 0
+height(Tuple(v0 … v_{n-1}))        = 1 + max height(vi)        (n ≥ 1)
+```
+
+- `encoded_bytes(v)` is `len(encode(v))`, term for term with §2.
+- `occurrences(v)` counts every value in the expanded tree, the root included. A subtree
+  that appears twice counts twice.
+- `height(v)` is how deep `v` is nested, as §4.1 counts it: the depth of its deepest value,
+  with the root at depth 0. A value of height `H` passes the decoder's depth bound `d`
+  exactly when `d ≥ H`, so a caller can bound a value's measures with the same numbers it
+  decodes with. With the shipped default (1024), that is exactly when `H ≤ 1024`.
+
+### 10.2 Bounds and the outcome
+
+`measure` takes one bound for each measure. A bound is a non-negative integer, and no
+bound has a default: the caller states all three. A face accepts every bound it can
+represent exactly: up to `2^53 − 1` in TypeScript, up to `2^64 − 1` in Go and Rust, and any
+non-negative `int` in Python. A bound outside that domain is a caller error, not an
+outcome.
+
+A measure is **within** its bound when it is less than or equal to the bound, so a bound
+equal to the measure is within. It **exceeds** the bound otherwise. Then:
+
+- If every measure is within its bound, the outcome is the three measures, exactly.
+- Otherwise the outcome is **over limit**. It names every measure that exceeds its bound,
+  by its identifier, in ascending order of the identifiers, and it carries no numbers.
+
+| identifier | measure |
+|---|---|
+| `encoded_bytes` | the length of the canonical encoding |
+| `occurrences` | the number of values in the expanded tree |
+| `height` | how deep the value is nested |
+
+**Saturation.** An implementation computes each measure with arithmetic that saturates at
+that measure's bound. When a partial sum, or a height, passes the bound, the measure is
+marked exceeded and its value is held at the bound. The arithmetic never overflows and
+never wraps, whatever the value. No subtree's measure is larger than the whole value's,
+because each equation above makes a tuple's measure larger than each child's, so a partial
+result that passes a bound proves the whole value's measure exceeds it too. A held value therefore
+never changes which measures are reported.
+
+**Deterministic.** Each measure saturates independently of the others, and the walk always
+runs to the end, also after a measure is exceeded. The set of exceeded measures is
+therefore a function of the value and the bounds alone. Unlike the limit kinds of §4.2,
+it depends on neither the traversal order nor the host, and
+[`vectors/codec-measure.json`](../../vectors/codec-measure.json) pins it.
+
+**Stability.** The identifiers and their meanings are stable, and the vocabulary is
+append-only, as the limit kinds of §4.2 are: an identifier is never reassigned. A consumer
+handles an identifier it does not recognize as over limit all the same.
+
+### 10.3 Sharing, and the work it takes
+
+- An implementation **MUST NOT expand the value**. It visits each distinct in-memory node
+  once, with a memo keyed on the node's identity in memory, never on structural equality.
+  A node reached again through another parent, or again in the same parent, adds its
+  memoized measures once for each incoming edge.
+- Heights are recorded bottom-up, per subtree. A memo hit only skips the subtree's
+  interior: the height of the enclosing path is still computed from the subtree's height,
+  so a subtree first reached on a shallow path and later on a deeper one cannot bypass the
+  height bound.
+- The work is linear in the distinct in-memory nodes plus their child edges, whatever the
+  bounds. Because the value is already in memory, the caller already holds memory of that
+  size.
+- The walk keeps an explicit stack, not one native frame per level, as `encode` does, so a
+  value of any height can be measured, including one past the height bound.
+- Structurally equal subtrees built separately are measured correctly, just not shared. No
+  face hash-conses.
+
+How each face recognizes a node it has already visited:
+
+| face | memo key | why |
+|---|---|---|
+| TypeScript, Python | the tuple object | a tuple is an immutable object that every parent references |
+| Go | the identity of the tuple's child storage | a `core.Tuple` is a struct around a slice, and every copy of it shares the slice's backing array |
+| Rust | none | `core::Value` owns its children, so a Rust value cannot share a subtree, and `measure` is a plain walk with the same saturation and the same results |
+
+### 10.4 Worked example: the doubling chain
+
+```text
+x0 = Atom(0x00)
+xk = Tuple(x(k-1), x(k-1))
+```
+
+`encoded_bytes(x0) = 1 + 1 + 1 = 3` and `encoded_bytes(xk) = 1 + 1 + 2·encoded_bytes(x(k-1))`,
+so `encoded_bytes(xk) = 5·2^k − 2`. Likewise `occurrences(xk) = 2^(k+1) − 1` and
+`height(xk) = k`. Held as its `k + 1` distinct nodes, `xk` is measured with `k + 1` visits
+and `2k` edge additions. At `k = 64` its encoding is `5·2^64 − 2` bytes, more than any
+64-bit bound: a walk that did not saturate would wrap.
+
+### 10.5 The API in each face
+
+| face | call | outcome |
+|---|---|---|
+| Go | `codec.Measure(v, codec.MeasureBounds{MaxEncodedBytes, MaxOccurrences, MaxHeight})`, bounds `uint64` | `(codec.Measures, nil)`, or a `*codec.MeasureError` whose `Exceeded` lists `codec.MeasureKind`s |
+| Rust | `ontos_codec::measure(&value, MeasureBounds { max_encoded_bytes, max_occurrences, max_height })`, bounds `u64` | `Ok(Measures)`, or `Err(MeasureError)` whose `exceeded()` lists `MeasureKind`s |
+| TypeScript | `measure(value, { maxEncodedBytes, maxOccurrences, maxHeight })`, bounds non-negative safe integers | `Measures`, or a thrown `MeasureError` whose `exceeded` lists the identifiers |
+| Python | `measure(value, *, max_encoded_bytes, max_occurrences, max_height)`, bounds non-negative `int`s | a `Measures` named tuple, or a raised `MeasureError` whose `exceeded` lists the identifiers |
+
+A Go `MeasureBounds` field left out of a composite literal is a bound of zero, enforced as
+given, as `Limits` fields are (§4.1).
+
+### 10.6 Out of scope
+
+A command-line `measure` command and its differential-harness lane, bounds on atom length
+and tuple arity, and any change to decoding. Each can follow once a consumer names a need
+([design record 0008](../design/0008-measuring-shared-values.md) §2.8). The command-line
+tools do not read `vectors/codec-measure.json`, and their output is unchanged.

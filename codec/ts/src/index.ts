@@ -444,9 +444,9 @@ export function measure(value: Value, bounds: MeasureBounds): Measures {
   const meter = new Meter(bounds);
   const got = meter.measure(value);
   const exceeded: MeasureKind[] = [];
-  if (meter.overBytes) exceeded.push(MeasureKind.EncodedBytes);
-  if (meter.overHeight) exceeded.push(MeasureKind.Height);
-  if (meter.overOccurrences) exceeded.push(MeasureKind.Occurrences);
+  if (meter.bytes.over) exceeded.push(MeasureKind.EncodedBytes);
+  if (meter.height.over) exceeded.push(MeasureKind.Height);
+  if (meter.occurrences.over) exceeded.push(MeasureKind.Occurrences);
   if (exceeded.length > 0) throw new MeasureError(exceeded);
   return got;
 }
@@ -460,46 +460,47 @@ interface MeasureFrame {
   deepest: number;
 }
 
-// One walk: the bounds, the memo of measured tuples, and for each measure whether any partial
-// result passed its bound. No subtree's measure is larger than the whole value's, so a partial
-// result past a bound proves the value's measure is too: one flag per measure is exact, and a
-// number held at its bound never changes the outcome (§10.2).
+// One measure's saturating sum: its bound, and whether any partial result passed it. `add`
+// is a + b, held at the bound once past it. Testing a > bound first keeps bound - a from
+// going below zero, as in Go's add, where it would wrap; the Python face tests the same way.
+// Every number here stays at most a bound or an atom's length, a safe integer, so the
+// comparisons and the sum are exact.
+class Saturating {
+  readonly bound: number;
+  over = false;
+
+  constructor(bound: number) {
+    this.bound = bound;
+  }
+
+  add(a: number, b: number): number {
+    if (a > this.bound || b > this.bound - a) {
+      this.over = true;
+      return this.bound;
+    }
+    return a + b;
+  }
+}
+
+// One walk: the memo of measured tuples, and one saturating sum per measure. No subtree's
+// measure is larger than the whole value's, so a partial result past a bound proves the
+// value's measure is too: one `over` flag per measure is exact, and a number held at its
+// bound never changes the outcome (§10.2).
 class Meter {
-  readonly maxBytes: number;
-  readonly maxOccurrences: number;
-  readonly maxHeight: number;
+  readonly bytes: Saturating;
+  readonly occurrences: Saturating;
+  readonly height: Saturating;
   readonly memo = new Map<Tuple, Measures>();
-  overBytes = false;
-  overOccurrences = false;
-  overHeight = false;
 
   constructor(bounds: MeasureBounds) {
-    this.maxBytes = requireBound("maxEncodedBytes", bounds.maxEncodedBytes);
-    this.maxOccurrences = requireBound("maxOccurrences", bounds.maxOccurrences);
-    this.maxHeight = requireBound("maxHeight", bounds.maxHeight);
-  }
-
-  // a + b, held at the bound once past it. Both stay at most a bound, a safe integer, so the
-  // comparison and the sum are exact.
-  private addBytes(a: number, b: number): number {
-    if (a > this.maxBytes || b > this.maxBytes - a) {
-      this.overBytes = true;
-      return this.maxBytes;
-    }
-    return a + b;
-  }
-
-  private addOccurrences(a: number, b: number): number {
-    if (a > this.maxOccurrences || b > this.maxOccurrences - a) {
-      this.overOccurrences = true;
-      return this.maxOccurrences;
-    }
-    return a + b;
+    this.bytes = new Saturating(requireBound("maxEncodedBytes", bounds.maxEncodedBytes));
+    this.occurrences = new Saturating(requireBound("maxOccurrences", bounds.maxOccurrences));
+    this.height = new Saturating(requireBound("maxHeight", bounds.maxHeight));
   }
 
   private atom(v: Atom): Measures {
     const n = v.length;
-    return { encodedBytes: this.addBytes(1 + uvarintLength(n), n), occurrences: this.addOccurrences(0, 1), height: 0 };
+    return { encodedBytes: this.bytes.add(1 + uvarintLength(n), n), occurrences: this.occurrences.add(0, 1), height: 0 };
   }
 
   private open(tuple: Tuple): MeasureFrame {
@@ -508,15 +509,15 @@ class Meter {
       tuple,
       items,
       next: 0,
-      bytes: this.addBytes(1, uvarintLength(items.length)),
-      occurrences: this.addOccurrences(0, 1),
+      bytes: this.bytes.add(1, uvarintLength(items.length)),
+      occurrences: this.occurrences.add(0, 1),
       deepest: 0,
     };
   }
 
   private addChild(frame: MeasureFrame, child: Measures): void {
-    frame.bytes = this.addBytes(frame.bytes, child.encodedBytes);
-    frame.occurrences = this.addOccurrences(frame.occurrences, child.occurrences);
+    frame.bytes = this.bytes.add(frame.bytes, child.encodedBytes);
+    frame.occurrences = this.occurrences.add(frame.occurrences, child.occurrences);
     if (child.height > frame.deepest) frame.deepest = child.height;
   }
 
@@ -541,14 +542,7 @@ class Meter {
         }
         continue;
       }
-      let height = 0;
-      if (top.items.length > 0) {
-        height = top.deepest + 1;
-        if (top.deepest >= this.maxHeight) {
-          this.overHeight = true;
-          height = this.maxHeight;
-        }
-      }
+      const height = top.items.length > 0 ? this.height.add(top.deepest, 1) : 0;
       const done: Measures = { encodedBytes: top.bytes, occurrences: top.occurrences, height };
       this.memo.set(top.tuple, done);
       stack.pop();

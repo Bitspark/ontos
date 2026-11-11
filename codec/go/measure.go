@@ -1,11 +1,10 @@
 package codec
 
 import (
-	"reflect"
 	"strings"
-	"unsafe"
 
 	"github.com/bitspark/ontos/core/go"
+	"github.com/bitspark/ontos/internal/tupleid"
 )
 
 // MeasureKind names one of the three measures that Measure reports
@@ -76,13 +75,12 @@ func (e *MeasureError) Error() string {
 //
 // A tuple is recognized by the identity of its child storage. A core.Tuple is a struct
 // around a slice, and every copy of a tuple shares that slice's backing array, so
-// Measure keys its memo on the array's address and the tuple's arity. The slice is
-// unexported, so Measure reads it with reflect, using only the standard library and no
-// change to core; the address is held as an unsafe.Pointer, which the garbage collector
-// tracks. Structurally equal tuples built separately have separate arrays: they are
-// measured correctly, just not shared.
+// Measure keys its memo on the array's address and the tuple's arity. core provides that
+// key through the module-internal package tupleid, so the codec reads no unexported field
+// and core's exported API is unchanged. Structurally equal tuples built separately have
+// separate arrays: they are measured correctly, just not shared.
 func Measure(v core.Value, bounds MeasureBounds) (Measures, error) {
-	m := meter{bounds: bounds, memo: map[tupleKey]Measures{}}
+	m := meter{bounds: bounds, memo: map[tupleid.Key]Measures{}}
 	got := m.measure(v)
 	var exceeded []MeasureKind
 	if m.overBytes {
@@ -100,35 +98,6 @@ func Measure(v core.Value, bounds MeasureBounds) (Measures, error) {
 	return got, nil
 }
 
-// tupleKey identifies a tuple's child storage: the backing array's address and the
-// tuple's arity. Every empty tuple measures the same, so empty tuples whose keys collide
-// (a nil slice, or the runtime's shared zero-size allocation) are harmless.
-type tupleKey struct {
-	items unsafe.Pointer
-	arity int
-}
-
-// tupleItemsField is the index of core.Tuple's child slice, or -1 if core no longer
-// holds its children in a slice field named items. Measure panics then, rather than
-// walking without a memo, which would expand the value.
-var tupleItemsField = func() int {
-	field, ok := reflect.TypeOf(core.Tuple{}).FieldByName("items")
-	if !ok || len(field.Index) != 1 || field.Type.Kind() != reflect.Slice {
-		return -1
-	}
-	return field.Index[0]
-}()
-
-// keyOf takes the tuple as the core.Value interface, so reflect reads the struct the
-// interface already holds and nothing is allocated per tuple.
-func keyOf(v core.Value) tupleKey {
-	if tupleItemsField < 0 {
-		panic("ontos/codec: core.Tuple no longer holds its children in a slice field named items; Measure's memo must follow it")
-	}
-	items := reflect.ValueOf(v).Field(tupleItemsField)
-	return tupleKey{items: items.UnsafePointer(), arity: items.Len()}
-}
-
 // meter holds one walk: the bounds, the memo of measured tuples, and for each measure
 // whether any partial result passed its bound. No subtree's measure is larger than the
 // whole value's, so a partial result past a bound proves the value's measure is too:
@@ -136,7 +105,7 @@ func keyOf(v core.Value) tupleKey {
 // outcome (spec §10.2).
 type meter struct {
 	bounds                                 MeasureBounds
-	memo                                   map[tupleKey]Measures
+	memo                                   map[tupleid.Key]Measures
 	overBytes, overOccurrences, overHeight bool
 }
 
@@ -169,20 +138,21 @@ func (m *meter) atom(a core.Atom) Measures {
 	}
 }
 
-// frame is a tuple being measured: its next child, and the sums so far.
+// frame is a tuple being measured: its memo key, its next child, and the sums so far.
 type frame struct {
-	value       core.Value
 	tuple       core.Tuple
+	key         tupleid.Key
 	next        int
 	bytes       uint64
 	occurrences uint64
 	deepest     uint64 // the largest child height so far
 }
 
-func (m *meter) open(v core.Value, t core.Tuple) frame {
+// open starts measuring t, whose key the caller has just computed to look it up.
+func (m *meter) open(t core.Tuple, key tupleid.Key) frame {
 	return frame{
-		value:       v,
 		tuple:       t,
+		key:         key,
 		bytes:       add(1, uvarintLen(uint64(t.Len())), m.bounds.MaxEncodedBytes, &m.overBytes),
 		occurrences: add(0, 1, m.bounds.MaxOccurrences, &m.overOccurrences),
 	}
@@ -206,7 +176,7 @@ func (m *meter) measure(v core.Value) Measures {
 	case core.Atom:
 		return m.atom(val)
 	case core.Tuple:
-		stack = append(stack, m.open(v, val))
+		stack = append(stack, m.open(val, tupleid.KeyOf(v)))
 	default:
 		panic("ontos/codec: unknown core.Value implementation")
 	}
@@ -219,10 +189,12 @@ func (m *meter) measure(v core.Value) Measures {
 			case core.Atom:
 				m.addChild(top, m.atom(val))
 			case core.Tuple:
-				if got, ok := m.memo[keyOf(child)]; ok {
+				// child, not val: the interface converts to any without allocating.
+				key := tupleid.KeyOf(child)
+				if got, ok := m.memo[key]; ok {
 					m.addChild(top, got)
 				} else {
-					stack = append(stack, m.open(child, val))
+					stack = append(stack, m.open(val, key))
 				}
 			default:
 				panic("ontos/codec: unknown core.Value implementation")
@@ -233,7 +205,7 @@ func (m *meter) measure(v core.Value) Measures {
 		if top.tuple.Len() > 0 {
 			done.Height = add(top.deepest, 1, m.bounds.MaxHeight, &m.overHeight)
 		}
-		m.memo[keyOf(top.value)] = done
+		m.memo[top.key] = done
 		stack = stack[:len(stack)-1]
 		if len(stack) == 0 {
 			return done

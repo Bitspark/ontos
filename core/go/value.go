@@ -40,6 +40,8 @@ package core
 import (
 	"fmt"
 	"strings"
+
+	"github.com/bitspark/ontos/internal/tupleid"
 )
 
 // Value is a foundational ontos value: either an Atom or a Tuple, and never
@@ -125,6 +127,13 @@ func (t Tuple) At(i int) Value {
 		return nil
 	}
 	return t.items[i]
+}
+
+// Give the codec a key for a tuple's identity in memory, read from the child slice that
+// only this package can see (internal/tupleid says why it goes this way). The key relies
+// on NewTuple copying its children: no two tuples share a child array.
+func init() {
+	tupleid.KeyOf = func(tuple any) tupleid.Key { return tupleid.Of(tuple.(Tuple).items) }
 }
 
 // Equal: an Atom equals another Atom with the exact same bytes; never a Tuple.

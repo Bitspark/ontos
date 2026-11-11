@@ -103,22 +103,6 @@ reviewed artifact, **not** the oracle. The oracle is
 [`vectors/data.source.json`](../vectors/data.source.json) (the membership +
 `order_explanation`) plus the derivation rule above.
 
-## File layout
-
-```text
-vectors/data.source.json      # Class B SOURCE — human-authored map/set membership
-                              #   (reverse order) + order_explanation. The oracle.
-vectors/data.generated.json   # Class B DERIVED — committed, clearly-marked artifact;
-                              #   { name, value, hex } produced by the generator.
-vectors/data.json             # The pinned canonical vectors the cross-language tests
-                              #   replay (Class A directly + the map/set bytes).
-tools/vector/gen.mjs          # ontos-vector — the maintainer generator + reproduce-check.
-```
-
-`vectors/data.json` stays the file the `go`/`rs`/`ts` runners replay, and it is
-**not** edited by this reform: the generator must **reproduce** its `map`/`set`
-cases, never change them.
-
 ### Outside both classes: the generated limit-policy corpus
 
 [`vectors/codec-limits.generated.json`](../vectors/codec-limits.generated.json) is not a
@@ -135,6 +119,22 @@ reporting ([ontos-codec §4.2](spec/ontos-codec.md), Testing), so it carries no
 - Its metamorphic section carries values only. Each face derives those expectations from
   its own acceptance.
 - No implementation's output is pasted into it.
+
+## File layout
+
+```text
+vectors/data.source.json      # Class B SOURCE — human-authored map/set membership
+                              #   (reverse order) + order_explanation. The oracle.
+vectors/data.generated.json   # Class B DERIVED — committed, clearly-marked artifact;
+                              #   { name, value, hex } produced by the generator.
+vectors/data.json             # The pinned canonical vectors the cross-language tests
+                              #   replay (Class A directly + the map/set bytes).
+tools/vector/gen.mjs          # ontos-vector — the maintainer generator + reproduce-check.
+```
+
+`vectors/data.json` stays the file the `go`/`rs`/`ts` runners replay, and it is
+**not** edited by this reform: the generator must **reproduce** its `map`/`set`
+cases, never change them.
 
 ## Why a generated artifact is still oracle-grade: the cross-check
 

@@ -422,6 +422,14 @@ it depends on neither the traversal order nor the host, and
 append-only, as the limit kinds of §4.2 are: an identifier is never reassigned. A consumer
 handles an identifier it does not recognize as over limit all the same.
 
+The append-only rule governs the identifiers in an outcome, not the call. A new measure
+brings a new bound, and because no bound has a default, every caller must state it. Adding a
+measure is therefore a deliberate API break, made at a minor version. The bounds and the
+measures stay closed in every face, with exactly one field or parameter per measure and no
+optional slot for a later one: Go's `MeasureBounds` and `Measures` structs, Rust's
+`MeasureBounds` and `Measures` structs, TypeScript's `MeasureBounds` and `Measures`
+interfaces, and Python's keyword-only bound parameters and `Measures` named tuple (§10.5).
+
 ### 10.3 Sharing, and the work it takes
 
 - An implementation **MUST NOT expand the value**. It visits each distinct in-memory node

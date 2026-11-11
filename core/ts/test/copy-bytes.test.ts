@@ -415,14 +415,22 @@ test("binary inputs are copied: the result owns a fresh, unshared buffer", () =>
     new DataView(backing.buffer, 1, 2),
     new Uint8Array(new SharedArrayBuffer(4)),
     new Uint16Array(new SharedArrayBuffer(4), 2, 1),
+    new DataView(new SharedArrayBuffer(4), 1, 2),
+    new Uint16Array(new SharedArrayBuffer(2, { maxByteLength: 8 })),
+    Array.from({ length: 0x10001 }, (_, i) => i & 0xff),
   ];
   for (const input of inputs) {
     const copy = copyBytes(input);
     assert.equal(copy.byteOffset, 0);
     assert.equal(copy.buffer.byteLength, copy.length);
     assert.ok(!(copy.buffer instanceof SharedArrayBuffer));
+    assert.ok(!copy.buffer.resizable);
     assert.notEqual(copy.buffer, backing.buffer);
   }
+  const shared = new Uint8Array(new SharedArrayBuffer(4));
+  shared.set([5, 6, 7, 8]);
+  assert.deepEqual(list(copyBytes(new DataView(shared.buffer, 1, 2))), [6, 7]);
+  assert.deepEqual(list(copyBytes(new Uint16Array(shared.buffer, 2, 1))), [7, 8]);
   const held = atom(backing.subarray(1, 3));
   backing.fill(0);
   assert.deepEqual(list(held), [2, 3]);
@@ -434,6 +442,9 @@ test("a typed array over a resizable buffer is copied at its length when copied"
   buffer.resize(3);
   new Uint8Array(buffer).set([1, 2, 3]);
   assert.deepEqual(list(copyBytes(tracking)), [1, 2, 3]);
+  // A length-tracking view of wider elements covers only its whole elements.
+  assert.deepEqual(list(copyBytes(new Uint16Array(buffer))), [1, 2]);
+  assert.deepEqual(list(copyBytes(new DataView(buffer, 1))), [2, 3]);
 });
 
 test("a view over a detached or shrunk buffer is refused with a TypeError", () => {
@@ -454,6 +465,10 @@ test("a view over a detached or shrunk buffer is refused with a TypeError", () =
     (buffer) => new Uint8Array(buffer, 2, 2),
     (buffer) => new Uint16Array(buffer, 2, 1),
     (buffer) => new DataView(buffer, 2, 2),
+    // Length-tracking views are out of bounds once the buffer ends before their offset.
+    (buffer) => new Uint8Array(buffer, 2),
+    (buffer) => new Uint16Array(buffer, 2),
+    (buffer) => new DataView(buffer, 2),
   ];
   for (const make of shrunk) {
     const buffer = new ArrayBuffer(4, { maxByteLength: 8 });

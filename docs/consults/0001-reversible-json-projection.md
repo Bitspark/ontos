@@ -6,9 +6,10 @@ answer in this file. The decision stays with the ontos coordinator.
 
 This brings in [ontos issue 33](https://github.com/Bitspark/ontos/issues/33). That issue
 carries row 21 of bittype research 0014
-([bittype issue 194](https://github.com/Bitspark/bittype/issues/194)), which adopts
+([bittype issue 194](https://github.com/Bitspark/bittype/issues/194)): the request for a
+lossless, reversible JSON profile of ground values. Row 20 of the same research adopts
 `toJSON = P ∘ E` and `fromJSON = D ∘ P⁻¹` for presenting service values in a command line
-and in web forms. Here `P` is a named JSON projection of abstract ground values.
+and in web forms. Here `P` is that named JSON projection of abstract ground values.
 
 ## Decided before the consultation
 
@@ -78,7 +79,7 @@ once, in `ontos-data-json/1`.
 
 ## What depends on the answer
 
-- bittype research 0014's presentation path (row 21), and with it the command lines and web
+- bittype research 0014's presentation path (rows 20 and 21), and with it the command lines and web
   forms of horos-declared services.
 - Nothing in ontos is blocked. [Issue 35](https://github.com/Bitspark/ontos/issues/35)
   (`measure`) proceeds independently.

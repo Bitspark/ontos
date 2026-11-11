@@ -29,6 +29,7 @@ installed packages — they are repo-local source, like the npm-workspace TS lan
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -463,8 +464,16 @@ def _value_from_json_source(source: str) -> Value:
     """Build a Value from the --from-json source: stage 1, then stage 2. "-"
     reads the JSON from stdin. Nothing is trimmed: the reader allows only RFC
     8259 whitespace.
+
+    Bytes that are not UTF-8 are read as U+FFFD, from stdin and from argv alike
+    (Node reads argv that way before ts sees it; ontos-cli.md "Value input").
+    U+FFFD is never hex and never part of a member name. os.fsencode recovers an
+    argument's bytes from the surrogateescape decoding Python applied to it.
     """
-    text = sys.stdin.read() if source == "-" else source
+    if source == "-":
+        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+    else:
+        text = os.fsencode(source).decode("utf-8", "replace")
     return _authoring_value(_read_json(text))
 
 

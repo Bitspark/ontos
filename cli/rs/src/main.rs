@@ -83,7 +83,14 @@ enum Parsed {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `args_os`, not `args`: `args` panics on an argument that is not Unicode. Such an
+    // argument is read with U+FFFD in place of each bad sequence, as Node reads argv
+    // (docs/spec/ontos-cli.md "Value input"): it then fails as hex, as a flag, or as
+    // JSON exactly where U+FFFD would.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     match parse_args(&args) {
         Parsed::PrintAndExit { text } => {
             println!("{text}");
@@ -679,11 +686,13 @@ fn read_stdin() -> Result<String, String> {
 /// `-`. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
 fn resolve_json_text(src: String) -> Result<String, String> {
     if src == "-" {
-        let mut buf = String::new();
+        // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
+        // U+FFFD is never hex and never part of a member name.
+        let mut buf = Vec::new();
         io::stdin()
-            .read_to_string(&mut buf)
+            .read_to_end(&mut buf)
             .map_err(|e| format!("failed to read stdin: {e}"))?;
-        Ok(buf)
+        Ok(String::from_utf8_lossy(&buf).into_owned())
     } else {
         Ok(src)
     }

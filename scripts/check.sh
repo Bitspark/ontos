@@ -6,9 +6,10 @@
 #   lint         gofmt+vet · cargo fmt+clippy · tsc      (.github/workflows/ci.yml)
 #   conformance  build the CLIs FRESH, run the harness over all 4 impls
 #                (.github/workflows/ci.yml)
-#   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout
-#                (.github/workflows/ci.yml)
-#   vectors      regenerate map/set vectors, assert no drift (.github/workflows/ci.yml)
+#   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout + the
+#                limit-policy tests over a fresh-seed corpus (.github/workflows/ci.yml)
+#   vectors      regenerate the map/set vectors and the limit-policy corpus, assert no
+#                drift (.github/workflows/ci.yml)
 #   all          lint + test + vectors + conformance (NOT fuzz — run that separately)
 #
 # `conformance` rebuilds every CLI before running the differential harness, so a stale
@@ -28,8 +29,8 @@ usage: scripts/check.sh {test|lint|conformance|producer|fuzz|vectors|all}
   lint         check.sh/.ps1 parity, project-name spelling, gofmt+vet (incl. nested modules), cargo fmt+clippy, tsc --noEmit (discovered)
   conformance  build the CLIs fresh, run the differential harness over all 4 impls (all 3 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
-  fuzz         go native FuzzDecode + FuzzData (FUZZTIME=, default 25s) + the 4-CLI differential bout
-  vectors      regenerate the map/set vectors and assert no drift
+  fuzz         go native FuzzDecode + FuzzData (FUZZTIME=, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
+  vectors      regenerate the map/set vectors and the limit-policy corpus and assert no drift
   all          lint + test + vectors + conformance + producer (fuzz is separate — it is generative)
 EOF
   exit 2
@@ -235,6 +236,25 @@ do_fuzz() {
     --vectors fuzz-corpus.json \
     --decode-roundtrip --human-roundtrip
   rm -f fuzz-corpus.json
+
+  # The generated limit-policy tests (Bitspark/ontos#13, docs/design/0009) over a FRESH
+  # corpus. `test` replays the committed, pinned-seed corpus in every face; this leg replays
+  # a new one per commit through the same four library tests, so the agreement zone and the
+  # metamorphic relation see new values over time. Same seed rules as the bout: FUZZ_SEED
+  # pins it, else it derives from $GITHUB_SHA, else from the clock; the generator prints it.
+  # The tests read the corpus that ONTOS_LIMIT_POLICY_CORPUS names. Go runs both widths;
+  # Rust's wasm32 leg needs wasmtime and stays in `test`.
+  step "limit-policy tests over a fresh-seed corpus (go 64/32-bit + rs + ts + py library decoders)"
+  node tools/limit-policy/gen.mjs --seed "${FUZZ_SEED:-fresh}" --out limit-policy-corpus.json
+  (
+    export ONTOS_LIMIT_POLICY_CORPUS="$PWD/limit-policy-corpus.json"
+    go test -count=1 -run '^TestLimitPolicy' -v ./codec/go
+    GOARCH=386 go test -count=1 -run '^TestLimitPolicy' -v ./codec/go
+    cargo test -p bitspark-ontos-codec --test vectors --locked limit_policy -- --nocapture
+    node --test --test-name-pattern '^limit policy' codec/ts/test/limits.test.ts
+    python3 codec/py/test/test_limits.py -k LimitPolicy
+  )
+  rm -f limit-policy-corpus.json
 }
 
 
@@ -243,6 +263,13 @@ do_vectors() {
   node tools/vector/gen.mjs
   git diff --exit-code vectors/data.generated.json \
     || { echo "vectors/data.generated.json drifted — re-run scripts/check.sh vectors and commit"; exit 1; }
+  # The four faces replay this corpus in `test`; it must stay what its pinned seed generates
+  # (Bitspark/ontos#13, docs/design/0009). The generator refuses to write a case outside the
+  # agreement zone, so a clean regeneration also re-checks every committed case.
+  step "regenerate the limit-policy corpus + assert no drift (tools/limit-policy/gen.mjs)"
+  node tools/limit-policy/gen.mjs
+  git diff --exit-code vectors/codec-limits.generated.json \
+    || { echo "vectors/codec-limits.generated.json drifted — re-run scripts/check.sh vectors and commit"; exit 1; }
   step "lint: a case NAME asserting a relation must belong to a kind that carries it (ontos-internal#288)"
   node tools/vector/lint-relations.mjs
 }

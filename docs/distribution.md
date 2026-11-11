@@ -95,6 +95,14 @@ token exists. Every run waits on the `release` environment, a dispatched rehears
 nothing, and each release ends with a round trip that installs what it published. The Go
 modules need no publish step: a Go module is its repository, and the tag is the release.
 
+One release runs in this order. Merge the release PR. Dispatch `rehearse` on the release
+commit. Tag `vX.Y.Z`, `projection/deixis/go/vX.Y.Z` and `wire/go/vX.Y.Z` on that commit and push
+the three tags in one push. Wait for the CI run that the `v*` tag push starts. Then dispatch
+`publish`. `publish` requires every check run on the release commit to be complete and green,
+including the tag's own CI run. If that run hasn't finished, `publish` stops at its first step
+and uploads nothing. Every npm name also needs its trusted publisher configured, because
+there is no npm token to fall back on.
+
 ### First publication of a new npm name
 
 npm requires an existing package before its trusted publisher can be configured.

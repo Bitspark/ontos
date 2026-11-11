@@ -352,11 +352,11 @@ def measure(value: Value, *, max_encoded_bytes: int, max_occurrences: int, max_h
     )
     got = meter.measure(value)
     exceeded = []
-    if meter.over_bytes:
+    if meter.bytes.over:
         exceeded.append(MEASURE_ENCODED_BYTES)
-    if meter.over_height:
+    if meter.height.over:
         exceeded.append(MEASURE_HEIGHT)
-    if meter.over_occurrences:
+    if meter.occurrences.over:
         exceeded.append(MEASURE_OCCURRENCES)
     if exceeded:
         raise MeasureError(exceeded)
@@ -376,54 +376,73 @@ def _uvarint_length(n: int) -> int:
     return max(1, (n.bit_length() + 6) // 7)
 
 
+class _Saturating:
+    """One measure's saturating sum: its bound, and whether any partial result passed it.
+
+    ``add`` is ``a + b`` held at the bound once past it. It tests ``a > bound`` first and
+    then ``b > bound - a``, as the Go and TypeScript faces do, where that order keeps the
+    subtraction from wrapping or going below zero. Python's ints do neither, so here the
+    order only keeps the faces alike; the result is the same as testing ``a + b > bound``.
+    """
+
+    __slots__ = ("bound", "over")
+
+    def __init__(self, bound: int) -> None:
+        self.bound = bound
+        self.over = False
+
+    def add(self, a: int, b: int) -> int:
+        if a > self.bound or b > self.bound - a:
+            self.over = True
+            return self.bound
+        return a + b
+
+
+class _Frame:
+    """A tuple being measured: its children, the next one to visit, and the sums so far."""
+
+    __slots__ = ("tuple", "items", "next", "bytes", "occurrences", "deepest")
+
+    def __init__(self, t: Tuple, items: tuple, bytes_: int, occurrences: int) -> None:
+        self.tuple = t
+        self.items = items
+        self.next = 0
+        self.bytes = bytes_
+        self.occurrences = occurrences
+        self.deepest = 0  # the largest child height so far
+
+
 class _Meter:
-    """One walk: the bounds, the memo of measured tuples, and for each measure whether any
-    partial result passed its bound.
+    """One walk: the memo of measured tuples, and one saturating sum per measure.
 
     No subtree's measure is larger than the whole value's, so a partial result past a bound
-    proves the value's measure is too: one flag per measure is exact, and a number held at
-    its bound never changes the outcome (ontos-codec.md §10.2). The memo is keyed on
-    ``id(tuple)``: every tuple stays reachable from the root for the whole walk, so no id
+    proves the value's measure is too: one ``over`` flag per measure is exact, and a number
+    held at its bound never changes the outcome (ontos-codec.md §10.2). The memo is keyed
+    on ``id(tuple)``: every tuple stays reachable from the root for the whole walk, so no id
     is reused while the memo lives.
     """
 
-    __slots__ = ("max_bytes", "max_occurrences", "max_height", "memo", "over_bytes", "over_occurrences", "over_height")
+    __slots__ = ("bytes", "occurrences", "height", "memo")
 
     def __init__(self, max_bytes: int, max_occurrences: int, max_height: int) -> None:
-        self.max_bytes = max_bytes
-        self.max_occurrences = max_occurrences
-        self.max_height = max_height
+        self.bytes = _Saturating(max_bytes)
+        self.occurrences = _Saturating(max_occurrences)
+        self.height = _Saturating(max_height)
         self.memo: Dict[int, Measures] = {}
-        self.over_bytes = False
-        self.over_occurrences = False
-        self.over_height = False
-
-    def _add_bytes(self, a: int, b: int) -> int:
-        if a + b > self.max_bytes:
-            self.over_bytes = True
-            return self.max_bytes
-        return a + b
-
-    def _add_occurrences(self, a: int, b: int) -> int:
-        if a + b > self.max_occurrences:
-            self.over_occurrences = True
-            return self.max_occurrences
-        return a + b
 
     def _atom(self, v: Atom) -> Measures:
         n = len(v)
-        return Measures(self._add_bytes(1 + _uvarint_length(n), n), self._add_occurrences(0, 1), 0)
+        return Measures(self.bytes.add(1 + _uvarint_length(n), n), self.occurrences.add(0, 1), 0)
 
-    def _open(self, t: Tuple) -> list:
+    def _open(self, t: Tuple) -> _Frame:
         items = t.items()
-        # [tuple, items, next child, bytes, occurrences, deepest child height]
-        return [t, items, 0, self._add_bytes(1, _uvarint_length(len(items))), self._add_occurrences(0, 1), 0]
+        return _Frame(t, items, self.bytes.add(1, _uvarint_length(len(items))), self.occurrences.add(0, 1))
 
-    def _add_child(self, frame: list, child: Measures) -> None:
-        frame[3] = self._add_bytes(frame[3], child.encoded_bytes)
-        frame[4] = self._add_occurrences(frame[4], child.occurrences)
-        if child.height > frame[5]:
-            frame[5] = child.height
+    def _add_child(self, frame: _Frame, child: Measures) -> None:
+        frame.bytes = self.bytes.add(frame.bytes, child.encoded_bytes)
+        frame.occurrences = self.occurrences.add(frame.occurrences, child.occurrences)
+        if child.height > frame.deepest:
+            frame.deepest = child.height
 
     def measure(self, value: Value) -> Measures:
         """Post-order with an explicit stack of open tuples. A tuple is opened the first
@@ -437,10 +456,10 @@ class _Meter:
         stack = [self._open(value)]
         while True:
             top = stack[-1]
-            items = top[1]
-            if top[2] < len(items):
-                child = items[top[2]]
-                top[2] += 1
+            items = top.items
+            if top.next < len(items):
+                child = items[top.next]
+                top.next += 1
                 if isinstance(child, Atom):
                     self._add_child(top, self._atom(child))
                 else:
@@ -450,14 +469,9 @@ class _Meter:
                     else:
                         stack.append(self._open(child))
                 continue
-            height = 0
-            if items:
-                height = top[5] + 1
-                if height > self.max_height:
-                    self.over_height = True
-                    height = self.max_height
-            done = Measures(top[3], top[4], height)
-            self.memo[id(top[0])] = done
+            height = self.height.add(top.deepest, 1) if items else 0
+            done = Measures(top.bytes, top.occurrences, height)
+            self.memo[id(top.tuple)] = done
             stack.pop()
             if not stack:
                 return done

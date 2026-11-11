@@ -11,7 +11,7 @@ implementation lands with the specification text and the vectors in one change.
 Bindings for horos-declared service contracts must bound the **expanded** canonical size of a
 value. ontos lets an implementation hold a value as a DAG
 ([ontos-core §6](../spec/ontos-core.md)), while the canonical encoding and equality still
-process the finite tree that DAG denotes. A chain of `k` distinct nodes
+process the finite tree that DAG denotes. A chain of `k + 1` distinct nodes
 
 ```text
 x0 = Atom(0x00)
@@ -56,6 +56,13 @@ assigns the canonical encoded-size calculation to ontos, as the owner of the enc
    - A bound is a non-negative integer that every face can represent exactly: at most
      `2^53 − 1` in TypeScript, `2^64 − 1` in Go and Rust, and any non-negative `int` in
      Python. Vectors use bounds at most `2^53 − 1`.
+   - Because no bound has a default, a measure added later brings a bound that every
+     caller must state. Adding a measure is therefore a deliberate API break, made at a
+     minor version, not an additive change. The bounds and the measures stay closed in every
+     face, with exactly one field or parameter per measure and no optional slot for a later
+     one. The append-only rule of item 6 governs only the identifiers that the over-limit
+     outcome reports. (A clarification of this decision, recorded 11 November 2026 after
+     the v0.17.0 review, not a new requirement; codec §10.2 states it too.)
 
 4. **Each distinct subtree is visited once.** The walk memoizes on the **identity of the
    in-memory node**, not on structural equality. A node reached again through another

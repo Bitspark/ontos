@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
-	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -101,7 +101,7 @@ func TestMeasureVectors(t *testing.T) {
 			t.Errorf("case %q: want over limit %v, got %+v, %v", c.Name, c.Expect.Exceeded, got, err)
 			continue
 		}
-		if !reflect.DeepEqual(me.Exceeded, c.Expect.Exceeded) {
+		if !slices.Equal(me.Exceeded, c.Expect.Exceeded) {
 			t.Errorf("case %q: exceeded %v, want %v", c.Name, me.Exceeded, c.Expect.Exceeded)
 		}
 		if got != (Measures{}) {
@@ -168,13 +168,13 @@ func TestMeasureDoublingChainAtTheU64Ceiling(t *testing.T) {
 	// k = 63: 5·2^63 − 2 bytes is past 2^64 − 1, while 2^64 − 1 occurrences sits exactly
 	// at the largest bound, so it is within; one less and it is over.
 	_, err = measureWithin(t, doublingChain(63), unbounded)
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes}) {
 		t.Fatalf("k = 63: exceeded %v", got)
 	}
 	tighter := unbounded
 	tighter.MaxOccurrences = math.MaxUint64 - 1
 	_, err = measureWithin(t, doublingChain(63), tighter)
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
 		t.Fatalf("k = 63, occurrences bound 2^64 - 2: exceeded %v", got)
 	}
 
@@ -183,12 +183,12 @@ func TestMeasureDoublingChainAtTheU64Ceiling(t *testing.T) {
 	at64 := unbounded
 	at64.MaxHeight = 64
 	_, err = measureWithin(t, doublingChain(64), at64)
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
 		t.Fatalf("k = 64: exceeded %v", got)
 	}
 	at64.MaxHeight = 63
 	_, err = measureWithin(t, doublingChain(64), at64)
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureHeight, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureHeight, MeasureOccurrences}) {
 		t.Fatalf("k = 64, height bound 63: exceeded %v", got)
 	}
 }
@@ -200,13 +200,13 @@ func TestMeasureDoublingChainFarPast64(t *testing.T) {
 	_, err := measureWithin(t, doublingChain(k), MeasureBounds{
 		MaxEncodedBytes: math.MaxUint64, MaxOccurrences: math.MaxUint64, MaxHeight: k,
 	})
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
 		t.Fatalf("exceeded %v", got)
 	}
 	_, err = measureWithin(t, doublingChain(k), MeasureBounds{
 		MaxEncodedBytes: math.MaxUint64, MaxOccurrences: math.MaxUint64, MaxHeight: k - 1,
 	})
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureHeight, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureHeight, MeasureOccurrences}) {
 		t.Fatalf("height bound k - 1: exceeded %v", got)
 	}
 }
@@ -230,7 +230,7 @@ func TestMeasureDeepValue(t *testing.T) {
 	bounded := unbounded
 	bounded.MaxHeight = 1024
 	_, err = Measure(v, bounded)
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureHeight}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureHeight}) {
 		t.Fatalf("height bound 1024: exceeded %v", got)
 	}
 }
@@ -256,7 +256,7 @@ func TestMeasureWithoutSharing(t *testing.T) {
 // MeasureBounds{} is a bound of zero on every measure, not a default.
 func TestMeasureZeroBoundsAreZero(t *testing.T) {
 	_, err := Measure(core.NewTuple(), MeasureBounds{})
-	if got := exceededOf(t, err); !reflect.DeepEqual(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
+	if got := exceededOf(t, err); !slices.Equal(got, []MeasureKind{MeasureEncodedBytes, MeasureOccurrences}) {
 		t.Fatalf("exceeded %v", got)
 	}
 	if msg := err.Error(); msg != "over limit: encoded_bytes, occurrences" {

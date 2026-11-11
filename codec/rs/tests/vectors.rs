@@ -351,6 +351,65 @@ fn atom_of_length(length: u64) -> Vec<u8> {
     framed
 }
 
+/// A case's limits: `DecodeLimits::default()` with its explicit bounds applied.
+fn limits_of(name: &str, case: &Json) -> DecodeLimits {
+    let mut limits = DecodeLimits::default();
+    let Json::Obj(set) = case.get("limits").unwrap() else {
+        panic!("{name}: limits is not an object");
+    };
+    for (key, bound) in set {
+        let bound = bound.int() as usize;
+        match key.as_str() {
+            "maxDepth" => limits.max_depth = bound,
+            "maxAtomBytes" => limits.max_atom_bytes = bound,
+            "maxTupleArity" => limits.max_tuple_arity = bound,
+            other => panic!("{name}: unknown limit {other}"),
+        }
+    }
+    limits
+}
+
+/// A case's expectation: acceptance, or a rejection's code and kind.
+enum Expect<'a> {
+    Accept,
+    Reject { code: &'a str, kind: &'a str },
+}
+
+fn expect_of<'a>(name: &str, expect: &'a Json) -> Expect<'a> {
+    if let Json::Str(accept) = expect {
+        assert_eq!(accept, "accept", "{name}: unknown expectation");
+        return Expect::Accept;
+    }
+    Expect::Reject {
+        code: expect.get("code").unwrap().str(),
+        kind: expect.get("limitKind").unwrap().str(),
+    }
+}
+
+/// Decodes `bytes` under `limits` and requires `expect`: acceptance of a value that
+/// re-encodes to the same bytes, or a rejection with exactly the expected code and kind.
+/// Anything else (another error, a missing kind, a different datum) fails. Returns the
+/// outcome's label, `accept` or the kind.
+fn judge_limit(name: &str, bytes: &[u8], limits: DecodeLimits, expect: &Expect) -> String {
+    match (decode_with_limits(bytes, limits), expect) {
+        (Ok(value), Expect::Accept) => {
+            assert_eq!(encode(&value), bytes, "{name}: accepted a different datum");
+            "accept".to_string()
+        }
+        (Err(e), Expect::Accept) => panic!("{name}: expected accept, got {e}"),
+        (Ok(_), Expect::Reject { kind, .. }) => panic!("{name}: expected {kind}, got accept"),
+        (Err(e), Expect::Reject { code, kind }) => {
+            assert_eq!(e.code(), *code, "{name}: {e}");
+            assert_eq!(
+                e.limit_kind().map(DecodeLimitKind::as_str),
+                Some(*kind),
+                "{name}: {e}"
+            );
+            kind.to_string()
+        }
+    }
+}
+
 /// Replays `vectors/codec-limits.json`. A bound absent from a case's `limits` keeps
 /// its `DecodeLimits::default()` value.
 #[test]
@@ -360,36 +419,218 @@ fn codec_limit_vectors() {
     assert!(!cases.is_empty());
     for case in cases {
         let name = case.get("name").unwrap().str();
-        let mut limits = DecodeLimits::default();
-        let Json::Obj(set) = case.get("limits").unwrap() else {
-            panic!("{name}: limits is not an object");
-        };
-        for (key, bound) in set {
-            let bound = bound.int() as usize;
-            match key.as_str() {
-                "maxDepth" => limits.max_depth = bound,
-                "maxAtomBytes" => limits.max_atom_bytes = bound,
-                "maxTupleArity" => limits.max_tuple_arity = bound,
-                other => panic!("{name}: unknown limit {other}"),
-            }
-        }
         let bytes = hex_to_bytes(case.get("hex").unwrap().str());
-        let expect = case.get("expect").unwrap();
-        if let Json::Str(accept) = expect {
-            assert_eq!(accept, "accept", "{name}: unknown expectation");
-            if let Err(e) = decode_with_limits(&bytes, limits) {
-                panic!("{name}: expected accept, got {e}");
-            }
-            continue;
+        let expect = expect_of(name, case.get("expect").unwrap());
+        judge_limit(name, &bytes, limits_of(name, case), &expect);
+    }
+}
+
+// ----- the generated limit-policy tests (Bitspark/ontos#13, docs/design/0009) -----
+
+/// The committed `vectors/codec-limits.generated.json`, or the corpus that
+/// `ONTOS_LIMIT_POLICY_CORPUS` names, which is how `scripts/check.sh fuzz` replays a fresh
+/// seed. (wasmtime passes no environment, so the wasm32 leg reads the committed one.)
+fn read_policy_corpus() -> (String, Json) {
+    match std::env::var("ONTOS_LIMIT_POLICY_CORPUS") {
+        Ok(path) if !path.is_empty() => {
+            let text =
+                std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let doc = P::new(&text).value();
+            (path, doc)
         }
-        let err = decode_with_limits(&bytes, limits).expect_err(name);
-        assert_eq!(err.code(), expect.get("code").unwrap().str(), "{name}");
-        assert_eq!(
-            err.limit_kind().map(DecodeLimitKind::as_str),
-            Some(expect.get("limitKind").unwrap().str()),
-            "{name}"
+        _ => (
+            "vectors/codec-limits.generated.json".to_string(),
+            read_vectors("codec-limits.generated.json"),
+        ),
+    }
+}
+
+/// What a value needs from each bound: its depth (the root at 0), its longest atom and
+/// its widest tuple, walked with an explicit stack.
+#[derive(Clone, Copy)]
+struct Needs {
+    depth: usize,
+    atom: usize,
+    arity: usize,
+}
+
+fn needs_of(value: &Value) -> Needs {
+    let mut needs = Needs {
+        depth: 0,
+        atom: 0,
+        arity: 0,
+    };
+    let mut stack = vec![(value, 0usize)];
+    while let Some((v, depth)) = stack.pop() {
+        needs.depth = needs.depth.max(depth);
+        match v {
+            Value::Atom(atom) => needs.atom = needs.atom.max(atom.len()),
+            Value::Tuple(tuple) => {
+                needs.arity = needs.arity.max(tuple.len());
+                stack.extend(tuple.items().iter().map(|item| (item, depth + 1)));
+            }
+        }
+    }
+    needs
+}
+
+/// The zone's three bounds: (key, kind, the need it is set against, its field).
+type PolicyBound = (
+    &'static str,
+    DecodeLimitKind,
+    fn(Needs) -> usize,
+    fn(&mut DecodeLimits) -> &mut usize,
+);
+
+const POLICY_BOUNDS: [PolicyBound; 3] = [
+    (
+        "maxDepth",
+        DecodeLimitKind::DecodeDepth,
+        |n| n.depth,
+        |l| &mut l.max_depth,
+    ),
+    (
+        "maxAtomBytes",
+        DecodeLimitKind::AtomBytes,
+        |n| n.atom,
+        |l| &mut l.max_atom_bytes,
+    ),
+    (
+        "maxTupleArity",
+        DecodeLimitKind::TupleArity,
+        |n| n.arity,
+        |l| &mut l.max_tuple_arity,
+    ),
+];
+
+/// Every outcome at zero, so an outcome never seen still shows.
+fn new_tally() -> Vec<(String, usize)> {
+    let mut seen = vec![("accept".to_string(), 0)];
+    seen.extend(POLICY_BOUNDS.iter().map(|b| (b.1.as_str().to_string(), 0)));
+    seen
+}
+
+fn count(seen: &mut [(String, usize)], outcome: &str) {
+    let slot = seen.iter_mut().find(|(k, _)| k == outcome);
+    slot.unwrap_or_else(|| panic!("an outcome outside the zone: {outcome}"))
+        .1 += 1;
+}
+
+fn show(seen: &[(String, usize)]) -> String {
+    let parts: Vec<String> = seen.iter().map(|(k, n)| format!("{k} {n}")).collect();
+    parts.join(", ")
+}
+
+/// Inside the agreement zone (a small valid encoding, one bound lowered, every other bound
+/// absent or at least the value's need) each case has one outcome, and every face must
+/// produce it.
+#[test]
+fn limit_policy_differential() {
+    let (path, doc) = read_policy_corpus();
+    let cases = doc.get("differential").unwrap().arr();
+    let declared = doc
+        .get("counts")
+        .unwrap()
+        .get("differential")
+        .unwrap()
+        .int();
+    assert_eq!(
+        cases.len() as u64,
+        declared,
+        "the corpus's differential count"
+    );
+    let mut seen = new_tally();
+    for case in cases {
+        let name = case.get("name").unwrap().str();
+        let bytes = hex_to_bytes(case.get("hex").unwrap().str());
+        let expect = expect_of(name, case.get("expect").unwrap());
+        count(
+            &mut seen,
+            &judge_limit(name, &bytes, limits_of(name, case), &expect),
         );
     }
+    for (outcome, n) in &seen {
+        assert!(*n > 0, "no differential case expects {outcome}");
+    }
+    println!(
+        "rs differential ({}-bit usize): {} cases judged ({}); {path} seed {}",
+        usize::BITS,
+        cases.len(),
+        show(&seen),
+        doc.get("seed").unwrap().str()
+    );
+}
+
+/// A value the defaults accept is accepted with every bound at exactly its need, and
+/// lowering one bound below its need (to need - 1 and to 0, the others at their defaults
+/// or at their needs) names that bound.
+#[test]
+fn limit_policy_metamorphic() {
+    let (path, doc) = read_policy_corpus();
+    let values = doc.get("metamorphic").unwrap().arr();
+    let declared = doc.get("counts").unwrap().get("metamorphic").unwrap().int();
+    assert_eq!(
+        values.len() as u64,
+        declared,
+        "the corpus's metamorphic count"
+    );
+    let mut seen = new_tally();
+    for entry in values {
+        let name = entry.get("name").unwrap().str();
+        let bytes = hex_to_bytes(entry.get("hex").unwrap().str());
+        // The precondition, observed here rather than assumed: the defaults accept it.
+        let defaults = DecodeLimits::default();
+        let label = judge_limit(
+            &format!("{name} under the defaults"),
+            &bytes,
+            defaults,
+            &Expect::Accept,
+        );
+        count(&mut seen, &label);
+        let needs = needs_of(&decode(&bytes).unwrap());
+        let tight = DecodeLimits {
+            max_depth: needs.depth,
+            max_atom_bytes: needs.atom,
+            max_tuple_arity: needs.arity,
+        };
+        let label = judge_limit(
+            &format!("{name} at its needs"),
+            &bytes,
+            tight,
+            &Expect::Accept,
+        );
+        count(&mut seen, &label);
+        for (key, kind, need_of, field) in POLICY_BOUNDS {
+            let need = need_of(needs);
+            if need == 0 {
+                continue; // nothing to lower below
+            }
+            let lowered: &[usize] = if need > 1 { &[need - 1, 0] } else { &[0] };
+            for &l in lowered {
+                for (base_label, base) in [("defaults", defaults), ("needs", tight)] {
+                    let mut limits = base;
+                    *field(&mut limits) = l;
+                    let case = format!("{name}: {key}={l} < {need}, others at {base_label}");
+                    let expect = Expect::Reject {
+                        code: "limit_exceeded",
+                        kind: kind.as_str(),
+                    };
+                    count(&mut seen, &judge_limit(&case, &bytes, limits, &expect));
+                }
+            }
+        }
+    }
+    for (outcome, n) in &seen {
+        assert!(*n > 0, "the metamorphic relation never produced {outcome}");
+    }
+    let decodes: usize = seen.iter().map(|(_, n)| n).sum();
+    println!(
+        "rs metamorphic ({}-bit usize): {} values, {decodes} decodes judged ({}); {path} seed {}",
+        usize::BITS,
+        values.len(),
+        show(&seen),
+        doc.get("seed").unwrap().str()
+    );
 }
 
 /// A kind belongs to `limit_exceeded` only.

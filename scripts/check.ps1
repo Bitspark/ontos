@@ -6,9 +6,10 @@
 #   lint         gofmt+vet, cargo fmt+clippy, tsc         (.github/workflows/ci.yml)
 #   conformance  build the CLIs FRESH, run the harness over all 4 impls
 #                (.github/workflows/ci.yml)
-#   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout
-#                (.github/workflows/ci.yml)
-#   vectors      regenerate map/set vectors, assert no drift (.github/workflows/ci.yml)
+#   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout + the
+#                limit-policy tests over a fresh-seed corpus (.github/workflows/ci.yml)
+#   vectors      regenerate the map/set vectors and the limit-policy corpus, assert no
+#                drift (.github/workflows/ci.yml)
 #   all          lint + test + vectors + conformance (NOT fuzz — run that separately)
 #
 # `conformance` rebuilds every CLI before running the differential harness, so a stale
@@ -68,8 +69,8 @@ usage: scripts/check.ps1 {test|lint|conformance|producer|fuzz|vectors|all}
   lint         check.sh/.ps1 parity, project-name spelling, gofmt+vet (incl. nested modules), cargo fmt+clippy, tsc --noEmit (discovered)
   conformance  build the CLIs fresh, run the differential harness over all 4 impls (all 3 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
-  fuzz         go native FuzzDecode + FuzzData (`$env:FUZZTIME, default 25s) + the 4-CLI differential bout
-  vectors      regenerate the map/set vectors and assert no drift
+  fuzz         go native FuzzDecode + FuzzData (`$env:FUZZTIME, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
+  vectors      regenerate the map/set vectors and the limit-policy corpus and assert no drift
   all          lint + test + vectors + conformance + producer (fuzz is separate — it is generative)
 "@
   exit 2
@@ -256,6 +257,29 @@ function Invoke-Fuzz {
       --decode-roundtrip --human-roundtrip
   }
   Remove-Item -Force -ErrorAction SilentlyContinue fuzz-corpus.json
+
+  # The generated limit-policy tests (Bitspark/ontos#13, docs/design/0009) over a FRESH
+  # corpus. `test` replays the committed, pinned-seed corpus in every face; this leg replays
+  # a new one per commit through the same four library tests, so the agreement zone and the
+  # metamorphic relation see new values over time. Same seed rules as the bout: FUZZ_SEED
+  # pins it, else it derives from $env:GITHUB_SHA, else from the clock; the generator prints
+  # it. The tests read the corpus that ONTOS_LIMIT_POLICY_CORPUS names. Go runs both widths;
+  # Rust's wasm32 leg needs wasmtime and runs in scripts/check.sh's `test` and in CI.
+  # Mirrors do_fuzz in scripts/check.sh; keep the two in sync.
+  Step "limit-policy tests over a fresh-seed corpus (go 64/32-bit + rs + ts + py library decoders)"
+  $lpSeed = if ($env:FUZZ_SEED) { $env:FUZZ_SEED } else { "fresh" }
+  Invoke-Checked { node tools/limit-policy/gen.mjs --seed $lpSeed --out limit-policy-corpus.json }
+  $prevCorpus = $env:ONTOS_LIMIT_POLICY_CORPUS
+  $env:ONTOS_LIMIT_POLICY_CORPUS = Join-Path (Get-Location) 'limit-policy-corpus.json'
+  try {
+    Invoke-Checked { go test -count=1 -run '^TestLimitPolicy' -v ./codec/go }
+    $prevGoarch = $env:GOARCH; $env:GOARCH = '386'
+    try { Invoke-Checked { go test -count=1 -run '^TestLimitPolicy' -v ./codec/go } } finally { $env:GOARCH = $prevGoarch }
+    Invoke-Checked { cargo test -p bitspark-ontos-codec --test vectors --locked limit_policy -- --nocapture }
+    Invoke-Checked { node --test --test-name-pattern '^limit policy' codec/ts/test/limits.test.ts }
+    Invoke-Checked { python codec/py/test/test_limits.py -k LimitPolicy }
+  } finally { $env:ONTOS_LIMIT_POLICY_CORPUS = $prevCorpus }
+  Remove-Item -Force -ErrorAction SilentlyContinue limit-policy-corpus.json
 }
 
 function Invoke-Vectors {
@@ -267,6 +291,16 @@ function Invoke-Vectors {
   & { $ErrorActionPreference = 'Continue'; git diff --exit-code vectors/data.generated.json }
   if ($LASTEXITCODE -ne 0) {
     throw "vectors/data.generated.json drifted — re-run scripts/check.ps1 vectors and commit"
+  }
+  # The four faces replay this corpus in `test`; it must stay what its pinned seed generates
+  # (Bitspark/ontos#13, docs/design/0009). The generator refuses to write a case outside the
+  # agreement zone, so a clean regeneration also re-checks every committed case.
+  # Mirrors do_vectors in scripts/check.sh; keep the two in sync.
+  Step "regenerate the limit-policy corpus + assert no drift (tools/limit-policy/gen.mjs)"
+  Invoke-Checked { node tools/limit-policy/gen.mjs }
+  & { $ErrorActionPreference = 'Continue'; git diff --exit-code vectors/codec-limits.generated.json }
+  if ($LASTEXITCODE -ne 0) {
+    throw "vectors/codec-limits.generated.json drifted — re-run scripts/check.ps1 vectors and commit"
   }
 
   Step "lint: a case NAME asserting a relation must belong to a kind that carries it (ontos-internal#288)"

@@ -251,6 +251,28 @@ output is unchanged: their `error` field carries the code only (see
 covers byte-result **equality** only. A crash, a timeout, or malformed output from any
 core is a failure even when another core reports a limit for the same input.
 
+Two generated tests extend the fixed cases of
+[`vectors/codec-limits.json`](../../vectors/codec-limits.json)
+([design record 0009](../design/0009-generated-limit-policy-tests.md)). Both read
+[`vectors/codec-limits.generated.json`](../../vectors/codec-limits.generated.json), which
+[`tools/limit-policy`](../../tools/limit-policy/) generates from a pinned seed. Each core's
+own limits test replays it through the library API, with no CLI involved, and a fresh-seed
+corpus also runs through the same tests on every commit.
+
+- The **agreement-zone differential.** A case in the zone has a valid encoding, exactly
+  one bound lowered, and every other bound either absent or at least what the value needs.
+  Every length and arity is far below any native width. Such a decode has one possible
+  outcome: acceptance when the lowered bound is at least the value's need, and otherwise
+  `limit_exceeded` with that bound's kind. Every core must produce it. This follows from
+  the rules above and adds none: only one bound can stop such a decode, and the kind MUST
+  name the bound responsible. So a divergence inside the zone is a defect, not
+  observational selection.
+- The **metamorphic test.** A core decodes a value under its shipped defaults, which must
+  accept it. Lowering exactly one bound below what the value needs must then report that
+  bound's kind, and setting every bound to exactly its need must accept. The test uses
+  valid inputs only. On a malformed input, loosening a limit can correctly reveal a later
+  normative rejection.
+
 *(Ruled on ontos-internal#341 after the expert
 consultation recorded in
 `research-docs/0003-typed-decode-limit-kinds-under-an-implementation-local-code.md`.

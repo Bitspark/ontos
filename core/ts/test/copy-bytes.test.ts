@@ -17,7 +17,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 
-import { Atom, atom, copyBytes, type BytesLike } from "../src/index.ts";
+import { Atom, atom, copyBytes, tuple, type BytesLike, type Value } from "../src/index.ts";
 
 const asBytes = (value: unknown): BytesLike => value as BytesLike;
 const list = (bytes: Uint8Array | Atom): number[] =>
@@ -543,15 +543,19 @@ test("a detached or shrunk Uint8Array from another realm is refused with a TypeE
 
 // --- built-ins redefined after load ----------------------------------------------
 //
-// On v0.17.0 the copy looked some built-ins up at call time: a Uint8Array.prototype.set
-// redefined by the caller stored [99, 2] for the DataView, Uint16Array and ArrayBuffer
-// [1, 2], and a redefined Reflect.apply ran on every copy. Every built-in the copy calls
-// is now taken when the module loads. This replaces each global and built-in property
-// the copy uses, or that an older engine's copy constructor consulted, with an accessor
-// that counts its reads, runs every kind of input and refusal through the three entry
-// points, and puts everything back before asserting anything.
+// On v0.17.0 the copy and an Atom's methods looked some built-ins up at call time.
+// - A redefined Uint8Array.prototype.set stored [99, 2] for the DataView, Uint16Array and
+//   ArrayBuffer [1, 2], and a redefined Reflect.apply ran on every copy.
+// - Atom#length, bytes(), toString()/toJSON() and equals() handed the Atom's private bytes
+//   to the %TypedArray% length getter, the global Uint8Array and Array.from, so redefining
+//   any of these could rewrite an existing Atom.
+// Every built-in they call is now taken when the module loads. The first test replaces
+// each global and built-in property the copy and the Atom use, or that an older engine's
+// copy constructor consulted, with an accessor that counts its reads. It then runs every
+// kind of input and refusal through the three entry points and every Atom method, and
+// puts everything back before asserting anything. The second test runs the reproducers.
 
-test("built-ins redefined after ontos-core loaded are never read: the copy uses those taken at load", () => {
+test("built-ins redefined after ontos-core loaded are never read by the copy or by an Atom", () => {
   const { apply, defineProperty, deleteProperty, getOwnPropertyDescriptor } = Reflect;
   const typedArray: object = Object.getPrototypeOf(Uint8Array);
   const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
@@ -584,6 +588,13 @@ test("built-ins redefined after ontos-core loaded are never read: the copy uses 
     [SharedArrayBuffer.prototype, "slice"],
     [SharedArrayBuffer.prototype, "constructor"],
     [Array.prototype, Symbol.iterator],
+    [Array, "from"],
+    [Array.prototype, "join"],
+    [Array.prototype, "map"],
+    [Number.prototype, "toString"],
+    [String.prototype, "padStart"],
+    [Object.prototype, "isPrototypeOf"],
+    [globalThis, "JSON"],
   ];
 
   // Every input is built, and every entry point bound, before anything is replaced.
@@ -619,6 +630,13 @@ test("built-ins redefined after ontos-core loaded are never read: the copy uses 
   for (const input of inputs) {
     const bytes = asBytes(input);
     runs.push(() => copyBytes(bytes), () => new Atom(bytes), () => atom(bytes));
+  }
+  // An Atom made before the replacement, read through every method after it.
+  const held = atom([1, 2, 3]);
+  const peers: Value[] = [atom([1, 2, 3]), atom([1, 2, 4]), atom([1, 2, 3, 4]), tuple([held])];
+  runs.push(() => held.length, () => held.bytes(), () => held.toJSON(), () => held.toString(), () => held.kind);
+  for (const peer of peers) {
+    runs.push(() => held.equals(peer));
   }
   type Outcome = { value: unknown } | { error: unknown };
   const runAll = (): Outcome[] => {
@@ -671,12 +689,98 @@ test("built-ins redefined after ontos-core loaded are never read: the copy uses 
 
   assert.equal(refused, 0, "every built-in was replaced and put back");
   assert.equal(reads, 0, "a built-in replaced after load was read");
-  const shown = (outcome: Outcome) =>
-    "error" in outcome
-      ? { error: (outcome.error as Error).constructor, message: (outcome.error as Error).message }
-      : { bytes: list(outcome.value as Uint8Array | Atom) };
+  const shown = (outcome: Outcome) => {
+    if ("error" in outcome) {
+      return { error: (outcome.error as Error).constructor, message: (outcome.error as Error).message };
+    }
+    const { value } = outcome;
+    return value instanceof Atom || value instanceof Uint8Array ? { bytes: list(value) } : { value };
+  };
   assert.deepEqual(patched.map(shown), runAll().map(shown));
   assert.equal(patched.filter((outcome) => "error" in outcome).length, 3 * 8);
+  assert.deepEqual(patched.slice(-9).map(shown), [
+    { value: 3 },
+    { bytes: [1, 2, 3] },
+    { value: { atom: "010203" } },
+    { value: "Atom(0x010203)" },
+    { value: "atom" },
+    { value: true },
+    { value: false },
+    { value: false },
+    { value: false },
+  ]);
+  assert.deepEqual(list(held), [1, 2, 3]);
+});
+
+test("built-ins redefined after load to write into what they are given change no stored byte", () => {
+  const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+  const OriginalUint8Array = Uint8Array;
+  const { apply } = Reflect;
+  const { from } = Array;
+  const { set } = OriginalUint8Array.prototype;
+  const lengthGetter = Object.getOwnPropertyDescriptor(typedArrayPrototype, "length")!.get!;
+  const sources = (): BytesLike[] => [
+    new DataView(new Uint8Array([1, 2]).buffer),
+    new Uint16Array(new Uint8Array([1, 2]).buffer),
+    new Uint8Array([1, 2]).buffer,
+  ];
+  const inputs = sources();
+  const held = atom([1, 2, 3]);
+  const same = atom([1, 2, 3]);
+
+  // The reproducers. Each stand-in does its built-in's job, and first writes 99 into what
+  // it was handed.
+  const standIns: ReadonlyArray<[object, PropertyKey, PropertyDescriptor]> = [
+    // copyRange called bytes.set(view), found through the prototype.
+    [OriginalUint8Array.prototype, "set", {
+      value(this: Uint8Array, source: ArrayLike<number>) {
+        apply(set, this, [source]);
+        this[0] = 99;
+      },
+    }],
+    // Atom#length (and equals) read the private bytes' length through the prototype.
+    [typedArrayPrototype, "length", {
+      get(this: Uint8Array) {
+        this[0] = 99;
+        return apply(lengthGetter, this, []);
+      },
+    }],
+    // Atom#bytes() called the global Uint8Array with the private bytes.
+    [globalThis, "Uint8Array", {
+      value: function (source: Uint8Array) {
+        source[0] = 99;
+        return new OriginalUint8Array(source);
+      },
+    }],
+    // Atom#toString() and toJSON() called Array.from with the private bytes.
+    [Array, "from", {
+      value(source: Uint8Array, map: (byte: number) => string) {
+        source[0] = 99;
+        return apply(from, Array, [source, map]);
+      },
+    }],
+  ];
+  const originals = standIns.map(([owner, key]) => Object.getOwnPropertyDescriptor(owner, key));
+  let copies: Uint8Array[] = [];
+  let read: unknown[] = [];
+  try {
+    for (const [owner, key, standIn] of standIns) {
+      Object.defineProperty(owner, key, { ...standIn, configurable: true });
+    }
+    copies = inputs.map((input) => copyBytes(input));
+    read = [held.length, held.bytes(), held.toString(), held.toJSON(), held.equals(same)];
+  } finally {
+    standIns.forEach(([owner, key], i) => {
+      const original = originals[i];
+      if (original === undefined) Reflect.deleteProperty(owner, key);
+      else Object.defineProperty(owner, key, original);
+    });
+  }
+
+  assert.deepEqual(copies.map(list), [[1, 2], [1, 2], [1, 2]]);
+  assert.deepEqual(read, [3, new Uint8Array([1, 2, 3]), "Atom(0x010203)", { atom: "010203" }, true]);
+  assert.deepEqual(list(held), [1, 2, 3]);
+  assert.deepEqual(list(same), [1, 2, 3]);
 });
 
 // --- kinds that are not bytes stay refused --------------------------------------

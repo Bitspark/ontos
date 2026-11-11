@@ -50,12 +50,13 @@ export type Value = Atom | Tuple;
 
 // --- Intrinsics -------------------------------------------------------------------
 //
-// Every built-in that copyBytes and the Atom constructor call is taken here, once, when
-// this module loads, and is called only through these bindings. A global (Uint8Array,
-// ArrayBuffer.isView, Reflect.apply, RangeError, ...) or a built-in method or accessor
-// (Uint8Array.prototype.set, Function.prototype.call, the typed-array getters, ...) that
-// is redefined after ontos-core has loaded is never called by the copy, so it can neither
-// run code there nor change the bytes stored (ontos#32).
+// Every built-in that copyBytes and an Atom (its constructor and its methods) call is
+// taken here, once, when this module loads, and is called only through these bindings. A
+// global (Uint8Array, ArrayBuffer.isView, Reflect.apply, Array.from, ...) or a built-in
+// method or accessor (Uint8Array.prototype.set, Function.prototype.call, the typed-array
+// getters, ...) that is redefined after ontos-core has loaded is never called by the copy
+// or by an Atom. So it can neither run code there nor change the bytes an Atom stores:
+// those bytes are never handed to anything looked up at call time (ontos#32).
 //
 // The guarantee starts at load. Code that runs before ontos-core loads can substitute any
 // of these, as it can for any library.
@@ -112,6 +113,7 @@ const typedArrayAt = builtinMethod(typedArrayPrototype, "at");
 // longer array has element 2^30 - 1 read, and the answer is ignored.
 const PAST_THE_END = 0x3fffffff;
 const typedArraySet = builtinMethod(typedArrayPrototype, "set");
+const typedArrayLength = builtinGetter(typedArrayPrototype, "length");
 const typedArrayBuffer = builtinGetter(typedArrayPrototype, "buffer");
 const typedArrayByteOffset = builtinGetter(typedArrayPrototype, "byteOffset");
 const typedArrayByteLength = builtinGetter(typedArrayPrototype, "byteLength");
@@ -121,6 +123,10 @@ const dataViewByteOffset = builtinGetter(DataView.prototype, "byteOffset");
 const dataViewByteLength = builtinGetter(DataView.prototype, "byteLength");
 // Throws a TypeError for anything but an ArrayBuffer (a SharedArrayBuffer included).
 const arrayBufferByteLengthGetter = builtinGetter(ArrayBuffer.prototype, "byteLength");
+// Each byte's two lowercase hex digits, as toHex writes them.
+const HEX_DIGITS: readonly string[] = freeze(
+  Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, "0")),
+);
 
 /** An opaque byte atom. The bytes have no built-in interpretation. */
 export class Atom {
@@ -132,25 +138,29 @@ export class Atom {
     freeze(this);
   }
 
+  // The methods below read this.#bytes through intrinsics only (see Intrinsics above).
+  // `instanceof Atom` consults Atom[Symbol.hasInstance], which no built-in can replace:
+  // the Function.prototype one is non-configurable, and it sees no bytes anyway.
+
   get length(): number {
-    return this.#bytes.length;
+    return typedArrayLength(this.#bytes) as number;
   }
 
   /** Returns a defensive copy. Mutating the result does not mutate this Atom. */
   bytes(): Uint8Array {
-    return new Uint8Array(this.#bytes);
+    return new Uint8ArrayIntrinsic(this.#bytes);
   }
 
   equals(other: Value): boolean {
-    return other instanceof Atom && bytesEqual(this.#bytes, other.#bytes);
+    return other instanceof Atom && sameBytes(this.#bytes, other.#bytes);
   }
 
   toJSON(): { readonly atom: string } {
-    return { atom: toHex(this.#bytes) };
+    return { atom: hexOf(this.#bytes) };
   }
 
   toString(): string {
-    return `Atom(0x${toHex(this.#bytes)})`;
+    return `Atom(0x${hexOf(this.#bytes)})`;
   }
 }
 
@@ -365,6 +375,29 @@ function describe(value: unknown): string {
   return (typeof value === "object" && value !== null) || typeof value === "function"
     ? typeof value
     : stringOf(value);
+}
+
+// bytesEqual and toHex for an Atom's private bytes. They read a length through the
+// captured getter and bytes by index, which on a Uint8Array never consults a prototype, so
+// nothing redefined after load ever receives those bytes. The exported helpers below
+// stay as they were for the caller's own arrays.
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  const length = typedArrayLength(left) as number;
+  if (typedArrayLength(right) !== length) return false;
+  for (let i = 0; i < length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function hexOf(bytes: Uint8Array): string {
+  const length = typedArrayLength(bytes) as number;
+  let hex = "";
+  for (let i = 0; i < length; i += 1) {
+    hex += HEX_DIGITS[bytes[i]!]!;
+  }
+  return hex;
 }
 
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {

@@ -195,6 +195,8 @@ for (const [name, read] of entries) {
       get(_target, key) {
         seen.push(String(key));
         if (key === "length") return CLAIMED;
+        // Fails fast, rather than reading 2^32 - 1 elements, if 256 were ever taken.
+        if (key !== "0") throw new Error(`index ${String(key)} read past the refused element`);
         total = arrayBufferBytes();
         return 256;
       },
@@ -217,6 +219,7 @@ test("a Proxy claiming length 2^32 - 1 and refused deep in is held to memory in 
       assert.equal(key, String(reads), "each index once, in order");
       reads += 1;
       if (reads <= refusedAt) return reads & 0xff;
+      if (reads > refusedAt + 1) throw new Error(`index ${String(key)} read past the refused element`);
       total = arrayBufferBytes();
       return -1;
     },

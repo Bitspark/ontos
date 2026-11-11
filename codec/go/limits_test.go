@@ -44,7 +44,7 @@ type limitCase struct {
 
 // limitExpect is a case's expectation: Accept, or the code and kind of the rejection.
 type limitExpect struct {
-	Accept    bool
+	Accept    bool            `json:"-"`
 	Code      string          `json:"code"`
 	LimitKind DecodeLimitKind `json:"limitKind"`
 }

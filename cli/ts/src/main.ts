@@ -26,7 +26,7 @@
 
 import { parseArgs } from "node:util";
 import process from "node:process";
-import { readFileSync } from "node:fs";
+import { readSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { decode, encode, DecodeError } from "@bitspark/ontos-codec";
@@ -454,8 +454,38 @@ function lowerHexNibble(code: number): number {
  * JSON from stdin. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
  */
 function valueFromJsonSource(source: string): Value {
-  const text = source === "-" ? readFileSync(0, "utf8") : source;
+  const text = source === "-" ? readStdinText() : source;
   return authoringValue(readJson(text));
+}
+
+/**
+ * Read all of stdin as UTF-8 text, with U+FFFD for each sequence that is not UTF-8
+ * (both input paths read stdin through here). readFileSync(0) is not used: it throws
+ * EAGAIN when stdin is a non-blocking pipe whose writer is slower than this reader
+ * and the input is larger than the pipe's buffer. This loop waits for the data
+ * instead; Atomics.wait sleeps the thread, so the wait does not spin.
+ */
+function readStdinText(): string {
+  const chunks: Buffer[] = [];
+  const chunk = Buffer.alloc(1 << 16);
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    let n: number;
+    try {
+      n = readSync(0, chunk, 0, chunk.length, null);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") {
+        Atomics.wait(nap, 0, 0, 5);
+        continue;
+      }
+      if (code === "EOF") break; // how Windows reports the end of a pipe
+      throw err;
+    }
+    if (n === 0) break;
+    chunks.push(Buffer.from(chunk.subarray(0, n)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** Emit a compact JSON line (single line, "\n"-terminated) to stdout. */
@@ -493,8 +523,8 @@ function resolveInput(positional: string | undefined): string {
   if (positional !== undefined && positional !== "-") {
     return positional.trim();
   }
-  // fd 0 = stdin. Read synchronously and strip surrounding whitespace.
-  return readFileSync(0, "utf8").trim();
+  // Read synchronously and strip surrounding whitespace.
+  return readStdinText().trim();
 }
 
 /**

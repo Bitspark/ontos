@@ -103,10 +103,14 @@ const stringOf = String;
 const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
 // The element type's name for a typed array; undefined for anything else, never a throw.
 const typedArrayName = builtinGetter(typedArrayPrototype, Symbol.toStringTag);
-// at(+Infinity) validates a typed array and reads no element: it throws a TypeError when
-// the array's buffer is detached or has shrunk below it, and otherwise returns undefined.
-// Unlike keys(), it allocates nothing.
+// at(index) validates a typed array before anything else: it throws a TypeError when the
+// array's buffer is detached or has shrunk below it. Given PAST_THE_END it then returns
+// undefined without reading an element, for any array shorter than that, and allocates
+// nothing. keys() validates too but builds an iterator, and at(Infinity) boxes its index.
 const typedArrayAt = builtinMethod(typedArrayPrototype, "at");
+// 2^30 - 1: the largest small integer (Smi) on every V8 build, so it is never boxed. A
+// longer array has element 2^30 - 1 read, and the answer is ignored.
+const PAST_THE_END = 0x3fffffff;
 const typedArraySet = builtinMethod(typedArrayPrototype, "set");
 const typedArrayBuffer = builtinGetter(typedArrayPrototype, "buffer");
 const typedArrayByteOffset = builtinGetter(typedArrayPrototype, "byteOffset");
@@ -280,9 +284,9 @@ function copyView(view: ArrayBufferView): Uint8Array {
     return new Uint8ArrayIntrinsic(view as Uint8Array);
   }
   if (name !== undefined) {
-    // Throws a TypeError on a detached or out-of-bounds view, whose geometry getters
-    // would answer 0 instead.
-    typedArrayAt(view, Infinity);
+    // Throws a TypeError on a detached or out-of-bounds view, where the geometry getters
+    // below would answer 0 instead.
+    typedArrayAt(view, PAST_THE_END);
     return copyRange(
       typedArrayBuffer(view) as ArrayBufferLike,
       typedArrayByteOffset(view) as number,

@@ -119,6 +119,23 @@ tools/vector/gen.mjs          # ontos-vector — the maintainer generator + repr
 **not** edited by this reform: the generator must **reproduce** its `map`/`set`
 cases, never change them.
 
+### Outside both classes: the generated limit-policy corpus
+
+[`vectors/codec-limits.generated.json`](../vectors/codec-limits.generated.json) is not a
+conformance vector of the byte contract. It is an operational test corpus for decode-limit
+reporting ([ontos-codec §4.2](spec/ontos-codec.md), Testing), so it carries no
+`provenance` field and belongs to neither class.
+
+- [`tools/limit-policy/gen.mjs`](../tools/limit-policy/gen.mjs) generates it from a pinned
+  seed, and `scripts/check.sh vectors` checks it for drift.
+- Its oracle is the agreement-zone rule of
+  [design record 0009](design/0009-generated-limit-policy-tests.md), §2. The generator
+  applies the rule, then checks each case by computing the value's needs twice: once from
+  the tree it built, and once from the bytes with an independent reader.
+- Its metamorphic section carries values only. Each face derives those expectations from
+  its own acceptance.
+- No implementation's output is pasted into it.
+
 ## Why a generated artifact is still oracle-grade: the cross-check
 
 A generator that is "the encoder with a JSON loop" would only grade the encoder

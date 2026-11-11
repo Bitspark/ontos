@@ -99,6 +99,35 @@ distinctions, and atom/tuple disjointness. Pure model — no bytes, no codec.
   corpus; this one is policy, which the CLIs never read and whose output they do not
   change (ontos-internal#352, research 0003 row 14).
 
+### `codec-limits.generated.json` — generated limit-policy tests *(pins `ontos-codec.md` §4.2, **not** the byte contract)*
+
+```text
+{
+  "codec": "ontos-codec-v1", "description", "generator", "seed",
+  "counts": { "differential": <n>, "metamorphic": <n> },
+  "differential": [ { "name", "hex", "lowered": "<bound>",
+                      "limits": { "maxDepth"?, "maxAtomBytes"?, "maxTupleArity"? },
+                      "expect": "accept" | { "code": "limit_exceeded", "limitKind": "<kind>" } }, … ],
+  "metamorphic":  [ { "name", "hex" }, … ]
+}
+```
+
+- **Generated**, not hand-authored: `tools/limit-policy/gen.mjs` writes it from a pinned
+  seed, and `scripts/check.sh vectors` fails if it drifts. Don't edit it; regenerate it.
+  See [`tools/limit-policy`](../tools/limit-policy/) and
+  [design record 0009](../docs/design/0009-generated-limit-policy-tests.md).
+- Every `hex` is a valid canonical encoding.
+- **`differential`** cases are agreement-zone cases in `codec-limits.json`'s shape, plus
+  `lowered`. `lowered` names the one bound set to test the value's need. Every other bound
+  is absent (the shipped default) or at least what the value needs. Each face judges them
+  as it judges `codec-limits.json`, and an acceptance must also re-encode to `hex`.
+- **`metamorphic`** entries are values only. Each face decodes one under its defaults
+  (it must accept), and measures the decoded value's depth, longest atom and widest tuple.
+  It then expects acceptance with every bound at exactly its need, and a bound's kind when
+  that bound is lowered below its need. No expectation comes from this file.
+- `native_width` stays outside both sections, as in `codec-limits.json`. The CLIs never
+  read this file.
+
 ### `codec-measure.json` — `measure` *(pins `ontos-codec.md` §10, **not** the byte contract)*
 
 ```text

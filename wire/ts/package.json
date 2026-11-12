@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "Optional ontos/wire mixed values and qualified compact native realization, without runtime or transport dependencies.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": { "type": "git", "url": "git+https://github.com/Bitspark/ontos.git", "directory": "wire/ts" },
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "files": ["dist/src", "LICENSE", "NOTICE"],

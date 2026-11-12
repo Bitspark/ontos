@@ -120,8 +120,10 @@ cargo add bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data
 go get github.com/bitspark/ontos@v0.17.0
 ```
 
-The Rust crates keep their library names, so the code reads `use ontos_core::`. Details, and
-the one-version rule for Rust dependency graphs, are in [docs/distribution.md](docs/distribution.md).
+The Rust crates keep their library names, so the code reads `use ontos_core::`. The TypeScript
+packages need Node 18.3 or later; CI tests them on Node 24. Details, including the floor's
+reason and other runtimes, and the one-version rule for Rust dependency graphs, are in
+[docs/distribution.md](docs/distribution.md).
 
 ## Develop
 

@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "ontos-over-deixis-v1: the total projection P and exact partial recognizer R between ontos values and Node[Option[Bytes]], on the deixis-pos-v1 position spelling. Additive; the one TypeScript package in ontos that knows deixis exists. Browser-compatible (no Node-only imports). Depends on @bitspark/ontos-core, @bitspark/deixis-core and @bitspark/deixis-pos.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bitspark/ontos.git"

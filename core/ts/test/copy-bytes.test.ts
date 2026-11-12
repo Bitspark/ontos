@@ -17,7 +17,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 
-import { Atom, atom, copyBytes, type BytesLike } from "../src/index.ts";
+import { Atom, atom, copyBytes, tuple, type BytesLike, type Value } from "../src/index.ts";
 
 const asBytes = (value: unknown): BytesLike => value as BytesLike;
 const list = (bytes: Uint8Array | Atom): number[] =>
@@ -137,10 +137,119 @@ test("a hole is refused exactly like an undefined element", () => {
   assert.throws(() => copyBytes(asBytes(holey)), elementOutOfRange("undefined"));
   assert.throws(() => copyBytes(asBytes([1, undefined, 2])), elementOutOfRange("undefined"));
   assert.throws(() => atom(asBytes(new Array(3))), elementOutOfRange("undefined"));
-  // A huge sparse array is refused at its first hole, without its length mattering.
-  const sparse: number[] = [];
-  sparse.length = 2 ** 32 - 1;
-  assert.throws(() => copyBytes(sparse), elementOutOfRange("undefined"));
+});
+
+// --- number[]: a claimed length is not an allocation ------------------------------
+//
+// A sparse array or a Proxy can claim length 2^32 - 1 while holding nothing. v0.17.0
+// allocated the whole claim (4 GiB) before reading index 0, so these were refused only
+// where the allocation happened to succeed: under `ulimit -v 2000000` they threw
+// "Array buffer allocation failed" instead. The copy may size an allocation from the
+// claim only up to 64 KiB.
+//
+// Each case below reads Node's ArrayBuffer memory at the moment the copy reads the
+// element it refuses, when an allocation sized by the claim would be live. Two checks:
+// - the total stays below HELD_LIMIT, which a live 4 GiB allocation cannot, whatever
+//   the GC has collected;
+// - the growth since the copy began stays below ALLOWED_BYTES. A collection during the
+//   copy can only shrink this figure, so it confirms the bound but cannot replace the
+//   first check.
+
+const CLAIMED = 2 ** 32 - 1;
+/** Far below the 4 GiB a claim-sized allocation holds, far above all else this file holds. */
+const HELD_LIMIT = 2 ** 29;
+/** Far above the 64 KiB the copy may take from a claim. */
+const ALLOWED_BYTES = 2 ** 20;
+const arrayBufferBytes = (): number => process.memoryUsage().arrayBuffers;
+
+/** Asserts what the copy held when it read the element it refused (see above). */
+function assertHeld(total: number, grown: number, allowed: number, at: string): void {
+  assert.ok(total < HELD_LIMIT, `${total} bytes of ArrayBuffer held when ${at} was read`);
+  assert.ok(grown < allowed, `${grown} more bytes of ArrayBuffer held when ${at} was read`);
+}
+
+for (const [name, read] of entries) {
+  test(`${name}: a sparse array claiming length 2^32 - 1 is refused at index 0, with nothing sized by its length`, () => {
+    const sparse: number[] = [];
+    sparse.length = CLAIMED;
+    assert.throws(() => read(sparse), elementOutOfRange("undefined"));
+
+    let total = Number.NaN;
+    const watched: number[] = [];
+    watched.length = CLAIMED;
+    Object.defineProperty(watched, 0, {
+      get() {
+        total = arrayBufferBytes();
+        return undefined;
+      },
+    });
+    const before = arrayBufferBytes();
+    assert.throws(() => read(watched), elementOutOfRange("undefined"));
+    assertHeld(total, total - before, ALLOWED_BYTES, "index 0");
+  });
+
+  test(`${name}: a Proxy claiming length 2^32 - 1 is refused at index 0, having read nothing more`, () => {
+    const seen: string[] = [];
+    let total = Number.NaN;
+    const source = new Proxy([], {
+      get(_target, key) {
+        seen.push(String(key));
+        if (key === "length") return CLAIMED;
+        // Fails fast, rather than reading 2^32 - 1 elements, if 256 were ever taken.
+        if (key !== "0") throw new Error(`index ${String(key)} read past the refused element`);
+        total = arrayBufferBytes();
+        return 256;
+      },
+    });
+    const before = arrayBufferBytes();
+    assert.throws(() => read(asBytes(source)), elementOutOfRange("256"));
+    assert.deepEqual(seen, ["length", "0"]);
+    assertHeld(total, total - before, ALLOWED_BYTES, "index 0");
+  });
+}
+
+test("a Proxy claiming length 2^32 - 1 and refused deep in is held to memory in proportion to what it read", () => {
+  // Past two growths of the result (64 KiB -> 512 KiB -> 4 MiB).
+  const refusedAt = 600_000;
+  let reads = 0;
+  let total = Number.NaN;
+  const source = new Proxy([], {
+    get(_target, key) {
+      if (key === "length") return CLAIMED;
+      assert.equal(key, String(reads), "each index once, in order");
+      reads += 1;
+      if (reads <= refusedAt) return reads & 0xff;
+      if (reads > refusedAt + 1) throw new Error(`index ${String(key)} read past the refused element`);
+      total = arrayBufferBytes();
+      return -1;
+    },
+  });
+  const before = arrayBufferBytes();
+  assert.throws(() => copyBytes(asBytes(source)), elementOutOfRange("-1"));
+  assert.equal(reads, refusedAt + 1);
+  // The live result is at most 8 bytes per byte read, and the results it outgrew (at most
+  // one more per byte read) may not be collected yet; plus the bound.
+  assertHeld(total, total - before, 9 * refusedAt + ALLOWED_BYTES, `index ${refusedAt}`);
+});
+
+test("a number[] longer than 64 KiB is copied exactly, each index read once, into a buffer of its exact length", () => {
+  for (const length of [0xffff, 0x10000, 0x10001, 0x80000, 0x80001, 600_001]) {
+    const bytes = Array.from({ length }, (_, i) => (i * 7 + 3) & 0xff);
+    let reads = 0;
+    const counted = new Proxy(bytes, {
+      get(target, key, receiver) {
+        if (key !== "length") reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const copy = copyBytes(asBytes(counted));
+    assert.equal(reads, length);
+    assert.equal(copy.length, length);
+    assert.equal(copy.byteOffset, 0);
+    assert.equal(copy.buffer.byteLength, length);
+    assert.ok(copy.every((byte, i) => byte === bytes[i]), `length ${length}`);
+    assert.ok(atom(bytes).equals(new Atom(copy)), `length ${length}`);
+  }
 });
 
 test("numbers outside 0..255, non-integers and non-numbers are still refused", () => {
@@ -309,14 +418,22 @@ test("binary inputs are copied: the result owns a fresh, unshared buffer", () =>
     new DataView(backing.buffer, 1, 2),
     new Uint8Array(new SharedArrayBuffer(4)),
     new Uint16Array(new SharedArrayBuffer(4), 2, 1),
+    new DataView(new SharedArrayBuffer(4), 1, 2),
+    new Uint16Array(new SharedArrayBuffer(2, { maxByteLength: 8 })),
+    Array.from({ length: 0x10001 }, (_, i) => i & 0xff),
   ];
   for (const input of inputs) {
     const copy = copyBytes(input);
     assert.equal(copy.byteOffset, 0);
     assert.equal(copy.buffer.byteLength, copy.length);
     assert.ok(!(copy.buffer instanceof SharedArrayBuffer));
+    assert.ok(!copy.buffer.resizable);
     assert.notEqual(copy.buffer, backing.buffer);
   }
+  const shared = new Uint8Array(new SharedArrayBuffer(4));
+  shared.set([5, 6, 7, 8]);
+  assert.deepEqual(list(copyBytes(new DataView(shared.buffer, 1, 2))), [6, 7]);
+  assert.deepEqual(list(copyBytes(new Uint16Array(shared.buffer, 2, 1))), [7, 8]);
   const held = atom(backing.subarray(1, 3));
   backing.fill(0);
   assert.deepEqual(list(held), [2, 3]);
@@ -328,6 +445,9 @@ test("a typed array over a resizable buffer is copied at its length when copied"
   buffer.resize(3);
   new Uint8Array(buffer).set([1, 2, 3]);
   assert.deepEqual(list(copyBytes(tracking)), [1, 2, 3]);
+  // A length-tracking view of wider elements covers only its whole elements.
+  assert.deepEqual(list(copyBytes(new Uint16Array(buffer))), [1, 2]);
+  assert.deepEqual(list(copyBytes(new DataView(buffer, 1))), [2, 3]);
 });
 
 test("a view over a detached or shrunk buffer is refused with a TypeError", () => {
@@ -348,6 +468,10 @@ test("a view over a detached or shrunk buffer is refused with a TypeError", () =
     (buffer) => new Uint8Array(buffer, 2, 2),
     (buffer) => new Uint16Array(buffer, 2, 1),
     (buffer) => new DataView(buffer, 2, 2),
+    // Length-tracking views are out of bounds once the buffer ends before their offset.
+    (buffer) => new Uint8Array(buffer, 2),
+    (buffer) => new Uint16Array(buffer, 2),
+    (buffer) => new DataView(buffer, 2),
   ];
   for (const make of shrunk) {
     const buffer = new ArrayBuffer(4, { maxByteLength: 8 });
@@ -415,6 +539,248 @@ test("a detached or shrunk Uint8Array from another realm is refused with a TypeE
       assert.throws(() => read(view), TypeError);
     }
   }
+});
+
+// --- built-ins redefined after load ----------------------------------------------
+//
+// On v0.17.0 the copy and an Atom's methods looked some built-ins up at call time.
+// - A redefined Uint8Array.prototype.set stored [99, 2] for the DataView, Uint16Array and
+//   ArrayBuffer [1, 2], and a redefined Reflect.apply ran on every copy.
+// - Atom#length, bytes(), toString()/toJSON() and equals() handed the Atom's private bytes
+//   to the %TypedArray% length getter, the global Uint8Array and Array.from, so redefining
+//   any of these could rewrite an existing Atom.
+// Every built-in they call is now taken when the module loads. The first test replaces
+// each global and built-in property the copy and the Atom use, or that an older engine's
+// copy constructor consulted, with an accessor that counts its reads. It then runs every
+// kind of input and refusal through the three entry points and every Atom method, and
+// puts everything back before asserting anything. The second test runs the reproducers.
+
+test("built-ins redefined after ontos-core loaded are never read by the copy or by an Atom", () => {
+  const { apply, defineProperty, deleteProperty, getOwnPropertyDescriptor } = Reflect;
+  const typedArray: object = Object.getPrototypeOf(Uint8Array);
+  const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+  const replaced: ReadonlyArray<[object, PropertyKey]> = [
+    ...(["Uint8Array", "ArrayBuffer", "SharedArrayBuffer", "DataView", "Array", "Number", "Object", "String",
+      "Symbol", "Math", "Reflect", "Function", "Error", "RangeError", "TypeError"] as const)
+      .map((key): [object, PropertyKey] => [globalThis, key]),
+    [ArrayBuffer, "isView"],
+    [ArrayBuffer, Symbol.species],
+    [Array, "isArray"],
+    [Number, "isInteger"],
+    [Object, "freeze"],
+    [Reflect, "apply"],
+    [Reflect, "construct"],
+    [Reflect, "get"],
+    [Function.prototype, "call"],
+    [Function.prototype, "apply"],
+    [Function.prototype, "bind"],
+    [typedArray, Symbol.species],
+    ...(["set", "at", "keys", "subarray", "slice", "buffer", "byteOffset", "byteLength", "length",
+      Symbol.toStringTag, Symbol.iterator] as const).map((key): [object, PropertyKey] => [typedArrayPrototype, key]),
+    [Uint8Array.prototype, "set"],
+    [Uint8Array.prototype, "constructor"],
+    [DataView.prototype, "buffer"],
+    [DataView.prototype, "byteOffset"],
+    [DataView.prototype, "byteLength"],
+    [ArrayBuffer.prototype, "byteLength"],
+    [ArrayBuffer.prototype, "slice"],
+    [ArrayBuffer.prototype, "constructor"],
+    [SharedArrayBuffer.prototype, "slice"],
+    [SharedArrayBuffer.prototype, "constructor"],
+    [Array.prototype, Symbol.iterator],
+    [Array, "from"],
+    [Array.prototype, "join"],
+    [Array.prototype, "map"],
+    [Number.prototype, "toString"],
+    [String.prototype, "padStart"],
+    [Object.prototype, "isPrototypeOf"],
+    [globalThis, "JSON"],
+  ];
+
+  // Every input is built, and every entry point bound, before anything is replaced.
+  const detach = (buffer: ArrayBuffer) => structuredClone(buffer, { transfer: [buffer] });
+  const detachedUint16 = new Uint16Array(new ArrayBuffer(4));
+  detach(detachedUint16.buffer as ArrayBuffer);
+  const detachedView = new DataView(new ArrayBuffer(4));
+  detach(detachedView.buffer as ArrayBuffer);
+  const shrinking = new ArrayBuffer(4, { maxByteLength: 8 });
+  const outOfBounds = new Uint16Array(shrinking, 2, 1);
+  shrinking.resize(1);
+  const shared = new Uint8Array(new SharedArrayBuffer(4));
+  shared.set([14, 15, 16, 17]);
+  const inputs: unknown[] = [
+    new Uint8Array([1, 2, 3, 4]).subarray(1, 3),
+    new Uint16Array(new Uint8Array([5, 6, 7, 8]).buffer, 2, 1),
+    new DataView(new Uint8Array([9, 10, 11]).buffer, 1, 2),
+    new Uint8Array([12, 13]).buffer,
+    shared,
+    new DataView(shared.buffer, 1, 2),
+    [18, 19],
+    Array.from({ length: 0x10000 + 3 }, (_, i) => i & 0xff),
+    [0, 256],
+    [0, Symbol("s")],
+    [0, {}],
+    new Proxy([], { get: (_target, key) => (key === "length" ? "2" : undefined) }),
+    new Set([1]),
+    detachedUint16,
+    detachedView,
+    outOfBounds,
+  ];
+  const runs: Array<() => unknown> = [() => new Atom(), () => atom()];
+  for (const input of inputs) {
+    const bytes = asBytes(input);
+    runs.push(() => copyBytes(bytes), () => new Atom(bytes), () => atom(bytes));
+  }
+  // An Atom made before the replacement, read through every method after it.
+  const held = atom([1, 2, 3]);
+  const peers: Value[] = [atom([1, 2, 3]), atom([1, 2, 4]), atom([1, 2, 3, 4]), tuple([held])];
+  runs.push(() => held.length, () => held.bytes(), () => held.toJSON(), () => held.toString(), () => held.kind);
+  for (const peer of peers) {
+    runs.push(() => held.equals(peer));
+  }
+  type Outcome = { value: unknown } | { error: unknown };
+  const runAll = (): Outcome[] => {
+    const outcomes: Outcome[] = [];
+    for (let i = 0; i < runs.length; i += 1) {
+      try {
+        outcomes[i] = { value: runs[i]!() };
+      } catch (error) {
+        outcomes[i] = { error };
+      }
+    }
+    return outcomes;
+  };
+
+  // What to put back (the own property, if any) and the built-in each replacement serves.
+  // Between replacing and restoring, the test itself touches only these locals, index
+  // loops and the captured Reflect functions, so every counted read is the copy's.
+  const plan = replaced.map(([owner, key]) => {
+    const own = getOwnPropertyDescriptor(owner, key);
+    const builtin = own ?? getOwnPropertyDescriptor(Object.getPrototypeOf(owner), key);
+    assert.ok(builtin !== undefined, `${String(key)} is a built-in`);
+    return { owner, key, own, builtin };
+  });
+  let reads = 0;
+  let refused = 0;
+  let replacedCount = 0;
+  let patched: Outcome[] = [];
+  try {
+    for (; replacedCount < plan.length; replacedCount += 1) {
+      const { owner, key, builtin } = plan[replacedCount]!;
+      const { get, value } = builtin;
+      const ok = defineProperty(owner, key, {
+        configurable: true,
+        get() {
+          reads += 1;
+          return get === undefined ? value : apply(get, this, []);
+        },
+      });
+      if (!ok) refused += 1;
+    }
+    patched = runAll();
+  } finally {
+    while (replacedCount > 0) {
+      replacedCount -= 1;
+      const { owner, key, own } = plan[replacedCount]!;
+      const ok = own === undefined ? deleteProperty(owner, key) : defineProperty(owner, key, own);
+      if (!ok) refused += 1;
+    }
+  }
+
+  assert.equal(refused, 0, "every built-in was replaced and put back");
+  assert.equal(reads, 0, "a built-in replaced after load was read");
+  const shown = (outcome: Outcome) => {
+    if ("error" in outcome) {
+      return { error: (outcome.error as Error).constructor, message: (outcome.error as Error).message };
+    }
+    const { value } = outcome;
+    return value instanceof Atom || value instanceof Uint8Array ? { bytes: list(value) } : { value };
+  };
+  assert.deepEqual(patched.map(shown), runAll().map(shown));
+  assert.equal(patched.filter((outcome) => "error" in outcome).length, 3 * 8);
+  assert.deepEqual(patched.slice(-9).map(shown), [
+    { value: 3 },
+    { bytes: [1, 2, 3] },
+    { value: { atom: "010203" } },
+    { value: "Atom(0x010203)" },
+    { value: "atom" },
+    { value: true },
+    { value: false },
+    { value: false },
+    { value: false },
+  ]);
+  assert.deepEqual(list(held), [1, 2, 3]);
+});
+
+test("built-ins redefined after load to write into what they are given change no stored byte", () => {
+  const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+  const OriginalUint8Array = Uint8Array;
+  const { apply } = Reflect;
+  const { from } = Array;
+  const { set } = OriginalUint8Array.prototype;
+  const lengthGetter = Object.getOwnPropertyDescriptor(typedArrayPrototype, "length")!.get!;
+  const sources = (): BytesLike[] => [
+    new DataView(new Uint8Array([1, 2]).buffer),
+    new Uint16Array(new Uint8Array([1, 2]).buffer),
+    new Uint8Array([1, 2]).buffer,
+  ];
+  const inputs = sources();
+  const held = atom([1, 2, 3]);
+  const same = atom([1, 2, 3]);
+
+  // The reproducers. Each stand-in does its built-in's job, and first writes 99 into what
+  // it was handed.
+  const standIns: ReadonlyArray<[object, PropertyKey, PropertyDescriptor]> = [
+    // copyRange called bytes.set(view), found through the prototype.
+    [OriginalUint8Array.prototype, "set", {
+      value(this: Uint8Array, source: ArrayLike<number>) {
+        apply(set, this, [source]);
+        this[0] = 99;
+      },
+    }],
+    // Atom#length (and equals) read the private bytes' length through the prototype.
+    [typedArrayPrototype, "length", {
+      get(this: Uint8Array) {
+        this[0] = 99;
+        return apply(lengthGetter, this, []);
+      },
+    }],
+    // Atom#bytes() called the global Uint8Array with the private bytes.
+    [globalThis, "Uint8Array", {
+      value: function (source: Uint8Array) {
+        source[0] = 99;
+        return new OriginalUint8Array(source);
+      },
+    }],
+    // Atom#toString() and toJSON() called Array.from with the private bytes.
+    [Array, "from", {
+      value(source: Uint8Array, map: (byte: number) => string) {
+        source[0] = 99;
+        return apply(from, Array, [source, map]);
+      },
+    }],
+  ];
+  const originals = standIns.map(([owner, key]) => Object.getOwnPropertyDescriptor(owner, key));
+  let copies: Uint8Array[] = [];
+  let read: unknown[] = [];
+  try {
+    for (const [owner, key, standIn] of standIns) {
+      Object.defineProperty(owner, key, { ...standIn, configurable: true });
+    }
+    copies = inputs.map((input) => copyBytes(input));
+    read = [held.length, held.bytes(), held.toString(), held.toJSON(), held.equals(same)];
+  } finally {
+    standIns.forEach(([owner, key], i) => {
+      const original = originals[i];
+      if (original === undefined) Reflect.deleteProperty(owner, key);
+      else Object.defineProperty(owner, key, original);
+    });
+  }
+
+  assert.deepEqual(copies.map(list), [[1, 2], [1, 2], [1, 2]]);
+  assert.deepEqual(read, [3, new Uint8Array([1, 2, 3]), "Atom(0x010203)", { atom: "010203" }, true]);
+  assert.deepEqual(list(held), [1, 2, 3]);
+  assert.deepEqual(list(same), [1, 2, 3]);
 });
 
 // --- kinds that are not bytes stay refused --------------------------------------

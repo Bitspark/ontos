@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "ontos canonical binary codec (ontos-codec-v1, frozen). Depends on @bitspark/ontos-core.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bitspark/ontos.git"

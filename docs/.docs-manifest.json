@@ -413,6 +413,7 @@
     "docs/distribution.md": [
       "ontos--distribution",
       "consume",
+      "typescript-runtimes",
       "verify-what-you-installed",
       "how-a-release-is-made",
       "first-publication-of-a-new-npm-name"

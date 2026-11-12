@@ -48,35 +48,119 @@ export type BytesLike =
 
 export type Value = Atom | Tuple;
 
+// --- Intrinsics -------------------------------------------------------------------
+//
+// Every built-in that copyBytes and an Atom (its constructor and its methods) call is
+// taken here, once, when this module loads, and is called only through these bindings. A
+// global (Uint8Array, ArrayBuffer.isView, Reflect.apply, Array.from, ...) or a built-in
+// method or accessor (Uint8Array.prototype.set, Function.prototype.call, the typed-array
+// getters, ...) that is redefined after ontos-core has loaded is never called by the copy
+// or by an Atom. So it can neither run code there nor change the bytes an Atom stores:
+// those bytes are never handed to anything looked up at call time (ontos#32).
+//
+// The guarantee starts at load. Code that runs before ontos-core loads can substitute any
+// of these, as it can for any library.
+
+const { bind, call } = Function.prototype;
+
+/** A built-in method or accessor, called with its `this` as the first argument. */
+type Uncurried = (target: unknown, ...args: unknown[]) => unknown;
+
+/**
+ * `uncurry(f)(target, ...args)` calls `f` with `target` as its `this`. It is
+ * `Function.prototype.call.bind(f)`: the bound function holds `call` and `f` in its own
+ * internal slots, so a call looks nothing up, runs no caller code and allocates no
+ * argument array.
+ */
+function uncurry(f: Function): Uncurried {
+  return Reflect.apply(bind, call, [f]) as Uncurried;
+}
+
+function builtinGetter(prototype: object, key: PropertyKey): Uncurried {
+  const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get;
+  if (getter === undefined) {
+    throw new Error(`ontos-core: built-in accessor ${String(key)} is missing`);
+  }
+  return uncurry(getter);
+}
+
+function builtinMethod(prototype: object, key: PropertyKey): Uncurried {
+  const method: unknown = Object.getOwnPropertyDescriptor(prototype, key)?.value;
+  if (typeof method !== "function") {
+    throw new Error(`ontos-core: built-in method ${String(key)} is missing`);
+  }
+  return uncurry(method);
+}
+
+const Uint8ArrayIntrinsic = Uint8Array;
+const RangeErrorIntrinsic = RangeError;
+const TypeErrorIntrinsic = TypeError;
+const isArrayBufferView = ArrayBuffer.isView;
+const isArray = Array.isArray;
+const freeze = Object.freeze;
+const stringOf = String;
+
+// The accessors read internal slots, so they answer the same for an object from any realm.
+const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
+// The element type's name for a typed array; undefined for anything else, never a throw.
+const typedArrayName = builtinGetter(typedArrayPrototype, Symbol.toStringTag);
+// at(index) validates a typed array before anything else: it throws a TypeError when the
+// array's buffer is detached or has shrunk below it. Given PAST_THE_END it then returns
+// undefined without reading an element, for any array shorter than that, and allocates
+// nothing. keys() validates too but builds an iterator, and at(Infinity) boxes its index.
+const typedArrayAt = builtinMethod(typedArrayPrototype, "at");
+// 2^30 - 1: the largest small integer (Smi) on every V8 build, so it is never boxed. A
+// longer array has element 2^30 - 1 read, and the answer is ignored.
+const PAST_THE_END = 0x3fffffff;
+const typedArraySet = builtinMethod(typedArrayPrototype, "set");
+const typedArrayLength = builtinGetter(typedArrayPrototype, "length");
+const typedArrayBuffer = builtinGetter(typedArrayPrototype, "buffer");
+const typedArrayByteOffset = builtinGetter(typedArrayPrototype, "byteOffset");
+const typedArrayByteLength = builtinGetter(typedArrayPrototype, "byteLength");
+// The DataView accessors throw on a detached or out-of-bounds view themselves.
+const dataViewBuffer = builtinGetter(DataView.prototype, "buffer");
+const dataViewByteOffset = builtinGetter(DataView.prototype, "byteOffset");
+const dataViewByteLength = builtinGetter(DataView.prototype, "byteLength");
+// Throws a TypeError for anything but an ArrayBuffer (a SharedArrayBuffer included).
+const arrayBufferByteLengthGetter = builtinGetter(ArrayBuffer.prototype, "byteLength");
+// Each byte's two lowercase hex digits, as toHex writes them.
+const HEX_DIGITS: readonly string[] = freeze(
+  Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, "0")),
+);
+
 /** An opaque byte atom. The bytes have no built-in interpretation. */
 export class Atom {
   public readonly kind = "atom" as const;
   #bytes: Uint8Array;
 
-  constructor(bytes: BytesLike = new Uint8Array()) {
+  constructor(bytes: BytesLike = new Uint8ArrayIntrinsic()) {
     this.#bytes = copyBytes(bytes);
-    Object.freeze(this);
+    freeze(this);
   }
 
+  // The methods below read this.#bytes through intrinsics only (see Intrinsics above).
+  // `instanceof Atom` consults Atom[Symbol.hasInstance], which no built-in can replace:
+  // the Function.prototype one is non-configurable, and it sees no bytes anyway.
+
   get length(): number {
-    return this.#bytes.length;
+    return typedArrayLength(this.#bytes) as number;
   }
 
   /** Returns a defensive copy. Mutating the result does not mutate this Atom. */
   bytes(): Uint8Array {
-    return new Uint8Array(this.#bytes);
+    return new Uint8ArrayIntrinsic(this.#bytes);
   }
 
   equals(other: Value): boolean {
-    return other instanceof Atom && bytesEqual(this.#bytes, other.#bytes);
+    return other instanceof Atom && sameBytes(this.#bytes, other.#bytes);
   }
 
   toJSON(): { readonly atom: string } {
-    return { atom: toHex(this.#bytes) };
+    return { atom: hexOf(this.#bytes) };
   }
 
   toString(): string {
-    return `Atom(0x${toHex(this.#bytes)})`;
+    return `Atom(0x${hexOf(this.#bytes)})`;
   }
 }
 
@@ -129,7 +213,7 @@ export class Tuple {
   }
 }
 
-export function atom(bytes: BytesLike = new Uint8Array()): Atom {
+export function atom(bytes: BytesLike = new Uint8ArrayIntrinsic()): Atom {
   return new Atom(bytes);
 }
 
@@ -156,23 +240,28 @@ export function assertValue(value: unknown): asserts value is Value {
  *
  * - An ArrayBuffer is copied whole; any ArrayBufferView (a Uint8Array or another
  *   typed array, or a DataView) is copied as its byteOffset..byteOffset+byteLength
- *   range of its buffer. Objects from another realm are accepted alike.
+ *   range of its buffer. Objects from another realm are accepted alike. The result
+ *   never shares memory, even with a SharedArrayBuffer.
  * - A number[] is read exactly once: its `length` once, then each index once, in
  *   order. Every element must be an integer 0..255, and the byte stored is the very
  *   element that passed that check. A hole reads as `undefined` and is refused.
+ *   Nothing is allocated from `length` alone beyond 64 KiB: a longer result grows as
+ *   its elements pass, so a refused array costs memory in proportion to the elements
+ *   read before the refusal, whatever length it claims.
  *
  * Nothing the caller can redefine is consulted (ontos#32). An array's elements are read
  * by index, never through its iterator, so a getter that answers differently on a second
  * read never gets one. A buffer's or view's geometry is read from its internal slots
  * through the built-in accessors, never through properties that an own getter, a
- * subclass or a borrowed prototype could override.
+ * subclass or a borrowed prototype could override. Every built-in the copy calls was
+ * taken when this module loaded (see Intrinsics above).
  */
 export function copyBytes(input: BytesLike): Uint8Array {
   const value: unknown = input;
-  if (ArrayBuffer.isView(value)) {
+  if (isArrayBufferView(value)) {
     return copyView(value);
   }
-  if (Array.isArray(value)) {
+  if (isArray(value)) {
     return copyByteArray(value);
   }
   // Last of the three: its brand check throws and catches on every input that fails it.
@@ -180,42 +269,8 @@ export function copyBytes(input: BytesLike): Uint8Array {
   if (bufferLength !== undefined) {
     return copyRange(value as ArrayBuffer, 0, bufferLength);
   }
-  throw new TypeError("expected bytes as Uint8Array, ArrayBuffer, ArrayBufferView, or number[]");
+  throw new TypeErrorIntrinsic("expected bytes as Uint8Array, ArrayBuffer, ArrayBufferView, or number[]");
 }
-
-// Built-in accessors, taken once when the module loads. Each reads an internal slot,
-// so it answers the same from any realm and runs no caller code.
-type Accessor = (target: unknown) => unknown;
-
-function builtinGetter(prototype: object, key: PropertyKey): Accessor {
-  const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get;
-  if (getter === undefined) {
-    throw new Error(`ontos-core: built-in accessor ${String(key)} is missing`);
-  }
-  return (target) => Reflect.apply(getter, target, []);
-}
-
-function builtinMethod(prototype: object, key: PropertyKey): Accessor {
-  const method: unknown = Reflect.get(prototype, key);
-  if (typeof method !== "function") {
-    throw new Error(`ontos-core: built-in method ${String(key)} is missing`);
-  }
-  return (target) => Reflect.apply(method, target, []);
-}
-
-const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
-// The element type's name for a typed array; undefined for anything else, never a throw.
-const typedArrayName = builtinGetter(typedArrayPrototype, Symbol.toStringTag);
-// Throws a TypeError when a typed array's buffer is detached or has shrunk below it.
-const assertTypedArrayInBounds = builtinMethod(typedArrayPrototype, "keys");
-const typedArrayBuffer = builtinGetter(typedArrayPrototype, "buffer");
-const typedArrayByteOffset = builtinGetter(typedArrayPrototype, "byteOffset");
-const typedArrayByteLength = builtinGetter(typedArrayPrototype, "byteLength");
-// The DataView accessors throw on a detached or out-of-bounds view themselves.
-const dataViewBuffer = builtinGetter(DataView.prototype, "buffer");
-const dataViewByteOffset = builtinGetter(DataView.prototype, "byteOffset");
-const dataViewByteLength = builtinGetter(DataView.prototype, "byteLength");
-const arrayBufferByteLengthGetter = builtinGetter(ArrayBuffer.prototype, "byteLength");
 
 /** Its byte length if `value` is an ArrayBuffer (not shared) from any realm, else undefined. */
 function arrayBufferByteLength(value: unknown): number | undefined {
@@ -232,13 +287,16 @@ function copyView(view: ArrayBufferView): Uint8Array {
     // The fast path, for an atom cut from a byte buffer (e.g. the codec's per-atom
     // subarray). The brand says it is a genuine Uint8Array, from any realm, possibly a
     // subclass. Copying it with the constructor reads its internal slots only, runs no
-    // caller code (no getter, no `constructor`, no species), throws a TypeError if its
-    // buffer is detached or shrank below it, and never shares memory, even when the
-    // source is backed by a SharedArrayBuffer.
-    return new Uint8Array(view as Uint8Array);
+    // caller code (no getter, no `constructor`, no species; see docs/distribution.md for
+    // the engines this needs), throws a TypeError if its buffer is detached or shrank
+    // below it, and never shares memory, even when the source is backed by a
+    // SharedArrayBuffer.
+    return new Uint8ArrayIntrinsic(view as Uint8Array);
   }
   if (name !== undefined) {
-    assertTypedArrayInBounds(view);
+    // Throws a TypeError on a detached or out-of-bounds view, where the geometry getters
+    // below would answer 0 instead.
+    typedArrayAt(view, PAST_THE_END);
     return copyRange(
       typedArrayBuffer(view) as ArrayBufferLike,
       typedArrayByteOffset(view) as number,
@@ -253,30 +311,80 @@ function copyView(view: ArrayBufferView): Uint8Array {
   );
 }
 
-/** A fresh, unshared copy of `buffer`'s bytes byteOffset..byteOffset+byteLength. */
+/**
+ * A fresh, unshared copy of `buffer`'s bytes byteOffset..byteOffset+byteLength, in one
+ * allocation: the copy constructor allocates the result's own ArrayBuffer (never a
+ * SharedArrayBuffer) and copies the range into it. The view it copies from owns no bytes.
+ */
 function copyRange(buffer: ArrayBufferLike, byteOffset: number, byteLength: number): Uint8Array {
-  const bytes = new Uint8Array(byteLength);
-  bytes.set(new Uint8Array(buffer, byteOffset, byteLength));
-  return bytes;
+  return new Uint8ArrayIntrinsic(new Uint8ArrayIntrinsic(buffer, byteOffset, byteLength));
 }
 
-// The range of an array's `length`. Only a Proxy can report anything else.
-const MAX_ARRAY_LENGTH = 2 ** 32 - 1;
+/**
+ * The most a number[] copy allocates before it has read an element: 64 KiB.
+ *
+ * An array's `length` is only a claim: a sparse array or a Proxy can report 2^32 - 1
+ * while holding nothing. So the claim alone sizes an allocation only up to this bound.
+ * - An array up to the bound, which covers any atom built from a literal, still gets
+ *   its exact result in one allocation, as before.
+ * - A longer one starts at the bound. The result grows GROWTH-fold only after the
+ *   element that needs the room has passed, capped at `length`, so it ends at exactly
+ *   `length` bytes with no final copy.
+ * - An array refused at index i holds a result of at most max(64 KiB, 8i) bytes.
+ *
+ * Why these numbers:
+ * - A dense number[] of length n already occupies at least 4n bytes of heap in V8 (8n in
+ *   Node), so allocating its n bytes up front is never an amplification. 64 KiB is small
+ *   next to that, yet a single cheap allocation.
+ * - A larger factor means fewer growth steps. Each step allocates, zeroes and faults in
+ *   fresh pages, and re-copies what came before. Copying 300,001 elements, after 15
+ *   processes each (Node 24), the median time over main's single allocation was +51% for
+ *   doubling, +25% for 4 and +5% for 8.
+ * - Even at 8, a refused array holds no more result than its valid elements occupy in
+ *   Node. A Proxy, which holds nothing, has to answer one valid element for every 8
+ *   bytes it makes the copy hold.
+ */
+const PREALLOCATED_BYTES = 0x10000;
+const GROWTH = 8;
 
 function copyByteArray(source: readonly unknown[]): Uint8Array {
   const length: unknown = source.length;
-  if (typeof length !== "number" || !Number.isInteger(length) || length < 0 || length > MAX_ARRAY_LENGTH) {
-    throw new RangeError(`byte array length out of range: ${describe(length)}`);
+  // A number survives ToUint32 unchanged exactly when it is an integer 0..2^32 - 1, the
+  // range of an array's length. Only a Proxy can report anything else.
+  if (typeof length !== "number" || length >>> 0 !== length) {
+    throw new RangeErrorIntrinsic(`byte array length out of range: ${describe(length)}`);
   }
-  const bytes = new Uint8Array(length);
-  for (let index = 0; index < length; index += 1) {
-    const byte: unknown = source[index];
-    if (typeof byte !== "number" || !Number.isInteger(byte) || byte < 0 || byte > 255) {
-      throw new RangeError(`byte array element out of range: ${describe(byte)}`);
+  let capacity = length <= PREALLOCATED_BYTES ? length : PREALLOCATED_BYTES;
+  let bytes = new Uint8ArrayIntrinsic(capacity);
+  let index = 0;
+  // Each pass fills the result up to its capacity. The inner loop writes into one array
+  // held in a const and checks inline: the shape V8 compiles as tightly as one exact
+  // allocation (a helper or a reassigned array in the loop ran up to twice as slow).
+  for (;;) {
+    const filling = bytes;
+    for (; index < capacity; index += 1) {
+      const byte: unknown = source[index];
+      // A number keeps its value through `& 0xff` exactly when it is an integer 0..255
+      // (-0 included, stored as 0).
+      if (typeof byte !== "number" || (byte & 0xff) !== byte) {
+        throw new RangeErrorIntrinsic(`byte array element out of range: ${describe(byte)}`);
+      }
+      filling[index] = byte;
     }
+    if (index === length) {
+      return filling;
+    }
+    // The element that needs the room passes before the room is made.
+    const byte: unknown = source[index];
+    if (typeof byte !== "number" || (byte & 0xff) !== byte) {
+      throw new RangeErrorIntrinsic(`byte array element out of range: ${describe(byte)}`);
+    }
+    capacity = capacity < length / GROWTH ? capacity * GROWTH : length;
+    bytes = new Uint8ArrayIntrinsic(capacity);
+    typedArraySet(bytes, filling);
     bytes[index] = byte;
+    index += 1;
   }
-  return bytes;
 }
 
 /**
@@ -287,7 +395,30 @@ function copyByteArray(source: readonly unknown[]): Uint8Array {
 function describe(value: unknown): string {
   return (typeof value === "object" && value !== null) || typeof value === "function"
     ? typeof value
-    : String(value);
+    : stringOf(value);
+}
+
+// bytesEqual and toHex for an Atom's private bytes. They read a length through the
+// captured getter and bytes by index, which on a Uint8Array never consults a prototype, so
+// nothing redefined after load ever receives those bytes. The exported helpers below
+// stay as they were for the caller's own arrays.
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  const length = typedArrayLength(left) as number;
+  if (typedArrayLength(right) !== length) return false;
+  for (let i = 0; i < length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function hexOf(bytes: Uint8Array): string {
+  const length = typedArrayLength(bytes) as number;
+  let hex = "";
+  for (let i = 0; i < length; i += 1) {
+    hex += HEX_DIGITS[bytes[i]!]!;
+  }
+  return hex;
 }
 
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {

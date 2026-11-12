@@ -80,6 +80,33 @@ import (
 )
 ```
 
+## TypeScript runtimes
+
+The TypeScript packages are ES2022 modules. Beyond ES2022 they use only `TextEncoder` and
+`TextDecoder`, and no Node.js API. Each declares `"engines": { "node": ">=18.3.0" }`.
+
+- **Tested:** CI runs the TypeScript suite on Node 24. For v0.17.1 it also passed by hand on
+  Node 22 and 26, the other Node lines still supported upstream.
+- **Why 18.3.0:** this floor comes from the copy behind `new Atom(bytes)` and `copyBytes`, which
+  promise to run no caller code. They copy a `Uint8Array` by constructing one typed array from
+  another. ES2023 removed a species lookup from that step
+  ([ecma262#2719](https://github.com/tc39/ecma262/pull/2719)), and V8 shipped the removal in
+  10.2 ([v8@1ac9280d](https://github.com/v8/v8/commit/1ac9280d509e3d01c8b07c65431d96a21eb7423b)).
+  Node 18.3.0 is the first Node with V8 10.2.
+- **On older engines,** up to Node 18.2, the copied bytes are still right. But a getter the
+  caller placed on the source buffer's `constructor`, or on `ArrayBuffer[Symbol.species]`, runs
+  during the copy and chooses the prototype of the Atom's private buffer.
+- **The field only advises.** npm and pnpm print a warning (`EBADENGINE`) and install anyway;
+  Yarn 1 refuses to install. Browsers, Deno and Bun ignore the field. Those runtimes keep the same
+  guarantee only on an engine that implements ES2023 here: V8 10.2 or later, which means Chrome
+  and Edge 102 or later. Other engines have not been checked.
+
+The floor is the oldest Node on which the copy keeps its promise. It is not the oldest Node line
+supported upstream, which is 22, because that would turn Node 20 installs away in a patch release
+for no reason the code has. So the field refuses only engines on which the promise demonstrably
+fails. All six packages load and round-trip a value on Node 18.3 and 20, checked by hand for
+v0.17.1. Both lines are past their end of life and are not tested beyond that.
+
 ## Verify what you installed
 
 Every face replays the same conformance corpus in [`vectors/`](../vectors/). Running it against

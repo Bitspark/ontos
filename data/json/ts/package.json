@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "ontos-data-json/1 — the named, total projection of a domain-JSON document to an ontos/data value. TypeScript peer of data/json/go. Depends on @bitspark/ontos-core and @bitspark/ontos-data.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bitspark/ontos.git"

@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "ontos/core (L0): the Atom(Bytes) | Tuple(Value*) value model and structural identity. No codec, no interpretation.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bitspark/ontos.git"

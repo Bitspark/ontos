@@ -4,6 +4,9 @@
   "license": "Apache-2.0",
   "description": "ontos/data (L2) canonical embeddings (ontos-data-v1: int, utf8-text, bool, list, map, set, decimal, null). Depends on @bitspark/ontos-core and @bitspark/ontos-codec.",
   "type": "module",
+  "engines": {
+    "node": ">=18.3.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Bitspark/ontos.git"

@@ -527,12 +527,17 @@ func (f *mapFrame) next() (*node, int, *path, bool) {
 func (f *mapFrame) accept(v core.Value, o *origin) *fault {
 	en := f.arr.Items[f.j]
 	if f.pending == nil {
-		enc := jsontext.Encode(v)
-		if _, dup := f.seen[string(enc)]; dup {
-			return refuse(CodeDuplicateMapKey, f.ap.Index(f.j).Index(0), en.Items[0],
-				"the map key equals an earlier key as a ground value")
+		// One entry is neither compared nor sorted, so a chain of one-entry maps is not
+		// encoded level by level.
+		var enc []byte
+		if len(f.arr.Items) > 1 {
+			enc = jsontext.Encode(v)
+			if _, dup := f.seen[string(enc)]; dup {
+				return refuse(CodeDuplicateMapKey, f.ap.Index(f.j).Index(0), en.Items[0],
+					"the map key equals an earlier key as a ground value")
+			}
+			f.seen[string(enc)] = struct{}{}
 		}
-		f.seen[string(enc)] = struct{}{}
 		f.pending = &entry{key: v, sortKey: enc, origin: o}
 		return nil
 	}
@@ -573,12 +578,15 @@ func (f *setFrame) next() (*node, int, *path, bool) {
 
 func (f *setFrame) accept(v core.Value, o *origin) *fault {
 	j := len(f.elems)
-	enc := jsontext.Encode(v)
-	if _, dup := f.seen[string(enc)]; dup {
-		return refuse(CodeDuplicateSetElement, f.ap.Index(j), f.arr.Items[j],
-			"the set element equals an earlier element as a ground value")
+	var enc []byte
+	if len(f.arr.Items) > 1 { // one element is neither compared nor sorted
+		enc = jsontext.Encode(v)
+		if _, dup := f.seen[string(enc)]; dup {
+			return refuse(CodeDuplicateSetElement, f.ap.Index(j), f.arr.Items[j],
+				"the set element equals an earlier element as a ground value")
+		}
+		f.seen[string(enc)] = struct{}{}
 	}
-	f.seen[string(enc)] = struct{}{}
 	f.elems = append(f.elems, entry{key: v, sortKey: enc, origin: o})
 	return nil
 }

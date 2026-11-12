@@ -385,37 +385,39 @@ func (w *writer) compound(t core.Tuple, label []byte, d int, p *path) *fault {
 // exactly two children whose keys ascend strictly in codec order.
 func mapEntries(t core.Tuple) ([][2]core.Value, bool) {
 	entries := make([][2]core.Value, 0, t.Len()-1)
-	var prev []byte
 	for i := 1; i < t.Len(); i++ {
 		e, ok := t.At(i).(core.Tuple)
 		if !ok || e.Len() != 2 {
 			return nil, false
 		}
-		enc := jsontext.Encode(e.At(0))
-		if prev != nil && bytes.Compare(prev, enc) >= 0 {
-			return nil, false
-		}
-		prev = enc
 		entries = append(entries, [2]core.Value{e.At(0), e.At(1)})
 	}
-	return entries, true
+	return entries, ascending(len(entries), func(i int) core.Value { return entries[i][0] })
 }
 
 // setElements recognizes a canonical set (ontos-data §5.8): the label, then elements that
 // ascend strictly in codec order.
 func setElements(t core.Tuple) ([]core.Value, bool) {
-	elems := make([]core.Value, 0, t.Len()-1)
-	var prev []byte
-	for i := 1; i < t.Len(); i++ {
-		e := t.At(i)
-		enc := jsontext.Encode(e)
-		if prev != nil && bytes.Compare(prev, enc) >= 0 {
-			return nil, false
+	elems := t.Items()[1:]
+	return elems, ascending(len(elems), func(i int) core.Value { return elems[i] })
+}
+
+// ascending reports whether the n values at(0), … ascend strictly in codec order. One
+// value is not encoded, so a chain of one-element sets or maps is not encoded level by
+// level.
+func ascending(n int, at func(int) core.Value) bool {
+	if n < 2 {
+		return true
+	}
+	prev := jsontext.Encode(at(0))
+	for i := 1; i < n; i++ {
+		enc := jsontext.Encode(at(i))
+		if bytes.Compare(prev, enc) >= 0 {
+			return false
 		}
 		prev = enc
-		elems = append(elems, e)
 	}
-	return elems, true
+	return true
 }
 
 // quote writes s as a JSON string with exactly the escapes of spec §5: \" \\ \b \t \n \f

@@ -222,3 +222,57 @@ test("reading caps nesting at 1024 tuple levels: limit_exceeded, exit 1, beyond"
   // Far deeper (1.2 MB on stdin) is refused at the 2051st bracket, with no crash.
   assert.deepEqual(run(["canon", "--emit", "--format", "json", "--from-json", "-"], nested(100000, '{"atom":"00"}')), tooDeep);
 });
+
+/** Run the built CLI with raw stdin bytes. */
+function runBytes(args: string[], input: Uint8Array): { stdout: string; status: number } {
+  const res = spawnSync(process.execPath, [bin, ...args], { input });
+  if (res.error) throw res.error;
+  return { stdout: res.stdout.toString("utf8"), status: res.status ?? 0 };
+}
+
+test("--json-profile: readable from stdin only, readable output, refusals mapped (ontos-cli.md 'JSON profiles')", () => {
+  const line = (command: string, code: string) => `{"ok":false,"command":"${command}","error":"${code}"}\n`;
+  const bigInt = `01020003696e7400fb0d00${"ff".repeat(1786)}`;
+  const enc = (s: string) => Buffer.from(s, "utf8");
+  const cases: [string, string[], Uint8Array, number, string][] = [
+    ["readable from stdin", ["canon", "--emit", "--json-profile", "readable", "--from-json", "-"],
+      enc('{"$ontos":["int","5"]}'), 0, "01020003696e7400020005\n"],
+    ["readable inline flag form", ["canon", "--emit", "--json-profile=readable", "--from-json=-"],
+      enc("257"), 0, "01020003696e740003000101\n"],
+    ["readable from an argument is usage_error",
+      ["canon", "--emit", "--format", "json", "--json-profile", "readable", "--from-json", "5"],
+      enc(""), 2, line("canon", "usage_error")],
+    ["readable from an argument that begins with '-' is usage_error too",
+      ["canon", "--emit", "--format", "json", "--json-profile", "readable", "--from-json", "-0"],
+      enc(""), 2, line("canon", "usage_error")],
+    ["readable bytes that are not UTF-8 are refused",
+      ["canon", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+      Uint8Array.of(0x22, 0xff, 0x22), 2, line("canon", "invalid_json")],
+    ["readable refusal: invalid_number",
+      ["read", "--all", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+      enc("1.5"), 2, line("read", "invalid_json")],
+    ["readable limit: decode_depth",
+      ["decode", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+      enc("[".repeat(1025) + "]".repeat(1025)), 1, line("decode", "limit_exceeded")],
+    ["readable output", ["decode", "--format", "json", "--json-profile", "readable", "01020003696e740003000101"],
+      enc(""), 0, '{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":257}\n'],
+    ["readable output keeps <, >, & and U+2028",
+      ["inspect", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+      enc('"<&>\\u2028"'), 0,
+      '{"ok":true,"command":"inspect","codec":"ontos-codec-v1","canonical":true,"value":"<&>\u2028","recognized":["utf8-text"]}\n'],
+    ["the readable writer refuses more than 4300 digits", ["decode", "--format", "json", "--json-profile", "readable"],
+      enc(bigInt), 1, line("decode", "limit_exceeded")],
+    ["the total writer writes it", ["decode", "--format", "json", "--json-profile", "total"], enc(bigInt), 0,
+      `{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":{"tuple":[{"atom":"696e74"},{"atom":"00${"ff".repeat(1786)}"}]}}\n`],
+    ["total is the default, given explicitly",
+      ["canon", "--emit", "--json-profile", "total", "--from-json", '{"atom":"00"}'], enc(""), 0, "000100\n"],
+    ["a total text that begins with '-' is the argument", ["canon", "--format", "json", "--from-json", "-1"],
+      enc(""), 2, line("canon", "invalid_json")],
+  ];
+  for (const [name, args, input, status, stdout] of cases) {
+    assert.deepEqual(runBytes(args, input), { stdout, status }, name);
+  }
+  for (const bad of [["decode", "--json-profile"], ["decode", "--json-profile", "pretty", "00"], ["decode", "--json-profile=Total", "00"]]) {
+    assert.deepEqual(runBytes(bad, new Uint8Array()), { stdout: "", status: 2 }, bad.join(" "));
+  }
+});

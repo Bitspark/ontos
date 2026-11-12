@@ -1,20 +1,23 @@
 //! `ontos` — the byte-first inspector CLI (Rust build of the tri-core tool).
 //!
 //! ```text
-//! ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+//! ontos <command> [--format human|json] [--from-json <json|->]
+//!                 [--json-profile total|readable] [<hex>]
 //! ```
 //!
 //! Bytes in, evidence out: given canonical `ontos-codec-v1` bytes (a positional
 //! hex string, or stdin when the argument is `-` or absent), `ontos decode`
 //! decodes them to the L0 value tree and renders it either as the core's `Display`
-//! form (`human`) or as the `vectors/` authoring notation (`json`).
+//! form (`human`) or as JSON (`json`) in the selected JSON profile.
 //!
-//! The one text→bytes affordance is `--from-json <json|->`: the value is *parsed*
-//! from the authoring notation (`{"atom":"<hex>"}` | `{"tuple":[ … ]}`) — the exact
-//! inverse of the `json` value rendering — instead of decoded from hex. No bytes are
-//! decoded; the value is built directly, so it is canonical by construction. It is
-//! mutually exclusive with a positional `<hex>` and works with every command. See
-//! `docs/spec/ontos-cli.md` "Value input".
+//! The one text→bytes affordance is `--from-json <json|->`: the value is *read*
+//! from JSON text instead of decoded from hex, by the projection library
+//! (`ontos_json`) in the profile `--json-profile` selects: `ontos-total-json/1` by
+//! default (`{"atom":"<hex>"}` | `{"tuple":[ … ]}`, the exact inverse of the
+//! default `json` value rendering), or `ontos-readable-json/1`, from stdin only. No
+//! bytes are decoded; the value is built directly, so it is canonical by
+//! construction. It is mutually exclusive with a positional `<hex>` and works with
+//! every command. See `docs/spec/ontos-cli.md` "Value input" and "JSON profiles".
 //!
 //! All four v1 commands are implemented: `decode`, `inspect`, `read`, and `canon`
 //! (ontos-internal#18–ontos-internal#21). The `json` output is a stable, byte-comparable contract —
@@ -22,7 +25,6 @@
 //! differential harness can diff it byte-for-byte against the `go`/`ts` builds.
 //! See `docs/spec/ontos-cli.md`.
 
-use std::collections::HashMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
@@ -32,12 +34,14 @@ use ontos_data::{
     read_bool, read_list, read_map, read_null, read_set, read_text, recognize_decimal,
     recognize_int,
 };
+use ontos_json::{readable, total, Code};
 
 const VERSION_LINE: &str = "ontos 0.1.0";
 const CODEC_ID: &str = "ontos-codec-v1";
 
 const USAGE: &str = "\
-Usage: ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+Usage: ontos <command> [--format human|json] [--from-json <json|->]
+                       [--json-profile total|readable] [<hex>]
 
 Commands:
   decode [<hex>]                       decode ontos-codec-v1 bytes to the L0 value tree
@@ -47,15 +51,18 @@ Commands:
 
 Options:
   -f, --format <human|json>   output format (default: human)
-      --from-json <json|->    build the value from the authoring notation
-                              ({\"atom\":\"<hex>\"}|{\"tuple\":[ … ]}) instead of hex
+      --from-json <json|->    build the value from json text instead of hex
                               (`-` reads from stdin); mutually exclusive with <hex>
+      --json-profile <total|readable>
+                              the json profile of --from-json and of json value
+                              output (default total: {\"atom\":\"<hex>\"}|{\"tuple\":[ … ]});
+                              readable input only from stdin
   -h, --help                  print this help and exit
   -V, --version               print version and exit
 
 Input is canonical ontos-codec-v1 bytes as a hex string, or read from stdin
-when the hex argument is `-` or omitted. With --from-json the value is parsed
-from the authoring notation instead (canonical by construction).";
+when the hex argument is `-` or omitted. With --from-json the value is read
+from json text instead (canonical by construction).";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Format {
@@ -63,17 +70,28 @@ enum Format {
     Json,
 }
 
+/// The JSON profile selected by `--json-profile`: the profile `--from-json` is read in
+/// and the value of `--format json` output is rendered in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JsonProfile {
+    /// `ontos-total-json/1`, the default.
+    Total,
+    /// `ontos-readable-json/1`, read from stdin only.
+    Readable,
+}
+
 /// Parsed command line, or an early exit (help/version) / usage error.
 enum Parsed {
     /// A command to run, with its chosen format, optional positional hex, optional
-    /// `--from-json` authoring source, and any command-specific flags (e.g. `--all`,
-    /// `--kind <k>`, `--check`, `--emit`) gathered verbatim for the command to
-    /// interpret.
+    /// `--from-json` source, its JSON profile, and any command-specific flags (e.g.
+    /// `--all`, `--kind <k>`, `--check`, `--emit`) gathered verbatim for the command
+    /// to interpret.
     Run {
         command: String,
         format: Format,
         hex: Option<String>,
         from_json: Option<String>,
+        profile: JsonProfile,
         flags: Vec<String>,
     },
     /// `--help`/`--version`: print `text` to stdout and exit 0.
@@ -106,8 +124,18 @@ fn main() -> ExitCode {
             format,
             hex,
             from_json,
+            profile,
             flags,
-        } => run(&command, format, hex, from_json, &flags),
+        } => run(
+            &command,
+            Input {
+                format,
+                hex,
+                from_json,
+                profile,
+            },
+            &flags,
+        ),
     }
 }
 
@@ -120,6 +148,7 @@ fn parse_args(args: &[String]) -> Parsed {
     let mut format = Format::Human;
     let mut hex: Option<String> = None;
     let mut from_json: Option<String> = None;
+    let mut profile = JsonProfile::Total;
     let mut flags: Vec<String> = Vec::new();
     let mut i = 0;
 
@@ -194,6 +223,37 @@ fn parse_args(args: &[String]) -> Parsed {
                 }
                 from_json = Some(arg["--from-json=".len()..].to_string());
             }
+            "--json-profile" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    return Parsed::Usage {
+                        message: "flag `--json-profile` needs a value (total|readable)".into(),
+                    };
+                };
+                match parse_json_profile(value) {
+                    Some(p) => profile = p,
+                    None => {
+                        return Parsed::Usage {
+                            message: format!(
+                                "unknown json profile `{value}` (expected total|readable)"
+                            ),
+                        }
+                    }
+                }
+            }
+            _ if arg.starts_with("--json-profile=") => {
+                let value = &arg["--json-profile=".len()..];
+                match parse_json_profile(value) {
+                    Some(p) => profile = p,
+                    None => {
+                        return Parsed::Usage {
+                            message: format!(
+                                "unknown json profile `{value}` (expected total|readable)"
+                            ),
+                        }
+                    }
+                }
+            }
             // `--kind <k>` takes a separate value; consume it here so the command
             // parser sees a single `--kind=<k>` token. (`--kind=<k>` falls through
             // to the generic flag collector below.)
@@ -234,6 +294,7 @@ fn parse_args(args: &[String]) -> Parsed {
         format,
         hex,
         from_json,
+        profile,
         flags,
     }
 }
@@ -246,19 +307,30 @@ fn parse_format(value: &str) -> Option<Format> {
     }
 }
 
-/// Dispatch a parsed command.
-fn run(
-    command: &str,
+fn parse_json_profile(value: &str) -> Option<JsonProfile> {
+    match value {
+        "total" => Some(JsonProfile::Total),
+        "readable" => Some(JsonProfile::Readable),
+        _ => None,
+    }
+}
+
+/// What every command shares: the output format, the one input source (a positional
+/// hex or `--from-json`), and the JSON profile.
+struct Input {
     format: Format,
     hex: Option<String>,
     from_json: Option<String>,
-    flags: &[String],
-) -> ExitCode {
+    profile: JsonProfile,
+}
+
+/// Dispatch a parsed command.
+fn run(command: &str, input: Input, flags: &[String]) -> ExitCode {
     match command {
-        "decode" => run_decode(format, hex, from_json, flags),
-        "inspect" => run_inspect(format, hex, from_json, flags),
-        "read" => run_read(format, hex, from_json, flags),
-        "canon" => run_canon(format, hex, from_json, flags),
+        "decode" => run_decode(input, flags),
+        "inspect" => run_inspect(input, flags),
+        "read" => run_read(input, flags),
+        "canon" => run_canon(input, flags),
         other => {
             eprintln!("ontos: unknown command `{other}`");
             eprintln!("{USAGE}");
@@ -339,16 +411,12 @@ fn push_labels_json(labels: &[&str], out: &mut String) {
 }
 
 /// `ontos decode [<hex>]` — decode the bytes to the L0 value tree.
-fn run_decode(
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-    flags: &[String],
-) -> ExitCode {
+fn run_decode(input: Input, flags: &[String]) -> ExitCode {
     if let Some(flag) = flags.first() {
         return unknown_flag("decode", flag);
     }
-    let value = match resolve_value("decode", format, hex, from_json) {
+    let (format, profile) = (input.format, input.profile);
+    let value = match resolve_value("decode", input) {
         Ok(value) => value,
         Err(code) => return code,
     };
@@ -356,11 +424,15 @@ fn run_decode(
     match format {
         Format::Human => println!("{value}"),
         Format::Json => {
+            let rendered = match render_value("decode", &value, profile) {
+                Ok(rendered) => rendered,
+                Err(code) => return code,
+            };
             let mut out = String::new();
             out.push_str(r#"{"ok":true,"command":"decode","codec":""#);
             out.push_str(CODEC_ID);
             out.push_str(r#"","value":"#);
-            push_authoring_json(&value, &mut out);
+            out.push_str(&rendered);
             out.push('}');
             println!("{out}");
         }
@@ -370,16 +442,12 @@ fn run_decode(
 
 /// `ontos inspect [<hex>]` — decode + report codec id, canonical?, value, and the
 /// registered embeddings recognized at the top level.
-fn run_inspect(
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-    flags: &[String],
-) -> ExitCode {
+fn run_inspect(input: Input, flags: &[String]) -> ExitCode {
     if let Some(flag) = flags.first() {
         return unknown_flag("inspect", flag);
     }
-    let (input, value) = match resolve_value_with_input("inspect", format, hex, from_json) {
+    let (format, profile) = (input.format, input.profile);
+    let (input, value) = match resolve_value_with_input("inspect", input) {
         Ok(pair) => pair,
         Err(code) => return code,
     };
@@ -396,13 +464,17 @@ fn run_inspect(
             println!("recognized: {}", human_labels(&recognized));
         }
         Format::Json => {
+            let rendered = match render_value("inspect", &value, profile) {
+                Ok(rendered) => rendered,
+                Err(code) => return code,
+            };
             let mut out = String::new();
             out.push_str(r#"{"ok":true,"command":"inspect","codec":""#);
             out.push_str(CODEC_ID);
             out.push_str(r#"","canonical":"#);
             out.push_str(if canonical { "true" } else { "false" });
             out.push_str(r#","value":"#);
-            push_authoring_json(&value, &mut out);
+            out.push_str(&rendered);
             out.push_str(r#","recognized":"#);
             push_labels_json(&recognized, &mut out);
             out.push('}');
@@ -413,12 +485,8 @@ fn run_inspect(
 }
 
 /// `ontos read [--all | --kind <kind>] [<hex>]` — recognize registered embeddings.
-fn run_read(
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-    flags: &[String],
-) -> ExitCode {
+fn run_read(input: Input, flags: &[String]) -> ExitCode {
+    let format = input.format;
     // Parse the command-specific flags: exactly one of `--all` or `--kind <k>`.
     let mut all = false;
     let mut kind: Option<String> = None;
@@ -457,7 +525,7 @@ fn run_read(
         _ => {}
     }
 
-    let value = match resolve_value("read", format, hex, from_json) {
+    let value = match resolve_value("read", input) {
         Ok(value) => value,
         Err(code) => return code,
     };
@@ -502,12 +570,8 @@ fn run_read(
 
 /// `ontos canon [--check | --emit] [<hex>]` — canonical byte witness. Default
 /// (neither flag) is `--check`.
-fn run_canon(
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-    flags: &[String],
-) -> ExitCode {
+fn run_canon(input: Input, flags: &[String]) -> ExitCode {
+    let format = input.format;
     let mut check = false;
     let mut emit = false;
     for flag in flags {
@@ -523,7 +587,7 @@ fn run_canon(
         return ExitCode::from(2);
     }
 
-    let (input, value) = match resolve_value_with_input("canon", format, hex, from_json) {
+    let (input, value) = match resolve_value_with_input("canon", input) {
         Ok(pair) => pair,
         Err(code) => return code,
     };
@@ -573,29 +637,26 @@ fn unknown_flag(command: &str, flag: &str) -> ExitCode {
 }
 
 /// Resolve the value for `command` from its one input source — the positional hex
-/// (decoded via `ontos-codec-v1`) or `--from-json` (parsed from the authoring
-/// notation) — discarding the input bytes.
-fn resolve_value(
-    command: &str,
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-) -> Result<Value, ExitCode> {
-    resolve_value_with_input(command, format, hex, from_json).map(|(_, value)| value)
+/// (decoded via `ontos-codec-v1`) or `--from-json` (read by the projection library)
+/// — discarding the input bytes.
+fn resolve_value(command: &str, input: Input) -> Result<Value, ExitCode> {
+    resolve_value_with_input(command, input).map(|(_, value)| value)
 }
 
 /// Resolve the value for `command` and the bytes it corresponds to.
 ///
 /// Exactly one source is used. `--from-json` together with a positional `<hex>` is
-/// a `usage_error` (exit 2). With `--from-json` the value is *built* from the
-/// authoring notation and the bytes are its canonical encoding (canonical by
-/// construction); otherwise the hex is decoded via `ontos-codec-v1`.
-fn resolve_value_with_input(
-    command: &str,
-    format: Format,
-    hex: Option<String>,
-    from_json: Option<String>,
-) -> Result<(Vec<u8>, Value), ExitCode> {
+/// a `usage_error` (exit 2). With `--from-json` the value is *built* by the
+/// projection library in the selected profile and the bytes are its canonical
+/// encoding (canonical by construction); otherwise the hex is decoded via
+/// `ontos-codec-v1`.
+fn resolve_value_with_input(command: &str, input: Input) -> Result<(Vec<u8>, Value), ExitCode> {
+    let Input {
+        format,
+        hex,
+        from_json,
+        profile,
+    } = input;
     if let Some(json_src) = from_json {
         // `--from-json` together with ANY positional is a usage error — including the
         // `-` stdin sentinel. `-` still names a bytes source (stdin), so combining it
@@ -606,23 +667,34 @@ fn resolve_value_with_input(
             let message = "--from-json cannot be combined with a positional <hex>";
             return Err(usage_error(command, format, message));
         }
-        let text = match resolve_json_text(json_src) {
+        // Readable input is read from stdin only: an argument may have been decoded
+        // lossily on its way in (Node's argv is, and `main` reads ours that way), and
+        // a replaced byte inside a string would read as another value
+        // (ontos-readable-json.md §10.1).
+        if profile == JsonProfile::Readable && json_src != "-" {
+            let message =
+                "--json-profile readable reads --from-json from stdin only (--from-json -)";
+            return Err(usage_error(command, format, message));
+        }
+        let text = match resolve_json_text(json_src, profile) {
             Ok(text) => text,
             Err(message) => {
                 eprintln!("ontos: {message}");
                 return Err(ExitCode::from(2));
             }
         };
-        // Read the text, then check the authoring shape (two stages, below).
-        let value = match parse_authoring(&text) {
+        let parsed = match profile {
+            JsonProfile::Total => total::parse_utf8(&text, &total::DEFAULT_LIMITS),
+            JsonProfile::Readable => readable::parse_utf8(&text, &readable::DEFAULT_LIMITS),
+        };
+        let value = match parsed {
             Ok(value) => value,
-            // Deeper than any value the default decoder accepts: `limit_exceeded`,
-            // exit 1, exactly as a decode limit (ontos-cli.md "Value input").
-            Err(JsonFault::TooDeep) => {
-                return Err(decode_error(command, "limit_exceeded", format, 1))
-            }
-            Err(JsonFault::Malformed) => {
-                return Err(decode_error(command, "invalid_json", format, 2))
+            Err(err) => {
+                if format == Format::Human {
+                    eprintln!("ontos: json input: {err}");
+                }
+                let (error, code) = json_failure(&err);
+                return Err(decode_error(command, error, format, code));
             }
         };
         // The value was built, not decoded, so its canonical encoding is the input.
@@ -691,20 +763,62 @@ fn trim_hex_input(s: &str) -> &str {
     s.trim_matches([' ', '\t', '\n', '\r'])
 }
 
-/// Resolve the `--from-json` source text: the literal argument, or stdin when it is
-/// `-`. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
-fn resolve_json_text(src: String) -> Result<String, String> {
-    if src == "-" {
-        // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
-        // U+FFFD is never hex and never part of `atom` or `tuple`, so such text is
-        // always refused (a member named with it fails the shape check).
-        let mut buf = Vec::new();
-        io::stdin()
-            .read_to_end(&mut buf)
-            .map_err(|e| format!("failed to read stdin: {e}"))?;
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+/// Resolve the `--from-json` source text as bytes: the literal argument, or stdin
+/// when it is `-`. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
+///
+/// Under the total profile, bytes that are not UTF-8 are read as U+FFFD, from stdin
+/// as from an argument (`main`): that is the CLI's total transport, because Node
+/// decodes argv that way before ts sees it. U+FFFD is never hex and never part of
+/// `atom` or `tuple`, so such a text is always refused. The library's reader itself is
+/// strict. Readable input (stdin only) keeps its exact bytes, so ill-formed UTF-8 is
+/// refused by the reader (ontos-readable-json.md §10.1).
+fn resolve_json_text(src: String, profile: JsonProfile) -> Result<Vec<u8>, String> {
+    if src != "-" {
+        return Ok(src.into_bytes());
+    }
+    let mut buf = Vec::new();
+    io::stdin()
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("failed to read stdin: {e}"))?;
+    Ok(match profile {
+        JsonProfile::Readable => buf,
+        JsonProfile::Total => match String::from_utf8(buf) {
+            Ok(text) => text.into_bytes(),
+            Err(err) => String::from_utf8_lossy(err.as_bytes())
+                .into_owned()
+                .into_bytes(),
+        },
+    })
+}
+
+/// Map a library refusal onto the CLI's codes: a limit is `limit_exceeded`, exit 1,
+/// as a decode limit; anything else is `invalid_json`, exit 2.
+fn json_failure(err: &ontos_json::Error) -> (&'static str, u8) {
+    if err.code() == Code::LimitExceeded {
+        ("limit_exceeded", 1)
     } else {
-        Ok(src)
+        ("invalid_json", 2)
+    }
+}
+
+/// Render the value of a `--format json` result in the selected profile. Under the
+/// defaults the total writer accepts every value the CLI can hold (none is deeper than
+/// 1024), and the readable writer refuses only an integer of more than 4300 digits: that
+/// refusal is emitted as the command's error line (`limit_exceeded`, exit 1).
+fn render_value(command: &str, value: &Value, profile: JsonProfile) -> Result<String, ExitCode> {
+    let rendered = match profile {
+        JsonProfile::Total => total::render_utf8(value, &total::DEFAULT_LIMITS),
+        JsonProfile::Readable => readable::render_utf8(value, &readable::DEFAULT_LIMITS),
+    };
+    match rendered {
+        // The writers emit UTF-8; the lossy conversion never replaces anything.
+        Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(err) => {
+            eprintln!("ontos: cannot render the value: {err}");
+            let (error, code) = json_failure(&err);
+            println!(r#"{{"ok":false,"command":"{command}","error":"{error}"}}"#);
+            Err(ExitCode::from(code))
+        }
     }
 }
 
@@ -743,475 +857,6 @@ fn decode_error(command: &str, error: &str, format: Format, code: u8) -> ExitCod
     ExitCode::from(code)
 }
 
-// ----- `--from-json`: authoring notation -> core `Value` ---------------------
-//
-// The exact inverse of `push_authoring_json`, read in two stages the same way in
-// all four CLIs (docs/spec/ontos-cli.md "Value input"):
-//   (1) `read_json`: the text as RFC 8259 JSON, left to right and without
-//       recursion — only space/tab/LF/CR as whitespace, nothing after the value,
-//       escapes decoded, lone-surrogate escapes and repeated member names refused,
-//       and at most `JSON_NESTING_CAP` open arrays and objects. The first fault ends
-//       the reading: a 2051st level is `limit_exceeded`, anything else `invalid_json`.
-//   (2) `authoring_value`: the JSON value checked against the authoring shape
-//       (`{atom}` | `{tuple}`) and built into a core `Value`, again without
-//       recursion.
-// Dependency-free, like the hand-rolled JSON *output* here (no serde). This reader
-// is interim: a later task moves the CLIs onto a library reader.
-
-/// The most arrays and objects the text may have open at once: 2·1024 + 2. The
-/// deepest value the codec's default decoder accepts is nested 1024 deep (root at
-/// depth 0, ontos-codec.md §4.1); when that deepest value is an empty tuple, its
-/// 1025 tuples take two levels each (`{"tuple":[`). Anything deeper in an authoring
-/// text is a value the decoder would refuse.
-const JSON_NESTING_CAP: usize = 2 * 1024 + 2;
-
-/// Why the text was refused: a 2051st nesting level, or any other fault.
-#[derive(Debug, PartialEq, Eq)]
-enum JsonFault {
-    /// `limit_exceeded` (exit 1).
-    TooDeep,
-    /// `invalid_json` (exit 2).
-    Malformed,
-}
-
-/// A generic JSON value, the output of stage (1). Numbers, `true`, `false` and
-/// `null` are only ever refused by stage (2), so they share one variant. An
-/// object maps each member name (which occurs once) to its value.
-enum JsonValue {
-    Scalar,
-    String(String),
-    Array(Vec<JsonValue>),
-    Object(HashMap<String, JsonValue>),
-}
-
-/// Drop without recursion: a 2050-deep tree would otherwise take one drop frame
-/// per level, more than a 1 MB main-thread stack (the Windows default) holds in a
-/// debug build.
-impl Drop for JsonValue {
-    fn drop(&mut self) {
-        let mut pending: Vec<JsonValue> = Vec::new();
-        take_children(self, &mut pending);
-        while let Some(mut node) = pending.pop() {
-            take_children(&mut node, &mut pending);
-        }
-    }
-}
-
-/// Move `node`'s children (if any) onto `pending`, leaving it childless.
-fn take_children(node: &mut JsonValue, pending: &mut Vec<JsonValue>) {
-    match node {
-        JsonValue::Array(items) => pending.append(items),
-        JsonValue::Object(members) => pending.extend(members.drain().map(|(_, v)| v)),
-        JsonValue::Scalar | JsonValue::String(_) => {}
-    }
-}
-
-/// An open array or object while stage (1) reads: for an object, the member name
-/// the next value belongs to.
-enum Open {
-    Array(Vec<JsonValue>),
-    Object(HashMap<String, JsonValue>, String),
-}
-
-/// Stage (1)'s cursor over the text.
-struct JsonReader<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-/// Stage (1): read the whole text as one JSON value. Returns `TooDeep` for a 2051st
-/// nesting level and `Malformed` for any other fault, whichever comes first.
-fn read_json(text: &str) -> Result<JsonValue, JsonFault> {
-    let mut r = JsonReader {
-        bytes: text.as_bytes(),
-        pos: 0,
-    };
-    let mut stack: Vec<Open> = Vec::new();
-    r.ws();
-    loop {
-        // A value starts at the cursor.
-        let mut value = match r.peek() {
-            Some(c @ (b'{' | b'[')) => {
-                if stack.len() == JSON_NESTING_CAP {
-                    return Err(JsonFault::TooDeep);
-                }
-                r.pos += 1;
-                r.ws();
-                if c == b'[' {
-                    if r.peek() == Some(b']') {
-                        r.pos += 1;
-                        JsonValue::Array(Vec::new())
-                    } else {
-                        stack.push(Open::Array(Vec::new()));
-                        r.ws();
-                        continue;
-                    }
-                } else if r.peek() == Some(b'}') {
-                    r.pos += 1;
-                    JsonValue::Object(HashMap::new())
-                } else {
-                    let key = r.member_name()?;
-                    stack.push(Open::Object(HashMap::new(), key));
-                    r.ws();
-                    continue;
-                }
-            }
-            Some(b'"') => JsonValue::String(r.string()?),
-            Some(b't') => r.literal(b"true")?,
-            Some(b'f') => r.literal(b"false")?,
-            Some(b'n') => r.literal(b"null")?,
-            Some(b'-' | b'0'..=b'9') => r.number()?,
-            _ => return Err(JsonFault::Malformed),
-        };
-
-        // `value` is complete: hand it to the innermost open container, closing
-        // each container whose end follows.
-        loop {
-            let Some(top) = stack.last_mut() else {
-                r.ws();
-                if r.pos != r.bytes.len() {
-                    return Err(JsonFault::Malformed); // data after the value
-                }
-                return Ok(value);
-            };
-            match top {
-                Open::Array(items) => items.push(value),
-                Open::Object(members, key) => {
-                    members.insert(std::mem::take(key), value);
-                }
-            }
-            r.ws();
-            match (r.peek(), &mut *top) {
-                (Some(b','), Open::Array(_)) => {
-                    r.pos += 1;
-                    r.ws();
-                    break;
-                }
-                (Some(b','), Open::Object(members, key)) => {
-                    r.pos += 1;
-                    let name = r.member_name()?;
-                    if members.contains_key(&name) {
-                        return Err(JsonFault::Malformed); // a repeated member name
-                    }
-                    *key = name;
-                    r.ws();
-                    break;
-                }
-                (Some(b']'), Open::Array(_)) | (Some(b'}'), Open::Object(..)) => {
-                    r.pos += 1;
-                    value = match stack.pop() {
-                        Some(Open::Array(items)) => JsonValue::Array(items),
-                        Some(Open::Object(members, _)) => JsonValue::Object(members),
-                        None => unreachable!("the stack held `top`"),
-                    };
-                }
-                _ => return Err(JsonFault::Malformed),
-            }
-        }
-    }
-}
-
-impl JsonReader<'_> {
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.pos).copied()
-    }
-
-    /// Skip RFC 8259 whitespace: space, tab, LF and CR, nothing else.
-    fn ws(&mut self) {
-        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-            self.pos += 1;
-        }
-    }
-
-    /// Read `"name" :` (with whitespace around) and return the name. The caller
-    /// refuses a name its object already has, compared after escapes are decoded.
-    fn member_name(&mut self) -> Result<String, JsonFault> {
-        self.ws();
-        if self.peek() != Some(b'"') {
-            return Err(JsonFault::Malformed);
-        }
-        let name = self.string()?;
-        self.ws();
-        if self.peek() != Some(b':') {
-            return Err(JsonFault::Malformed);
-        }
-        self.pos += 1;
-        Ok(name)
-    }
-
-    /// Read exactly the keyword `word` (`true`/`false`/`null`).
-    fn literal(&mut self, word: &[u8]) -> Result<JsonValue, JsonFault> {
-        if !self.bytes[self.pos..].starts_with(word) {
-            return Err(JsonFault::Malformed);
-        }
-        self.pos += word.len();
-        Ok(JsonValue::Scalar)
-    }
-
-    /// Check the RFC 8259 number grammar. The value is never used, so a number of
-    /// any length is fine.
-    fn number(&mut self) -> Result<JsonValue, JsonFault> {
-        if self.peek() == Some(b'-') {
-            self.pos += 1;
-        }
-        match self.peek() {
-            Some(b'0') => self.pos += 1,
-            Some(b'1'..=b'9') => self.digits(),
-            _ => return Err(JsonFault::Malformed),
-        }
-        if self.peek() == Some(b'.') {
-            self.pos += 1;
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(JsonFault::Malformed);
-            }
-            self.digits();
-        }
-        if matches!(self.peek(), Some(b'e' | b'E')) {
-            self.pos += 1;
-            if matches!(self.peek(), Some(b'+' | b'-')) {
-                self.pos += 1;
-            }
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(JsonFault::Malformed);
-            }
-            self.digits();
-        }
-        Ok(JsonValue::Scalar)
-    }
-
-    fn digits(&mut self) {
-        while matches!(self.peek(), Some(b'0'..=b'9')) {
-            self.pos += 1;
-        }
-    }
-
-    /// Read a string (the cursor is on its opening quote) and return its decoded
-    /// text. A control character must be escaped; a `\u` escape of a surrogate must
-    /// be a high one followed at once by an escaped low one.
-    fn string(&mut self) -> Result<String, JsonFault> {
-        self.pos += 1;
-        let mut out = String::new();
-        loop {
-            let start = self.pos;
-            // Copy a run of plain characters at once. The text is valid UTF-8 and the
-            // run ends at an ASCII byte, so the slice is on character boundaries.
-            while matches!(self.peek(), Some(c) if c >= 0x20 && c != b'"' && c != b'\\') {
-                self.pos += 1;
-            }
-            out.push_str(
-                std::str::from_utf8(&self.bytes[start..self.pos])
-                    .map_err(|_| JsonFault::Malformed)?,
-            );
-            match self.peek() {
-                Some(b'"') => {
-                    self.pos += 1;
-                    return Ok(out);
-                }
-                Some(b'\\') => {
-                    self.pos += 1;
-                    let escape = self.peek().ok_or(JsonFault::Malformed)?;
-                    self.pos += 1;
-                    match escape {
-                        b'"' => out.push('"'),
-                        b'\\' => out.push('\\'),
-                        b'/' => out.push('/'),
-                        b'b' => out.push('\u{0008}'),
-                        b'f' => out.push('\u{000c}'),
-                        b'n' => out.push('\n'),
-                        b'r' => out.push('\r'),
-                        b't' => out.push('\t'),
-                        b'u' => out.push(self.unicode_escape()?),
-                        _ => return Err(JsonFault::Malformed),
-                    }
-                }
-                // The end of the text, or an unescaped control character.
-                _ => return Err(JsonFault::Malformed),
-            }
-        }
-    }
-
-    /// Decode the `XXXX` of a `\uXXXX` escape (the `\u` is consumed), and the low
-    /// half of a surrogate pair when the first is a high surrogate.
-    fn unicode_escape(&mut self) -> Result<char, JsonFault> {
-        let first = self.hex4()?;
-        let code = match first {
-            0xd800..=0xdbff => {
-                if !self.bytes[self.pos..].starts_with(b"\\u") {
-                    return Err(JsonFault::Malformed); // lone high surrogate
-                }
-                self.pos += 2;
-                let second = self.hex4()?;
-                if !(0xdc00..=0xdfff).contains(&second) {
-                    return Err(JsonFault::Malformed); // lone high surrogate
-                }
-                0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00)
-            }
-            0xdc00..=0xdfff => return Err(JsonFault::Malformed), // lone low surrogate
-            _ => first,
-        };
-        char::from_u32(code).ok_or(JsonFault::Malformed)
-    }
-
-    /// Read four hex digits, either case.
-    fn hex4(&mut self) -> Result<u32, JsonFault> {
-        let mut value = 0u32;
-        for _ in 0..4 {
-            let digit = match self.peek() {
-                Some(c @ b'0'..=b'9') => c - b'0',
-                Some(c @ b'a'..=b'f') => c - b'a' + 10,
-                Some(c @ b'A'..=b'F') => c - b'A' + 10,
-                _ => return Err(JsonFault::Malformed),
-            };
-            value = value * 16 + u32::from(digit);
-            self.pos += 1;
-        }
-        Ok(value)
-    }
-}
-
-/// Read the `--from-json` authoring notation into a core `Value`: stage (1), then
-/// stage (2). A shape fault is `Malformed` (`invalid_json`).
-fn parse_authoring(text: &str) -> Result<Value, JsonFault> {
-    let json = read_json(text)?;
-    authoring_value(&json).ok_or(JsonFault::Malformed)
-}
-
-/// What one authoring node is: an atom's value, or a tuple's children to walk.
-enum Authoring<'a> {
-    Atom(Value),
-    Tuple(&'a [JsonValue]),
-}
-
-/// Stage (2): check a JSON value against the authoring notation and build the core
-/// `Value`, walking the tree with an explicit stack. `None` for any other shape.
-///
-/// A value is a JSON object with EXACTLY ONE member, `atom` or `tuple` (stage (1)
-/// has already refused a repeated name). `atom` is an even-length lowercase-hex
-/// string; `tuple` is an array of values.
-fn authoring_value(root: &JsonValue) -> Option<Value> {
-    let children = match authoring_node(root)? {
-        Authoring::Atom(value) => return Some(value),
-        Authoring::Tuple(children) => children,
-    };
-    // Each open tuple: the children still to check, and those built so far.
-    let mut stack: Vec<(std::slice::Iter<'_, JsonValue>, Vec<Value>)> =
-        vec![(children.iter(), Vec::with_capacity(children.len()))];
-    loop {
-        let (rest, _) = stack.last_mut()?;
-        match rest.next() {
-            Some(child) => match authoring_node(child)? {
-                Authoring::Atom(value) => stack.last_mut()?.1.push(value),
-                Authoring::Tuple(children) => {
-                    stack.push((children.iter(), Vec::with_capacity(children.len())));
-                }
-            },
-            None => {
-                let (_, built) = stack.pop()?;
-                let tuple = Value::tuple(built);
-                match stack.last_mut() {
-                    Some((_, parent)) => parent.push(tuple),
-                    None => return Some(tuple),
-                }
-            }
-        }
-    }
-}
-
-/// Check one authoring node.
-fn authoring_node(node: &JsonValue) -> Option<Authoring<'_>> {
-    let JsonValue::Object(members) = node else {
-        return None; // a value must be an object
-    };
-    if members.len() != 1 {
-        return None; // exactly one member, `atom` or `tuple`
-    }
-    if let Some(atom) = members.get("atom") {
-        let JsonValue::String(hex) = atom else {
-            return None; // atom payload must be a string
-        };
-        return parse_lower_hex(hex)
-            .ok()
-            .map(|bytes| Authoring::Atom(Value::atom(bytes)));
-    }
-    match members.get("tuple")? {
-        JsonValue::Array(items) => Some(Authoring::Tuple(items)),
-        _ => None, // tuple payload must be an array
-    }
-}
-
-// ----- the two hex decoders are an intentional, case-sensitivity-split PAIR -----
-//
-// `ontos` has two hex→bytes decoders that look near-identical but differ ONLY in
-// case handling, and that difference is load-bearing — do NOT "dedup" them into one
-// (ontos-internal#56):
-//
-//   * `parse_lower_hex` / `lower_hex_nibble` (below) — STRICT LOWERCASE. Used for the
-//     `--from-json` authoring `atom` payload, which is the exact inverse of the
-//     `--format json` value rendering: that rendering only ever emits lowercase hex,
-//     so accepting uppercase here would let a non-round-tripping form in and break the
-//     cross-core agreement (Go's `authoringHex` and TS's `lowerHexNibble` reject
-//     uppercase for the same reason).
-//   * `hex_to_bytes` / `hex_nibble` (further below) — MIXED CASE. Used for the
-//     positional `<hex>` input, where a human pasting bytes may use either case (Go's
-//     `hex.DecodeString` and TS's `hexNibble` likewise accept both).
-//
-// Keep the pair separate; a single "case-insensitive everywhere" helper would silently
-// loosen the authoring notation.
-
-/// Parse an even-length string of *lowercase* hex digits to bytes (`""` -> empty).
-/// `Err(())` on odd length, an uppercase digit, or any non-hex character.
-/// The strict-lowercase half of the decoder pair documented above (authoring input).
-fn parse_lower_hex(s: &str) -> Result<Vec<u8>, ()> {
-    if !s.len().is_multiple_of(2) {
-        return Err(());
-    }
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(s.len() / 2);
-    let mut i = 0;
-    while i < bytes.len() {
-        let hi = lower_hex_nibble(bytes[i])?;
-        let lo = lower_hex_nibble(bytes[i + 1])?;
-        out.push((hi << 4) | lo);
-        i += 2;
-    }
-    Ok(out)
-}
-
-/// A single lowercase hex digit -> nibble. Uppercase `A`–`F` is rejected (the
-/// authoring notation is strictly lowercase, matching the `json` output).
-fn lower_hex_nibble(c: u8) -> Result<u8, ()> {
-    match c {
-        b'0'..=b'9' => Ok(c - b'0'),
-        b'a'..=b'f' => Ok(c - b'a' + 10),
-        _ => Err(()),
-    }
-}
-
-/// Append the authoring-notation JSON for `value` to `out`.
-///
-/// `Atom(bytes)` -> `{"atom":"<lowercase-hex>"}`, `Tuple(items)` ->
-/// `{"tuple":[<child>,...]}`, recursively. Compact, no spaces — this is the
-/// byte-comparable contract.
-fn push_authoring_json(value: &Value, out: &mut String) {
-    match value {
-        Value::Atom(atom) => {
-            out.push_str(r#"{"atom":""#);
-            push_hex(atom.bytes(), out);
-            out.push_str(r#""}"#);
-        }
-        Value::Tuple(tuple) => {
-            out.push_str(r#"{"tuple":["#);
-            for (index, item) in tuple.items().iter().enumerate() {
-                if index != 0 {
-                    out.push(',');
-                }
-                push_authoring_json(item, out);
-            }
-            out.push_str("]}");
-        }
-    }
-}
-
 /// Append the lowercase hex of `bytes` to `out`.
 fn push_hex(bytes: &[u8], out: &mut String) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -1223,8 +868,7 @@ fn push_hex(bytes: &[u8], out: &mut String) {
 
 /// Parse an even-length string of hex digits to bytes. `Err(())` on odd length
 /// or any non-hex character. Whitespace must already be stripped by the caller.
-/// The mixed-case half of the decoder pair documented above `parse_lower_hex`
-/// (positional `<hex>` input — uppercase A–F accepted).
+/// Uppercase A–F is accepted (positional `<hex>` input).
 fn hex_to_bytes(s: &str) -> Result<Vec<u8>, ()> {
     if !s.len().is_multiple_of(2) {
         return Err(());
@@ -1241,8 +885,7 @@ fn hex_to_bytes(s: &str) -> Result<Vec<u8>, ()> {
     Ok(out)
 }
 
-/// A single hex digit -> nibble, MIXED case (accepts `A`–`F`). The mixed-case
-/// counterpart of `lower_hex_nibble`; see the pair note above `parse_lower_hex`.
+/// A single hex digit -> nibble, MIXED case (accepts `A`–`F`).
 fn hex_nibble(c: u8) -> Result<u8, ()> {
     match c {
         b'0'..=b'9' => Ok(c - b'0'),

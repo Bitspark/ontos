@@ -5,16 +5,18 @@
 //
 // It implements the four v1 commands — `decode`, `inspect`, `read`, and `canon` —
 // over the full argument / --format / dispatch surface, plus `--from-json`
-// authoring input (scaffolded in ontos-internal#18; commands in ontos-internal#19–ontos-internal#21; `--from-json` in ontos-internal#17).
+// JSON input (scaffolded in ontos-internal#18; commands in ontos-internal#19–ontos-internal#21; `--from-json` in ontos-internal#17).
 //
-//	ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+//	ontos <command> [--format human|json] [--from-json <json|->] [--json-profile total|readable] [<hex>]
 //
 // Input is canonical ontos-codec-v1 bytes as a positional hex string, or read
 // from stdin when the argument is "-" or omitted (surrounding whitespace
-// stripped). Alternatively --from-json supplies the value as the authoring
-// notation ({"atom":"<hex>"} | {"tuple":[ … ]}) — the inverse of the json value
-// rendering — built directly into a Value (canonical by construction); it is
-// mutually exclusive with a positional <hex>. json output is compact, keys in
+// stripped). Alternatively --from-json supplies the value as JSON text in the
+// profile --json-profile selects: ontos-total-json/1 by default
+// ({"atom":"<hex>"} | {"tuple":[ … ]}, the inverse of the json value rendering), or
+// ontos-readable-json/1 from stdin. It is read by the projection library
+// (fromjson.go), canonical by construction, and mutually exclusive with a
+// positional <hex>. json output is compact, keys in
 // contract order, hex lowercase, one object per line ending in "\n", carrying
 // only the stable fields — no free-text message. Human-readable diagnostics go
 // to stderr.
@@ -42,7 +44,8 @@ const codecID = "ontos-codec-v1"
 const usage = `ontos — byte-first inspector for ontos values
 
 usage:
-  ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+  ontos <command> [--format human|json] [--from-json <json|->]
+                  [--json-profile total|readable] [<hex>]
 
 commands:
   decode    decode ontos-codec-v1 bytes to the L0 value tree
@@ -52,9 +55,12 @@ commands:
 
 options:
   -f, --format human|json   output format (default human)
-      --from-json <json|->  supply the value as authoring notation
-                            ({"atom":"<hex>"} | {"tuple":[ … ]}) instead of hex;
+      --from-json <json|->  supply the value as json text instead of hex;
                             "-" reads the json from stdin (excludes <hex>)
+      --json-profile total|readable
+                            the json profile of --from-json and of json value
+                            output (default total: {"atom":"<hex>"} |
+                            {"tuple":[ … ]}); readable input only from stdin
   -h, --help                print this help and exit
   -V, --version             print the version and exit
 
@@ -68,7 +74,7 @@ canon options:
       --emit                print the canonical bytes as hex
 
 input is hex; if <hex> is "-" or omitted it is read from stdin.
-with --from-json the value is parsed from authoring json instead of hex.`
+with --from-json the value is read from json text instead of hex.`
 
 func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 
@@ -133,19 +139,22 @@ const (
 
 // valueSource names the single source the command's Value is obtained from: the
 // positional hex argument (or stdin, when nil or "-") OR the --from-json
-// authoring notation. They are mutually exclusive; both set is a usage_error.
+// JSON text. They are mutually exclusive; both set is a usage_error.
 // All four commands resolve their Value through resolveValue.
 type valueSource struct {
 	// positional is the at-most-one positional hex argument; nil means
 	// "fall back to stdin". A "-" value also means stdin.
 	positional *string
-	// fromJSON is the --from-json argument when given: authoring JSON, or "-"
+	// fromJSON is the --from-json argument when given: JSON text, or "-"
 	// to read the JSON from stdin. nil means --from-json was not given.
 	fromJSON *string
+	// profile is the --json-profile selection: the profile --from-json is read
+	// in and the value of --format json output is rendered in.
+	profile jsonProfile
 }
 
-// consumeCommonArg handles the arguments shared by every command — --format/-f and
-// --from-json (each with a separate-token or "name=value" value), the at-most-one
+// consumeCommonArg handles the arguments shared by every command — --format/-f,
+// --from-json and --json-profile (each with a separate-token or "name=value" value), the at-most-one
 // positional hex (or the "-" stdin sentinel), and rejection of any other flag. It
 // advances *i past a consumed value argument. Each command's parser delegates here
 // after trying its OWN flags, so this shared surface lives in exactly one place.
@@ -178,6 +187,22 @@ func consumeCommonArg(args []string, i *int, format *outputFormat, src *valueSou
 		return setFromJSON(src, args[*i])
 	case strings.HasPrefix(arg, "--from-json="):
 		return setFromJSON(src, strings.TrimPrefix(arg, "--from-json="))
+	case arg == "--json-profile":
+		*i++
+		if *i >= len(args) {
+			return errors.New("--json-profile requires an argument (total|readable)")
+		}
+		p, err := parseJSONProfile(args[*i])
+		if err != nil {
+			return err
+		}
+		src.profile = p
+	case strings.HasPrefix(arg, "--json-profile="):
+		p, err := parseJSONProfile(strings.TrimPrefix(arg, "--json-profile="))
+		if err != nil {
+			return err
+		}
+		src.profile = p
 	case arg != "-" && strings.HasPrefix(arg, "--"):
 		return fmt.Errorf("unknown flag %q", arg)
 	case arg != "-" && len(arg) > 1 && strings.HasPrefix(arg, "-"):
@@ -340,15 +365,6 @@ func readInput(arg *string, stdin io.Reader) (string, error) {
 // same as --from-json allows.
 const hexInputSpace = " \t\n\r"
 
-// readJSONSource reads the --from-json text as given: the argument, or the whole of
-// stdin for "-". Nothing is trimmed; the reader allows only RFC 8259 whitespace.
-func readJSONSource(arg *string, stdin io.Reader) ([]byte, error) {
-	if *arg != "-" {
-		return []byte(*arg), nil
-	}
-	return io.ReadAll(stdin)
-}
-
 // decode implements `ontos decode`: obtain the value (hex or --from-json) and
 // render it.
 func decode(format outputFormat, src valueSource, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -358,7 +374,11 @@ func decode(format outputFormat, src valueSource, stdin io.Reader, stdout, stder
 	}
 
 	if format == formatJSON {
-		emit(stdout, decodeResult{OK: true, Command: "decode", Codec: codecID, Value: authoring{value}})
+		rendered, exit := renderValue(value, src.profile, "decode", stdout, stderr)
+		if rendered == nil {
+			return exit
+		}
+		emit(stdout, decodeResult{OK: true, Command: "decode", Codec: codecID, Value: rendered})
 	} else {
 		fmt.Fprintln(stdout, value.String())
 	}
@@ -451,9 +471,13 @@ func inspect(format outputFormat, src valueSource, stdin io.Reader, stdout, stde
 	labels := recognizedLabels(value)
 
 	if format == formatJSON {
+		rendered, exit := renderValue(value, src.profile, "inspect", stdout, stderr)
+		if rendered == nil {
+			return exit
+		}
 		emit(stdout, inspectResult{
 			OK: true, Command: "inspect", Codec: codecID,
-			Canonical: canonical, Value: authoring{value}, Recognized: labels,
+			Canonical: canonical, Value: rendered, Recognized: labels,
 		})
 	} else {
 		fmt.Fprintln(stdout, value.String())
@@ -546,8 +570,8 @@ func canon(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 //
 // For the hex path the returned bytes are the raw input bytes (so inspect can
 // compare them against the re-encoding). For the --from-json path the value is
-// built directly and is canonical by construction, so the bytes are its
-// encoding.
+// read by the projection library in the selected profile (fromjson.go) and is
+// canonical by construction, so the bytes are its encoding.
 func resolveValue(src valueSource, stdin io.Reader, command string, format outputFormat, stdout, stderr io.Writer) (core.Value, []byte, int) {
 	// Mutual exclusion: --from-json together with a positional <hex> is a
 	// usage_error. A "-" positional is the stdin sentinel, not a hex value, but
@@ -563,35 +587,34 @@ func resolveValue(src valueSource, stdin io.Reader, command string, format outpu
 	}
 
 	if src.fromJSON != nil {
-		raw, err := readJSONSource(src.fromJSON, stdin)
+		// Readable input is read from stdin only: an argument may have been decoded
+		// lossily on its way in (Node's argv is), and a replaced byte inside a string
+		// would read as another value (ontos-readable-json.md §10.1).
+		if src.profile == profileReadable && *src.fromJSON != "-" {
+			if format == formatJSON {
+				emitError(stdout, command, "usage_error")
+			} else {
+				fmt.Fprintln(stderr, "ontos: "+errReadableArgument.Error())
+			}
+			return nil, nil, 2
+		}
+		raw, err := readJSONSource(*src.fromJSON, stdin)
 		if err != nil {
 			fmt.Fprintln(stderr, "ontos: cannot read input: "+err.Error())
 			return nil, nil, 2
 		}
-		node, err := readJSON(readJSONText(raw))
-		if errors.Is(err, errTooDeep) {
-			// Deeper than any value the default decoder accepts: limit_exceeded,
-			// exit 1, exactly as a decode limit (ontos-cli.md "Value input").
-			if format == formatJSON {
-				emitError(stdout, command, "limit_exceeded")
-			} else {
-				fmt.Fprintln(stderr, "ontos: json input too deep: "+err.Error())
-			}
-			return nil, nil, 1
-		}
-		var value core.Value
-		if err == nil {
-			value, err = authoringValue(node)
-		}
+		value, err := parseJSONValue(raw, src.profile)
 		if err != nil {
-			// Any other fault in the text, or a non-authoring shape, is the stable
-			// invalid_json usage error (exit 2). The reason goes to stderr (human only).
+			// A limit is limit_exceeded (exit 1), exactly as a decode limit; any other
+			// refusal is the stable invalid_json usage error (exit 2). The library's
+			// reason goes to stderr (human only).
+			code, exit := jsonFailure(err)
 			if format == formatJSON {
-				emitError(stdout, command, "invalid_json")
+				emitError(stdout, command, code)
 			} else {
-				fmt.Fprintln(stderr, "ontos: invalid json input: "+err.Error())
+				fmt.Fprintln(stderr, "ontos: json input: "+err.Error())
 			}
-			return nil, nil, 2
+			return nil, nil, exit
 		}
 		// Canonical by construction: an L0 Value has exactly one ontos-codec-v1
 		// encoding, so its encoding is the canonical bytes.
@@ -625,6 +648,20 @@ func resolveValue(src valueSource, stdin io.Reader, command string, format outpu
 	return value, raw, 0
 }
 
+// renderValue renders the value of a --format json result in the selected profile. A
+// writer refusal (only the readable profile's integer_digits under the defaults) is
+// emitted as the command's error line, limit_exceeded, exit 1; then the result is nil.
+func renderValue(value core.Value, profile jsonProfile, command string, stdout, stderr io.Writer) (json.RawMessage, int) {
+	out, err := renderJSONValue(value, profile)
+	if err != nil {
+		code, exit := jsonFailure(err)
+		emitError(stdout, command, code)
+		fmt.Fprintln(stderr, "ontos: cannot render the value: "+err.Error())
+		return nil, exit
+	}
+	return out, 0
+}
+
 // yesNo renders a bool as the human-format "yes"/"no".
 func yesNo(b bool) string {
 	if b {
@@ -649,10 +686,10 @@ func humanLabels(labels []string) string {
 // decodeResult is the success line for `decode`. The struct field order fixes
 // the json key order (ok, command, codec, value) the contract pins.
 type decodeResult struct {
-	OK      bool      `json:"ok"`
-	Command string    `json:"command"`
-	Codec   string    `json:"codec"`
-	Value   authoring `json:"value"`
+	OK      bool            `json:"ok"`
+	Command string          `json:"command"`
+	Codec   string          `json:"codec"`
+	Value   json.RawMessage `json:"value"`
 }
 
 // errorResult is the negative/error line: {"ok":false,"command":...,"error":...}.
@@ -665,12 +702,12 @@ type errorResult struct {
 // inspectResult is the success line for `inspect`. The field order fixes the
 // json key order (ok, command, codec, canonical, value, recognized).
 type inspectResult struct {
-	OK         bool      `json:"ok"`
-	Command    string    `json:"command"`
-	Codec      string    `json:"codec"`
-	Canonical  bool      `json:"canonical"`
-	Value      authoring `json:"value"`
-	Recognized []string  `json:"recognized"`
+	OK         bool            `json:"ok"`
+	Command    string          `json:"command"`
+	Codec      string          `json:"codec"`
+	Canonical  bool            `json:"canonical"`
+	Value      json.RawMessage `json:"value"`
+	Recognized []string        `json:"recognized"`
 }
 
 // readKindResult is the `read --kind <k>` line (ok, command, kind, recognized).
@@ -702,55 +739,22 @@ type canonEmitResult struct {
 	Hex     string `json:"hex"`
 }
 
-// authoring wraps a core.Value so it marshals to the vectors authoring notation
-// — {"atom":"<lowercase-hex>"} or {"tuple":[<child>,...]} — recursively.
-type authoring struct{ value core.Value }
-
-// MarshalJSON renders the authoring notation. It hand-builds the bytes so the
-// hex is lowercase, keys are fixed, and the output is compact and deterministic
-// regardless of Go map iteration.
-func (a authoring) MarshalJSON() ([]byte, error) {
-	var b strings.Builder
-	if err := writeAuthoring(&b, a.value); err != nil {
-		return nil, err
-	}
-	return []byte(b.String()), nil
-}
-
-func writeAuthoring(b *strings.Builder, v core.Value) error {
-	switch val := v.(type) {
-	case core.Atom:
-		b.WriteString(`{"atom":"`)
-		b.WriteString(hex.EncodeToString(val.Bytes()))
-		b.WriteString(`"}`)
-	case core.Tuple:
-		b.WriteString(`{"tuple":[`)
-		for i, item := range val.Items() {
-			if i != 0 {
-				b.WriteByte(',')
-			}
-			if err := writeAuthoring(b, item); err != nil {
-				return err
-			}
-		}
-		b.WriteString("]}")
-	default:
-		return fmt.Errorf("ontos: unknown core.Value implementation %T", v)
-	}
-	return nil
-}
-
-// emit marshals one result object compactly and writes it as a single line.
+// emit marshals one result object compactly and writes it as a single line. HTML
+// escaping is off: a readable value carries its strings as the library wrote them
+// (<, >, &, U+2028 and U+2029 unescaped, ontos-readable-json.md §5), and the line
+// must be byte-identical to the other CLIs'. A json.RawMessage value is compacted,
+// which leaves the library's output (no insignificant whitespace) unchanged.
 func emit(w io.Writer, v any) {
-	out, err := json.Marshal(v)
-	if err != nil {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		// Marshalling a fixed-shape result cannot realistically fail; if it does,
 		// there is nothing better to do than report it on the same stream.
 		fmt.Fprintln(w, `{"ok":false,"command":"decode","error":"internal_error"}`)
 		return
 	}
-	w.Write(out)
-	fmt.Fprintln(w)
+	w.Write(b.Bytes())
 }
 
 // emitError writes a compact {"ok":false,"command":...,"error":...} line.

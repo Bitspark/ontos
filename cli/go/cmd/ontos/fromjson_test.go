@@ -311,3 +311,57 @@ func TestFromJSONReading(t *testing.T) {
 		t.Errorf("10^6 brackets: exit=%d stdout=%q", code, stdout)
 	}
 }
+
+// TestJSONProfiles pins --json-profile (ontos-cli.md "JSON profiles"): readable input
+// from stdin only, as exact bytes; readable output; library refusals mapped onto
+// invalid_json and limit_exceeded; total (the default) unchanged.
+func TestJSONProfiles(t *testing.T) {
+	line := func(command, code string) string {
+		return `{"ok":false,"command":"` + command + `","error":"` + code + `"}` + "\n"
+	}
+	cases := []struct {
+		name   string
+		args   []string
+		stdin  string
+		code   int
+		stdout string
+	}{
+		{"readable from stdin", []string{"canon", "--emit", "--json-profile", "readable", "--from-json", "-"},
+			`{"$ontos":["int","5"]}`, 0, "01020003696e7400020005\n"},
+		{"readable inline flag form", []string{"canon", "--emit", "--json-profile=readable", "--from-json=-"},
+			"257", 0, "01020003696e740003000101\n"},
+		{"readable from an argument is usage_error", []string{"canon", "--emit", "--format", "json", "--json-profile", "readable", "--from-json", "5"},
+			"", 2, line("canon", "usage_error")},
+		{"readable from an argument, human: stderr only", []string{"canon", "--emit", "--json-profile", "readable", "--from-json", "5"},
+			"", 2, ""},
+		{"readable bytes that are not UTF-8 are refused", []string{"canon", "--format", "json", "--json-profile", "readable", "--from-json", "-"},
+			"\"\xff\"", 2, line("canon", "invalid_json")},
+		{"readable refusal: invalid_number", []string{"read", "--all", "--format", "json", "--json-profile", "readable", "--from-json", "-"},
+			"1.5", 2, line("read", "invalid_json")},
+		{"readable limit: decode_depth", []string{"decode", "--format", "json", "--json-profile", "readable", "--from-json", "-"},
+			strings.Repeat("[", 1025) + strings.Repeat("]", 1025), 1, line("decode", "limit_exceeded")},
+		{"readable output", []string{"decode", "--format", "json", "--json-profile", "readable", "01020003696e740003000101"},
+			"", 0, `{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":257}` + "\n"},
+		{"readable output keeps <, >, & and U+2028", []string{"inspect", "--format", "json", "--json-profile", "readable", "--from-json", "-"},
+			`"<&>\u2028"`, 0, `{"ok":true,"command":"inspect","codec":"ontos-codec-v1","canonical":true,"value":"<&>` + "\u2028" + `","recognized":["utf8-text"]}` + "\n"},
+		{"the readable writer refuses more than 4300 digits", []string{"decode", "--format", "json", "--json-profile", "readable"},
+			"01020003696e7400fb0d00" + strings.Repeat("ff", 1786), 1, line("decode", "limit_exceeded")},
+		{"the total writer writes it", []string{"decode", "--format", "json", "--json-profile", "total"},
+			"01020003696e7400fb0d00" + strings.Repeat("ff", 1786), 0,
+			`{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":{"tuple":[{"atom":"696e74"},{"atom":"00` +
+				strings.Repeat("ff", 1786) + `"}]}}` + "\n"},
+		{"total is the default, given explicitly", []string{"canon", "--emit", "--json-profile", "total", "--from-json", `{"atom":"00"}`},
+			"", 0, "000100\n"},
+		{"a total text that begins with '-' is the argument", []string{"canon", "--format", "json", "--from-json", "-1"},
+			"", 2, line("canon", "invalid_json")},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			code, stdout, _ := runCLI(c.args, c.stdin)
+			if code != c.code || stdout != c.stdout {
+				t.Fatalf("exit=%d stdout=%.120q, want %d %.120q", code, stdout, c.code, c.stdout)
+			}
+		})
+	}
+}

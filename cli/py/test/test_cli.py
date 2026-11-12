@@ -345,5 +345,58 @@ class KindsParityTests(unittest.TestCase):
         self.assertEqual(tuple(module.KINDS), tuple(LABELS))
 
 
+class JsonProfileTests(unittest.TestCase):
+    """--json-profile (ontos-cli.md "JSON profiles"): readable input from stdin only, as
+    exact bytes; readable output; library refusals mapped onto invalid_json and
+    limit_exceeded; total (the default) unchanged."""
+
+    def test_json_profiles(self):
+        def line(command, code):
+            return f'{{"ok":false,"command":"{command}","error":"{code}"}}\n'.encode()
+
+        big_int = "01020003696e7400fb0d00" + "ff" * 1786
+        cases = [
+            ("readable from stdin", ["canon", "--emit", "--json-profile", "readable", "--from-json", "-"],
+             b'{"$ontos":["int","5"]}', 0, b"01020003696e7400020005\n"),
+            ("readable inline flag form", ["canon", "--emit", "--json-profile=readable", "--from-json=-"],
+             b"257", 0, b"01020003696e740003000101\n"),
+            ("readable from an argument is usage_error",
+             ["canon", "--emit", "--format", "json", "--json-profile", "readable", "--from-json", "5"],
+             b"", 2, line("canon", "usage_error")),
+            ("readable bytes that are not UTF-8 are refused",
+             ["canon", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+             b'"\xff"', 2, line("canon", "invalid_json")),
+            ("readable refusal: invalid_number",
+             ["read", "--all", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+             b"1.5", 2, line("read", "invalid_json")),
+            ("readable limit: decode_depth",
+             ["decode", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+             b"[" * 1025 + b"]" * 1025, 1, line("decode", "limit_exceeded")),
+            ("readable output", ["decode", "--format", "json", "--json-profile", "readable", "01020003696e740003000101"],
+             b"", 0, b'{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":257}\n'),
+            ("readable output keeps <, >, & and U+2028",
+             ["inspect", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+             b'"<&>\\u2028"', 0,
+             '{"ok":true,"command":"inspect","codec":"ontos-codec-v1","canonical":true,"value":"<&>\u2028","recognized":["utf8-text"]}\n'.encode()),
+            ("the readable writer refuses more than 4300 digits",
+             ["decode", "--format", "json", "--json-profile", "readable"], big_int.encode(), 1, line("decode", "limit_exceeded")),
+            ("the total writer writes it", ["decode", "--format", "json", "--json-profile", "total"], big_int.encode(), 0,
+             ('{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":{"tuple":[{"atom":"696e74"},{"atom":"00'
+              + "ff" * 1786 + '"}]}}\n').encode()),
+            ("total is the default, given explicitly",
+             ["canon", "--emit", "--json-profile", "total", "--from-json", '{"atom":"00"}'], b"", 0, b"000100\n"),
+            ("a total text that begins with '-' is the argument", ["canon", "--format", "json", "--from-json", "-1"],
+             b"", 2, line("canon", "invalid_json")),
+        ]
+        for name, args, stdin, code, stdout in cases:
+            with self.subTest(name):
+                proc = subprocess.run([sys.executable, str(_MAIN), *args], input=stdin, capture_output=True)
+                self.assertEqual((proc.returncode, proc.stdout), (code, stdout))
+        for bad in (["decode", "--json-profile"], ["decode", "--json-profile", "pretty", "00"],
+                    ["decode", "--json-profile=Total", "00"]):
+            with self.subTest(bad):
+                self.assertEqual(_run(bad)[:2], (2, b""))
+
+
 if __name__ == "__main__":
     unittest.main()

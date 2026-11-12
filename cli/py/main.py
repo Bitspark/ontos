@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """ontos CLI (py) — the `ontos` byte-first inspector (docs/spec/ontos-cli.md).
 
-    ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+    ontos <command> [--format human|json] [--from-json <json|->]
+                    [--json-profile total|readable] [<hex>]
 
 Bytes in, evidence out: input is canonical ontos-codec-v1 bytes given as a hex
-string (positional, or "-"/omitted to read hex from stdin), OR the authoring
-notation via ``--from-json <json|->`` (the inverse of ``--format json`` value
-rendering) — the one text-to-bytes path, mutually exclusive with a positional
-``<hex>``. The from-json value is built directly with the core constructors, so
-it is canonical by construction (no bytes are decoded). All four commands
-(decode/inspect/read/canon) accept either input source.
+string (positional, or "-"/omitted to read hex from stdin), OR JSON text via
+``--from-json <json|->`` — the one text-to-bytes path, mutually exclusive with a
+positional ``<hex>``. ``--json-profile`` selects the JSON profile of that input
+and of the ``--format json`` value rendering: ontos-total-json/1 by default
+(``{"atom":"<hex>"} | {"tuple":[...]}``), or ontos-readable-json/1, read from
+stdin only. The projection library (``projection/json/py``) reads and writes it;
+the value is built, not decoded, so it is canonical by construction. All four
+commands (decode/inspect/read/canon) accept either input source.
 
 This is the FOURTH peer implementation (go/rs/ts/py — ontos-internal#60), built over its
 own core. It registers as just another ``--impl`` on the differential conformance
@@ -21,29 +24,29 @@ stable fields. The ``--format human`` rendering is equally pinned (ontos-interna
 Python is a VALIDATION lane, not a published/substrate lane.
 
 Python stdlib only (json, sys, pathlib), mirroring the dependency-free cores.
-The model/codec/data come from the sibling ``core/py`` / ``codec/py`` /
-``data/py`` lanes, resolved by path relative to this file (the py lanes are not
-installed packages — they are repo-local source, like the npm-workspace TS lanes).
+The model/codec/data and the JSON projections come from the sibling ``core/py`` /
+``codec/py`` / ``data/py`` / ``projection/json/py`` lanes, resolved by path relative
+to this file (the py lanes are not installed packages — they are repo-local source,
+like the npm-workspace TS lanes).
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple as PyTuple
 
-# Resolve the sibling py lanes by path: <repo-root>/{core,codec,data}/py. This
-# file is <repo-root>/cli/py/main.py, so the root is two parents up.
+# Resolve the sibling py lanes by path: <repo-root>/{core,codec,data,projection/json}/py.
+# This file is <repo-root>/cli/py/main.py, so the root is two parents up.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-for _lane in ("core", "codec", "data"):
+for _lane in ("core", "codec", "data", "projection/json"):
     _lane_dir = str(_REPO_ROOT / _lane / "py")
     if _lane_dir not in sys.path:
         sys.path.insert(0, _lane_dir)
 
-from ontos_core import Atom, Tuple, Value, atom, tuple_  # noqa: E402
+from ontos_core import Atom, Value  # noqa: E402
 from ontos_codec import DecodeError, decode, encode  # noqa: E402
 from ontos_data import (  # noqa: E402
     DataError,
@@ -56,6 +59,7 @@ from ontos_data import (  # noqa: E402
     recognize_decimal,
     recognize_int,
 )
+from ontos_json import ProjectionError, readable, total  # noqa: E402
 
 CODEC_ID = "ontos-codec-v1"
 VERSION = "ontos 0.1.0"
@@ -63,7 +67,8 @@ VERSION = "ontos 0.1.0"
 USAGE = """ontos — byte-first inspector for ontos values
 
 usage:
-  ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+  ontos <command> [--format human|json] [--from-json <json|->]
+                  [--json-profile total|readable] [<hex>]
 
 commands:
   decode    decode ontos-codec-v1 bytes to the L0 value tree
@@ -73,9 +78,12 @@ commands:
 
 options:
   -f, --format human|json   output format (default human)
-      --from-json <json|->  supply the value as authoring notation
-                            ({"atom":"<hex>"} | {"tuple":[ ... ]}) instead of hex;
+      --from-json <json|->  supply the value as json text instead of hex;
                             "-" reads the json from stdin (excludes <hex>)
+      --json-profile total|readable
+                            the json profile of --from-json and of json value
+                            output (default total: {"atom":"<hex>"} |
+                            {"tuple":[ ... ]}); readable input only from stdin
   -h, --help                print this help and exit
   -V, --version             print the version and exit
 
@@ -89,7 +97,7 @@ canon options:
       --emit                print the canonical bytes as hex
 
 input is hex; if <hex> is "-" or omitted it is read from stdin.
-with --from-json the value is parsed from authoring json instead of hex."""
+with --from-json the value is read from json text instead of hex."""
 
 # The registered embedding labels, in the fixed order the contract pins for the
 # `recognized` array (inspect / read --all). A value matches AT MOST one label,
@@ -156,7 +164,7 @@ def _die_usage(message: str) -> int:
     return EXIT_USAGE
 
 
-# --- authoring notation ---------------------------------------------------------
+# --- values as text ---------------------------------------------------------------
 
 
 def _render(value: Value, atom_text, tuple_open: str, separator: str, tuple_close: str) -> str:
@@ -184,12 +192,6 @@ def _render(value: Value, atom_text, tuple_open: str, separator: str, tuple_clos
     return "".join(out)
 
 
-def _to_authoring_json(value: Value) -> str:
-    """The compact authoring notation, {"atom":"<hex>"} | {"tuple":[...]}: the same
-    text json.dumps gives for the nested dicts."""
-    return _render(value, lambda a: '{"atom":"' + a.bytes().hex() + '"}', '{"tuple":[', ",", "]}")
-
-
 def _human_value(value: Value) -> str:
     """The core's display form, str(value) — Tuple(Atom(0x..), ...) — rendered here
     because core/py's recursive __str__ exceeds Python's recursion limit on a
@@ -197,279 +199,65 @@ def _human_value(value: Value) -> str:
     return _render(value, str, "Tuple(", ", ", ")")
 
 
-class _AuthoringError(Exception):
-    """A malformed --from-json input: a fault in the JSON text, or JSON that is
-    not the {atom:hex}|{tuple:[...]} authoring shape. Both are the single stable
-    `invalid_json` error code (ontos-cli.md "Value input").
-    """
+# --- JSON values through the projection library -----------------------------------
+#
+# --json-profile selects the profile, the same way in all four CLIs (ontos-cli.md
+# "Value input" and "JSON profiles"):
+#   - total (the default) is ontos-total-json/1, through ontos_json.total. The
+#     --from-json text comes from an argument or from stdin. Bytes that are not UTF-8
+#     are read as U+FFFD before the library sees them (_total_text): that step is the
+#     CLI's total transport, because Node decodes argv that way before ts sees it. The
+#     library's reader is strict and never repairs text.
+#   - readable is ontos-readable-json/1, through ontos_json.readable. Its input is read
+#     from stdin only, as the exact bytes, with no lossy step: a replaced byte inside
+#     a string would read as a different value (ontos-readable-json.md §10.1).
+# A library refusal maps onto the CLI's codes: a limit is limit_exceeded (exit 1), and
+# any other refusal is invalid_json (exit 2). The same profile renders the value of
+# --format json output.
+
+_PROFILES = {"total": total, "readable": readable}
 
 
-class _JsonTooDeep(Exception):
-    """A --from-json text with more than _JSON_NESTING_CAP nested arrays and
-    objects: the stable `limit_exceeded` code, exit 1, as a decode limit."""
+def _total_text(data: bytes) -> bytes:
+    """The total transport: invalid UTF-8 becomes U+FFFD. U+FFFD is never hex and
+    never part of `atom` or `tuple`, so such a text is always refused, and the outcome
+    never depends on how many U+FFFD replace a bad sequence."""
+    return data.decode("utf-8", "replace").encode("utf-8")
 
 
-# Reading --from-json, in two stages, the same way in all four CLIs
-# (ontos-cli.md "Value input"):
-#   1. _read_json reads the text as RFC 8259 JSON, left to right and without
-#      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
-#      escapes decoded, lone-surrogate escapes and repeated member names
-#      refused, and at most _JSON_NESTING_CAP open arrays and objects. The first
-#      fault ends the reading: a 2051st level is _JsonTooDeep, anything else
-#      _AuthoringError.
-#   2. _authoring_value checks the JSON value against the authoring shape and
-#      builds the core Value, again without recursion.
-# This reader is interim: a later task moves the CLIs onto a library reader.
-# Python's json module is not used: it accepts NaN/Infinity, refuses integers
-# over 4300 digits, and recurses once per nesting level.
-
-# The most arrays and objects the text may have open at once: 2*1024 + 2. The
-# deepest value the codec's default decoder accepts is nested 1024 deep (root at
-# depth 0, ontos-codec.md 4.1); when that deepest value is an empty tuple, its
-# 1025 tuples take two levels each ({"tuple":[). Anything deeper in an authoring
-# text is a value the decoder would refuse.
-_JSON_NESTING_CAP = 2 * 1024 + 2
-
-_WS = re.compile(r"[ \t\n\r]*")
-_PLAIN = re.compile(r'[^"\\\x00-\x1f]*')
-_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
-_HEX4 = re.compile(r"[0-9a-fA-F]{4}")
-_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
-
-# Generic JSON nodes: a str is a JSON string, a list an array, a dict an object
-# (each member name occurs once), and _SCALAR stands for every number,
-# true, false and null, which the shape check only ever refuses.
-_SCALAR = object()
+def _value_from_json_source(source: str, profile: str) -> Value:
+    """Read the --from-json text under the profile; "-" reads it from stdin. Nothing
+    is trimmed: the reader allows only RFC 8259 whitespace. A refusal raises
+    ProjectionError. os.fsencode recovers an argument's bytes from the
+    surrogateescape decoding Python applied to it. (Readable text from an argument is
+    refused before this, in _resolve_value.)"""
+    data = sys.stdin.buffer.read() if source == "-" else os.fsencode(source)
+    if profile == "readable":
+        return readable.parse_utf8(data)
+    return total.parse_utf8(_total_text(data))
 
 
-def _read_json(text: str) -> object:
-    """Stage 1: read the whole text as one JSON value."""
-    pos = 0
-    n = len(text)
-
-    def fault(what: str) -> _AuthoringError:
-        return _AuthoringError(f"malformed JSON at offset {pos}: {what}")
-
-    def ws() -> None:
-        nonlocal pos
-        pos = _WS.match(text, pos).end()
-
-    def string() -> str:
-        # The cursor is on the opening quote. A control character must be
-        # escaped; a \u escape of a surrogate must be a high one followed at once
-        # by an escaped low one.
-        nonlocal pos
-        pos += 1
-        parts: List[str] = []
-        while True:
-            end = _PLAIN.match(text, pos).end()
-            parts.append(text[pos:end])
-            pos = end
-            if pos >= n:
-                raise fault("unterminated string")
-            c = text[pos]
-            if c == '"':
-                pos += 1
-                return "".join(parts)
-            if c != "\\":
-                raise fault("unescaped control character")
-            e = text[pos + 1 : pos + 2]
-            if e in _ESCAPES:
-                parts.append(_ESCAPES[e])
-                pos += 2
-                continue
-            if e != "u":
-                pos += 1
-                raise fault("unknown escape")
-            pos += 2
-            first = hex4()
-            if 0xD800 <= first <= 0xDBFF:
-                if text[pos : pos + 2] != "\\u":
-                    raise fault("lone high surrogate")
-                pos += 2
-                second = hex4()
-                if not 0xDC00 <= second <= 0xDFFF:
-                    raise fault("lone high surrogate")
-                parts.append(chr(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00)))
-            elif 0xDC00 <= first <= 0xDFFF:
-                raise fault("lone low surrogate")
-            else:
-                parts.append(chr(first))
-
-    def hex4() -> int:
-        nonlocal pos
-        m = _HEX4.match(text, pos)
-        if m is None:
-            raise fault("expected four hex digits")
-        pos = m.end()
-        return int(m.group(), 16)
-
-    def member_name() -> str:
-        nonlocal pos
-        ws()
-        if text[pos : pos + 1] != '"':
-            raise fault("expected a member name")
-        name = string()
-        ws()
-        if text[pos : pos + 1] != ":":
-            raise fault("expected ':'")
-        pos += 1
-        return name
-
-    # The open arrays and objects, innermost last: [container, key], where key is
-    # the member name the next value of an open object belongs to.
-    stack: List[list] = []
-    ws()
-    while True:
-        # A value starts at the cursor.
-        c = text[pos : pos + 1]
-        if c == "{" or c == "[":
-            if len(stack) == _JSON_NESTING_CAP:
-                raise _JsonTooDeep("more than 2050 nested arrays and objects")
-            pos += 1
-            ws()
-            if c == "[":
-                if text[pos : pos + 1] == "]":
-                    pos += 1
-                    value: object = []
-                else:
-                    stack.append([[], None])
-                    ws()
-                    continue
-            elif text[pos : pos + 1] == "}":
-                pos += 1
-                value = {}
-            else:
-                stack.append([{}, member_name()])
-                ws()
-                continue
-        elif c == '"':
-            value = string()
-        elif c in ("t", "f", "n"):
-            word = {"t": "true", "f": "false", "n": "null"}[c]
-            if not text.startswith(word, pos):
-                raise fault("expected " + word)
-            pos += len(word)
-            value = _SCALAR
-        elif c == "-" or "0" <= c <= "9":
-            m = _NUMBER.match(text, pos)
-            if m is None:
-                raise fault("expected a number")
-            pos = m.end()
-            value = _SCALAR
-        else:
-            raise fault("expected a value")
-
-        # value is complete: hand it to the innermost open container, closing
-        # each container whose end follows.
-        while True:
-            if not stack:
-                ws()
-                if pos != n:
-                    raise fault("data after the value")
-                return value
-            top = stack[-1]
-            container = top[0]
-            if isinstance(container, list):
-                container.append(value)
-            else:
-                container[top[1]] = value
-            ws()
-            d = text[pos : pos + 1]
-            if d == ",":
-                pos += 1
-                if isinstance(container, dict):
-                    name = member_name()
-                    if name in container:
-                        raise fault(f"member name {name!r} repeated")
-                    top[1] = name
-                ws()
-                break
-            if (d == "]" and isinstance(container, list)) or (d == "}" and isinstance(container, dict)):
-                pos += 1
-                value = container
-                stack.pop()
-                continue
-            raise fault("expected ',' or the container's end")
+def _json_failure(err: ProjectionError) -> PyTuple[str, int]:
+    """Map a library refusal onto the CLI's codes: a limit is limit_exceeded, exit 1,
+    as a decode limit; anything else is invalid_json, exit 2."""
+    if err.code == "limit_exceeded":
+        return "limit_exceeded", EXIT_NEGATIVE
+    return "invalid_json", EXIT_USAGE
 
 
-def _authoring_node(node: object) -> object:
-    """Check one authoring node: an atom comes back as its Value, a tuple as its
-    children (a list) for the caller to walk."""
-    if not isinstance(node, dict):
-        raise _AuthoringError("value must be an object")
-    if len(node) != 1:
-        raise _AuthoringError('value must have exactly one member, "atom" or "tuple"')
-    if "atom" in node:
-        return atom(_authoring_atom_bytes(node["atom"]))
-    if "tuple" not in node:
-        raise _AuthoringError('value must have exactly one member, "atom" or "tuple"')
-    children = node["tuple"]
-    if not isinstance(children, list):
-        raise _AuthoringError('"tuple" must be an array')
-    return children
-
-
-def _authoring_value(root: object) -> Value:
-    """Stage 2: check a JSON value against the authoring notation — the exact
-    inverse of _to_authoring_json (and of the --format json value rendering) —
-    and build the core Value, walking the tree with an explicit stack. A value is
-    a JSON object with EXACTLY ONE member (stage 1 has already refused a
-    repeated name): "atom" (even-length lowercase hex, "" = empty atom) or "tuple" (a
-    JSON array of values). Anything else raises _AuthoringError -> the stable
-    `invalid_json` code.
-    """
-    first = _authoring_node(root)
-    if not isinstance(first, list):
-        return first  # type: ignore[return-value]
-    # Each open tuple: [children, index of the next one to check, values built].
-    stack: List[list] = [[first, 0, []]]
-    while True:
-        top = stack[-1]
-        children, index, built = top
-        if index == len(children):
-            stack.pop()
-            done = tuple_(built)
-            if not stack:
-                return done
-            stack[-1][2].append(done)
-            continue
-        top[1] = index + 1
-        node = _authoring_node(children[index])
-        if isinstance(node, list):
-            stack.append([node, 0, []])
-        else:
-            built.append(node)
-
-
-def _authoring_atom_bytes(hex_str: object) -> bytes:
-    """Decode an authoring atom string: even-length LOWERCASE hex ("" allowed)."""
-    if not isinstance(hex_str, str):
-        raise _AuthoringError('"atom" must be a string')
-    if len(hex_str) % 2 != 0:
-        raise _AuthoringError('"atom" must be even-length hex')
-    for ch in hex_str:
-        if not ("0" <= ch <= "9" or "a" <= ch <= "f"):
-            raise _AuthoringError('"atom" must be lowercase hex')
-    return bytes.fromhex(hex_str)
-
-
-def _value_from_json_source(source: str) -> Value:
-    """Build a Value from the --from-json source: stage 1, then stage 2. "-"
-    reads the JSON from stdin. Nothing is trimmed: the reader allows only RFC
-    8259 whitespace.
-
-    Bytes that are not UTF-8 are read as U+FFFD, from stdin and from argv alike
-    (Node reads argv that way before ts sees it; ontos-cli.md "Value input").
-    U+FFFD is never hex and never part of `atom` or `tuple`, so such text is
-    always refused. os.fsencode recovers an argument's bytes from the surrogateescape
-    decoding Python applied to it.
-    """
-    if source == "-":
-        text = sys.stdin.buffer.read().decode("utf-8", "replace")
-    else:
-        text = os.fsencode(source).decode("utf-8", "replace")
-    return _authoring_value(_read_json(text))
+def _render_json_value(command: str, value: Value, profile: str) -> Optional[str]:
+    """The value of a --format json result, in the profile's preferred spelling. Under
+    the defaults the total writer accepts every value the CLI can hold (none is deeper
+    than 1024), and the readable writer refuses only an integer of more than 4300
+    digits: that refusal is emitted as the command's error line (limit_exceeded), and
+    the result is None."""
+    try:
+        return _PROFILES[profile].render_utf8(value).decode("utf-8")
+    except ProjectionError as err:
+        code, _ = _json_failure(err)
+        _emit_error(command, code)
+        _write_err(f"ontos: cannot render the value: {err}\n")
+        return None
 
 
 # --- input resolution -----------------------------------------------------------
@@ -523,6 +311,7 @@ def _resolve_value(
     fmt: str,
     from_json: Optional[str],
     positional: Optional[str],
+    profile: str = "total",
 ) -> PyTuple[Optional[_Resolved], int]:
     """Obtain the command's single Value from exactly one source — the
     positional <hex>/stdin (default) or --from-json — emitting the shared
@@ -532,7 +321,8 @@ def _resolve_value(
 
     For the hex path the returned raw bytes are the input bytes (so inspect can
     compare them against the re-encoding). For the --from-json path the value is
-    built directly and is canonical by construction, so raw is its encoding.
+    read by the projection library in the selected profile and is canonical by
+    construction, so raw is its encoding.
     """
     # Mutual exclusion: --from-json together with a positional <hex> is a
     # usage_error. A "-" positional is the stdin sentinel, not a hex value, but
@@ -546,24 +336,27 @@ def _resolve_value(
         return None, EXIT_USAGE
 
     if from_json is not None:
-        try:
-            value = _value_from_json_source(from_json)
-        except _JsonTooDeep as err:
-            # Deeper than any value the default decoder accepts: limit_exceeded,
-            # exit 1, exactly as a decode limit (ontos-cli.md "Value input").
+        # Readable input is read from stdin only: an argument may have been decoded
+        # lossily on its way in (Node's argv is), and a replaced byte inside a string
+        # would read as another value (ontos-readable-json.md §10.1).
+        if profile == "readable" and from_json != "-":
             if fmt == "json":
-                _emit_error(command, "limit_exceeded")
+                _emit_error(command, "usage_error")
             else:
-                _write_err(f"ontos: json input too deep: {err}\n")
-            return None, EXIT_NEGATIVE
-        except _AuthoringError as err:
-            # Any other fault in the text, or a non-authoring shape, is the stable
-            # invalid_json usage error (exit 2). The reason goes to stderr (human only).
-            if fmt == "json":
-                _emit_error(command, "invalid_json")
-            else:
-                _write_err(f"ontos: invalid json input: {err}\n")
+                _write_err("ontos: --json-profile readable reads --from-json from stdin only (--from-json -)\n")
             return None, EXIT_USAGE
+        try:
+            value = _value_from_json_source(from_json, profile)
+        except ProjectionError as err:
+            # A limit is limit_exceeded (exit 1), exactly as a decode limit; any other
+            # refusal is the stable invalid_json usage error (exit 2). The library's
+            # reason goes to stderr (human only).
+            code, exit_code = _json_failure(err)
+            if fmt == "json":
+                _emit_error(command, code)
+            else:
+                _write_err(f"ontos: json input: {err}\n")
+            return None, exit_code
         # Built, not decoded: canonical by construction. An L0 Value has exactly
         # one ontos-codec-v1 encoding, so its encoding is the canonical bytes.
         return _Resolved(value, encode(value)), 0
@@ -624,24 +417,24 @@ def _is_canonical(value: Value, raw: bytes) -> bool:
 # --- commands -------------------------------------------------------------------
 
 
-def _run_decode(fmt: str, from_json: Optional[str], positional: Optional[str]) -> int:
-    resolved, exit_code = _resolve_value("decode", fmt, from_json, positional)
+def _run_decode(fmt: str, from_json: Optional[str], positional: Optional[str], profile: str = "total") -> int:
+    resolved, exit_code = _resolve_value("decode", fmt, from_json, positional, profile)
     if resolved is None:
         return exit_code
 
     if fmt == "json":
+        rendered = _render_json_value("decode", resolved.value, profile)
+        if rendered is None:
+            return EXIT_NEGATIVE
         # Contract key order: ok, command, codec, value.
-        _write_out(
-            '{"ok":true,"command":"decode","codec":"' + CODEC_ID + '","value":'
-            + _to_authoring_json(resolved.value) + "}\n"
-        )
+        _write_out('{"ok":true,"command":"decode","codec":"' + CODEC_ID + '","value":' + rendered + "}\n")
     else:
         _write_out(_human_value(resolved.value) + "\n")
     return EXIT_OK
 
 
-def _run_inspect(fmt: str, from_json: Optional[str], positional: Optional[str]) -> int:
-    resolved, exit_code = _resolve_value("inspect", fmt, from_json, positional)
+def _run_inspect(fmt: str, from_json: Optional[str], positional: Optional[str], profile: str = "total") -> int:
+    resolved, exit_code = _resolve_value("inspect", fmt, from_json, positional, profile)
     if resolved is None:
         return exit_code
 
@@ -649,14 +442,18 @@ def _run_inspect(fmt: str, from_json: Optional[str], positional: Optional[str]) 
     recognized = _recognized_kinds(resolved.value)
 
     if fmt == "json":
+        rendered = _render_json_value("inspect", resolved.value, profile)
+        if rendered is None:
+            return EXIT_NEGATIVE
         # Contract key order: ok, command, codec, canonical, value, recognized.
-        # The value is spliced in as text: json.dumps would recurse once per level.
+        # The value is spliced in as the library wrote it: json.dumps would escape
+        # every non-ASCII character of a readable string.
         head = json.dumps(
             {"ok": True, "command": "inspect", "codec": CODEC_ID, "canonical": canonical},
             separators=(",", ":"),
         )
         tail = json.dumps(recognized, separators=(",", ":"))
-        _write_out(head[:-1] + ',"value":' + _to_authoring_json(resolved.value) + ',"recognized":' + tail + "}\n")
+        _write_out(head[:-1] + ',"value":' + rendered + ',"recognized":' + tail + "}\n")
     else:
         _write_out(_human_value(resolved.value) + "\n")
         _write_out(f"canonical: {_yes_no(canonical)}\n")
@@ -670,8 +467,9 @@ def _run_read(
     positional: Optional[str],
     all_flag: bool,
     kind: Optional[str],
+    profile: str = "total",
 ) -> int:
-    resolved, exit_code = _resolve_value("read", fmt, from_json, positional)
+    resolved, exit_code = _resolve_value("read", fmt, from_json, positional, profile)
     if resolved is None:
         return exit_code
 
@@ -701,8 +499,9 @@ def _run_canon(
     from_json: Optional[str],
     positional: Optional[str],
     emit_mode: bool,
+    profile: str = "total",
 ) -> int:
-    resolved, exit_code = _resolve_value("canon", fmt, from_json, positional)
+    resolved, exit_code = _resolve_value("canon", fmt, from_json, positional, profile)
     if resolved is None:
         return exit_code
 
@@ -733,13 +532,14 @@ class _UsageError(Exception):
 
 
 class _Args:
-    """The shared argument surface: --format, --from-json, one positional."""
+    """The shared argument surface: --format, --from-json, --json-profile, one positional."""
 
-    __slots__ = ("fmt", "from_json", "positional")
+    __slots__ = ("fmt", "from_json", "profile", "positional")
 
     def __init__(self) -> None:
         self.fmt = "human"
         self.from_json: Optional[str] = None
+        self.profile = "total"
         self.positional: Optional[str] = None
 
 
@@ -747,6 +547,12 @@ def _parse_format(text: str) -> str:
     if text in ("human", "json"):
         return text
     raise _UsageError(f'unknown format "{text}" (want human|json)')
+
+
+def _parse_profile(text: str) -> str:
+    if text in _PROFILES:
+        return text
+    raise _UsageError(f'unknown json profile "{text}" (want total|readable)')
 
 
 def _parse_kind(text: str) -> str:
@@ -768,8 +574,8 @@ def _set_positional(args: _Args, value: str) -> None:
 
 
 def _consume_common_arg(tokens: List[str], i: int, args: _Args) -> int:
-    """Handle the arguments shared by every command — --format/-f and
-    --from-json (each with a separate-token or name=value form), the
+    """Handle the arguments shared by every command — --format/-f, --from-json
+    and --json-profile (each with a separate-token or name=value form), the
     at-most-one positional hex (or the "-" stdin sentinel), and rejection of
     any other flag. Returns the index of the next unconsumed token. Mutual
     exclusion between --from-json and a positional is enforced later by
@@ -790,6 +596,14 @@ def _consume_common_arg(tokens: List[str], i: int, args: _Args) -> int:
         return i + 2
     if arg.startswith("--from-json="):
         _set_from_json(args, arg[len("--from-json="):])
+        return i + 1
+    if arg == "--json-profile":
+        if i + 1 >= len(tokens):
+            raise _UsageError("--json-profile requires an argument (total|readable)")
+        args.profile = _parse_profile(tokens[i + 1])
+        return i + 2
+    if arg.startswith("--json-profile="):
+        args.profile = _parse_profile(arg[len("--json-profile="):])
         return i + 1
     if arg != "-" and arg.startswith("--"):
         raise _UsageError(f'unknown flag "{arg}"')
@@ -886,16 +700,16 @@ def main(argv: List[str]) -> int:
     try:
         if command == "decode":
             args = _parse_common(rest)
-            return _run_decode(args.fmt, args.from_json, args.positional)
+            return _run_decode(args.fmt, args.from_json, args.positional, args.profile)
         if command == "inspect":
             args = _parse_common(rest)
-            return _run_inspect(args.fmt, args.from_json, args.positional)
+            return _run_inspect(args.fmt, args.from_json, args.positional, args.profile)
         if command == "read":
             args, all_flag, kind = _parse_read(rest)
-            return _run_read(args.fmt, args.from_json, args.positional, all_flag, kind)
+            return _run_read(args.fmt, args.from_json, args.positional, all_flag, kind, args.profile)
         if command == "canon":
             args, emit_mode = _parse_canon(rest)
-            return _run_canon(args.fmt, args.from_json, args.positional, emit_mode)
+            return _run_canon(args.fmt, args.from_json, args.positional, emit_mode, args.profile)
     except _UsageError as err:
         return _die_usage(str(err))
 

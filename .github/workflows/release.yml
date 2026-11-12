@@ -13,7 +13,8 @@
 #              (as the deixis projection's Rust crate and TypeScript face did until deixis was on
 #              crates.io and npmjs, public #1) is named here rather than left out.
 #   private    the CLIs (cli/rs, cli/ts) and the producer-conformance adapter: built and
-#              tested here, never published.
+#              tested here, never published. The JSON projections (projection/json/ts,
+#              bitspark-ontos-json) are private until they ship (design 0010), then published.
 # Every package the repository holds must be in exactly one of those classes. A new package
 # that is in none fails the release rather than being silently left out.
 #
@@ -84,10 +85,10 @@ env:
   # Published, in dependency order: each member depends only on members before it.
   NPM_PUBLISHED: "core/ts codec/ts data/ts data/json/ts projection/deixis/ts wire/ts"
   NPM_WITHHELD: ""   # a package that must not be in this tree yet; none since v0.14.0
-  NPM_PRIVATE: "cli/ts"
+  NPM_PRIVATE: "cli/ts projection/json/ts"
   CRATES_PUBLISHED: "bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data bitspark-ontos-data-json bitspark-ontos-deixis-projection"
   CRATES_DEFERRED: ""   # publish = false until a registry dependency exists; none since v0.14.0
-  CRATES_PRIVATE: "ontos-cli ontos-producer-adapter"
+  CRATES_PRIVATE: "ontos-cli ontos-producer-adapter bitspark-ontos-json"
   NPM_REGISTRY: https://registry.npmjs.org/
   UA: "ontos-release (https://github.com/Bitspark/ontos)"
 

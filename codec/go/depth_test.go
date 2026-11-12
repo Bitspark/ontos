@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/bitspark/ontos/core/go"
 )
 
 // nestedBytes is the frozen byte form of depth one-element tuples around Atom(61), by
@@ -29,6 +31,30 @@ func TestDecodedDeepValueRenders(t *testing.T) {
 		want := strings.Repeat("Tuple(", c.depth) + "Atom(0x61)" + strings.Repeat(")", c.depth)
 		if got := v.String(); got != want {
 			t.Fatalf("depth %d renders %d bytes, want %d", c.depth, len(got), len(want))
+		}
+	}
+}
+
+// A decoded deep value compares with the one built by hand: core.Tuple.Equal walks with an
+// explicit stack. Its recursive form also answered here, on a goroutine stack that grew with
+// the depth, and died of a fatal stack overflow at ten million levels.
+func TestDecodedDeepValueEqualsTheBuiltOne(t *testing.T) {
+	deep := DefaultLimits()
+	deep.MaxDepth = 100_000
+	for _, c := range []struct {
+		depth  int
+		limits Limits
+	}{{1024, DefaultLimits()}, {100_000, deep}} {
+		v, err := DecodeWithLimits(nestedBytes(c.depth), c.limits)
+		if err != nil {
+			t.Fatalf("depth %d: %v", c.depth, err)
+		}
+		var built core.Value = core.NewAtom([]byte{0x61})
+		for range c.depth {
+			built = core.NewTuple(built)
+		}
+		if !core.Equal(v, built) || !core.Equal(built, v) {
+			t.Fatalf("depth %d: the decoded value and the built one compare unequal", c.depth)
 		}
 	}
 }

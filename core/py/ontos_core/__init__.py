@@ -229,7 +229,9 @@ class Tuple(Value):
 _TUPLE_STR = Tuple.__str__
 # Marks an exhausted child iterator in Tuple.__str__; never a value.
 _END = object()
-# Tuple.__eq__ and Tuple.__hash__ as defined above, kept for the same reason.
+# Tuple.__eq__ and Tuple.__hash__ as defined above. A child whose __eq__ or __hash__ is
+# anything else, a replacement assigned to the class later included, is asked like an
+# override.
 _TUPLE_EQ = Tuple.__eq__
 _TUPLE_HASH = Tuple.__hash__
 

@@ -155,6 +155,15 @@ func (a Atom) Equal(other Value) bool {
 
 // Equal: a Tuple equals another Tuple of the same arity whose children are
 // elementwise equal in order; never an Atom.
+//
+// It keeps the open pairs of tuples on an explicit stack instead of making one call per
+// nesting level. The recursive form's goroutine stack grew with the depth, and at ten
+// million levels it passed the runtime's 1 GB limit, a fatal error no recover catches.
+//
+// The answer, and the order the children are asked in, are the recursive form's: a left
+// child of type Tuple is opened in place, after the checks Equal makes of its argument,
+// and any other left child (an Atom, or a type from another package that embeds one)
+// is asked through its own Equal method, as before.
 func (t Tuple) Equal(other Value) bool {
 	u, ok := other.(Tuple)
 	if !ok {
@@ -163,8 +172,26 @@ func (t Tuple) Equal(other Value) bool {
 	if len(t.items) != len(u.items) {
 		return false
 	}
-	for i := range t.items {
-		if !t.items[i].Equal(u.items[i]) {
+	type open struct {
+		left, right []Value
+		next        int
+	}
+	stack := []open{{left: t.items, right: u.items}}
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if top.next == len(top.left) {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		left, right := top.left[top.next], top.right[top.next]
+		top.next++
+		if l, ok := left.(Tuple); ok {
+			r, ok := right.(Tuple)
+			if !ok || len(l.items) != len(r.items) {
+				return false
+			}
+			stack = append(stack, open{left: l.items, right: r.items})
+		} else if !left.Equal(right) {
 			return false
 		}
 	}

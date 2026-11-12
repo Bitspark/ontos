@@ -291,7 +291,8 @@ export class Tuple {
 // Tuple's toString as defined above. A child whose toString is anything else, a
 // replacement assigned later included, is called like an override.
 const tupleToString = Tuple.prototype.toString;
-// Tuple's equals as defined above, kept for the same reason.
+// Tuple's equals as defined above. A left child whose equals is anything else, a
+// replacement assigned later included, is asked like an override.
 const tupleEquals = Tuple.prototype.equals;
 
 export function atom(bytes: BytesLike = new Uint8ArrayIntrinsic()): Atom {

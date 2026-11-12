@@ -15,6 +15,7 @@
 
 import {
   ProjectionError,
+  decodeUtf8,
   extend,
   limitMessage,
   pathArray,
@@ -84,7 +85,7 @@ const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /** The decoded content of a string node, as a host string (well-formed: stage 3 refuses lone surrogates). */
 export function textOf(node: JString): string {
-  return decoder.decode(node.bytes);
+  return decodeUtf8(node.bytes);
 }
 
 // --- stage 2: UTF-8 ----------------------------------------------------------------------

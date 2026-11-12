@@ -198,16 +198,17 @@ function describe(value: unknown): string {
  */
 export interface PathLink {
   readonly up: PathLink | null;
-  readonly seg: PathSegment;
+  /** A segment, or a member name as its UTF-8 bytes, decoded only when the path is built. */
+  readonly seg: PathSegment | Uint8Array;
 }
 
-export function extend(up: PathLink | null, seg: PathSegment): PathLink {
+export function extend(up: PathLink | null, seg: PathSegment | Uint8Array): PathLink {
   return { up, seg };
 }
 
 export function pathArray(link: PathLink | null): PathSegment[] {
   const out: PathSegment[] = [];
-  for (let at = link; at !== null; at = at.up) out.push(at.seg);
+  for (let at = link; at !== null; at = at.up) out.push(typeof at.seg === "object" ? decodeUtf8(at.seg) : at.seg);
   return out.reverse();
 }
 
@@ -351,12 +352,33 @@ export function compareBytes(left: Uint8Array, right: Uint8Array): number {
 
 /** A string that two equal byte strings, and only they, share: a Map/Set key. */
 export function bytesKey(bytes: Uint8Array): string {
+  if (bytes.length <= 64) {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 1) out += String.fromCharCode(bytes[i]!);
+    return out;
+  }
   let out = "";
   const CHUNK = 0x2000;
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    out += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
   }
   return out;
+}
+
+const textDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
+
+/** The host string of well-formed UTF-8, with a fast path for short ASCII. */
+export function decodeUtf8(bytes: Uint8Array): string {
+  if (bytes.length <= 32) {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 1) {
+      const b = bytes[i]!;
+      if (b >= 0x80) return textDecoder.decode(bytes);
+      out += String.fromCharCode(b);
+    }
+    return out;
+  }
+  return textDecoder.decode(bytes);
 }
 
 const textEncoder = new TextEncoder();

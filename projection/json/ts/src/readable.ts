@@ -24,7 +24,6 @@ import {
   readList,
   readMap,
   readSet,
-  readText,
   recognizeDecimal,
   recognizeInt,
   recognizeNull,
@@ -179,9 +178,43 @@ const FALSE_VALUE = tuple([L_BOOL, atom([0])]);
 
 /** The window of bare integer literals: ±(2⁵³ − 1), whose magnitude has at most 16 digits. */
 const MAX_SAFE_DIGITS = "9007199254740991";
-const MAX_SAFE = 9007199254740991n;
 
 const textValue = (bytes: Uint8Array): Value => tuple([L_TEXT, atom(bytes)]);
+
+/**
+ * Codec order of two utf8-text keys given as their UTF-8 bytes (§4.8): their encodings share
+ * a prefix and continue with uvarint(length) ‖ bytes, so compare the uvarints, then the bytes.
+ */
+function compareTextKeys(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length) return compareBytes(uvarint(a.length), uvarint(b.length));
+  return compareBytes(a, b);
+}
+
+function uvarint(n: number): Uint8Array {
+  const out: number[] = [];
+  while (n >= 0x80) {
+    out.push((n % 0x80) | 0x80);
+    n = Math.floor(n / 0x80);
+  }
+  out.push(n);
+  return Uint8Array.from(out);
+}
+
+const TEXT_LABEL = utf8("utf8-text");
+
+/**
+ * The payload of a canonical utf8-text (ontos-data §5.2): a tuple of arity 2, the label
+ * utf8-text, and an atom of well-formed UTF-8. Undefined for anything else. The same rule as
+ * @bitspark/ontos-data's readText, checked on the bytes.
+ */
+function textPayload(v: Value): Uint8Array | undefined {
+  if (!(v instanceof Tuple) || v.length !== 2) return undefined;
+  const [label, payload] = v.items() as [Value, Value];
+  if (!(label instanceof Atom) || !(payload instanceof Atom) || label.length !== TEXT_LABEL.length) return undefined;
+  if (compareBytes(label.bytes(), TEXT_LABEL) !== 0) return undefined;
+  const bytes = payload.bytes();
+  return isUtf8(bytes) ? bytes : undefined;
+}
 
 /** Whether `digits` (ASCII, no sign, no leading zero) is at most 2⁵³ − 1. */
 function inWindow(digits: string): boolean {
@@ -207,6 +240,19 @@ function intPayload(text: string): Uint8Array {
   const negative = text.charCodeAt(0) === 0x2d;
   const digits = negative ? text.slice(1) : text;
   if (digits === "0") return Uint8Array.of(0);
+  if (digits.length <= 15) {
+    // Below 10^15 < 2^53, a double holds the integer exactly.
+    let n = Number(digits);
+    let length = 0;
+    for (let m = n; m > 0; m = Math.floor(m / 256)) length += 1;
+    const out = new Uint8Array(1 + length);
+    out[0] = negative ? 1 : 0;
+    for (let i = length; i >= 1; i -= 1) {
+      out[i] = n % 256;
+      n = Math.floor(n / 256);
+    }
+    return out;
+  }
   let hex = BigInt(digits).toString(16);
   if (hex.length % 2 !== 0) hex = "0" + hex;
   const out = new Uint8Array(1 + hex.length / 2);
@@ -389,11 +435,8 @@ function interpret(root: JNode, limits: ResolvedLimits, withOrigins: true | null
     checkAtoms(x, P, longest);
     const children = x.members.map((member): Task => ({ node: member.value, depth: d + 2, path: extend(P, member.name) }));
     return new Frame(children, null, (results) => {
-      const entries = x.members.map((member, i) => {
-        const key = textValue(member.nameBytes);
-        return { member, key, keyBytes: encode(key), result: results[i]! };
-      });
-      entries.sort((a, b) => compareBytes(a.keyBytes, b.keyBytes));
+      const entries = x.members.map((member, i) => ({ member, key: textValue(member.nameBytes), result: results[i]! }));
+      entries.sort((a, b) => compareTextKeys(a.member.nameBytes, b.member.nameBytes));
       return {
         value: tuple([L_MAP, ...entries.map((e) => tuple([e.key, e.result.value]))]),
         origin: own(
@@ -748,7 +791,6 @@ function intParts(v: Tuple): { negative: boolean; magnitude: Uint8Array; payload
 }
 
 const LOG10_256 = 8 * Math.log10(2);
-const keyText = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /**
  * The decimal digits of a magnitude, and its decimal text when the count is within
@@ -760,6 +802,13 @@ function decimalOf(magnitude: Uint8Array, maxDigits: number): { digits: number; 
   // magnitude ≥ 256^(L−1), so it has at least ⌊(L−1)·log10 256⌋ + 1 digits.
   const atLeast = Math.floor((magnitude.length - 1) * LOG10_256 - 1e-9) + 1;
   if (atLeast > maxDigits) return { digits: atLeast, text: "" };
+  if (magnitude.length <= 6) {
+    // Below 2^48, a double holds the integer exactly.
+    let n = 0;
+    for (const b of magnitude) n = n * 256 + b;
+    const text = String(n);
+    return { digits: text.length, text };
+  }
   let hex = "";
   for (const b of magnitude) hex += (b < 16 ? "0" : "") + b.toString(16);
   const text = BigInt("0x" + hex).toString(10);
@@ -769,9 +818,10 @@ function decimalOf(magnitude: Uint8Array, maxDigits: number): { digits: number; 
 /** Whether a canonical int's magnitude lies within the window, so it is spelled as a bare literal. */
 function magnitudeInWindow(magnitude: Uint8Array): boolean {
   if (magnitude.length > 7) return false;
-  let v = 0n;
-  for (const b of magnitude) v = (v << 8n) | BigInt(b);
-  return v <= MAX_SAFE;
+  // A double is exact up to 2^53 − 1, and any larger integer rounds to at least 2^53.
+  let n = 0;
+  for (const b of magnitude) n = n * 256 + b;
+  return n <= Number.MAX_SAFE_INTEGER;
 }
 
 /** The writer's view of a value: which spelling §2.3 chooses. */
@@ -870,8 +920,9 @@ function write(out: Output, root: Value, limits: ResolvedLimits): void {
         continue;
       }
     }
-    if (name === "utf8-text" && recognized(() => readText(v))) {
-      const payload = (items[1] as Atom).bytes();
+    const text = name === "utf8-text" ? textPayload(v) : undefined;
+    if (text !== undefined) {
+      const payload = text;
       check(path, d + 1, 2, -1, Math.max(9, payload.length));
       out.bytes(jsonString(payload), path);
       continue;
@@ -907,14 +958,13 @@ function write(out: Output, root: Value, limits: ResolvedLimits): void {
         // Text keys other than $ontos: an object, members in codec order (the map's own order).
         const keys: Uint8Array[] = [];
         for (const [key] of entries) {
-          if (!(key instanceof Tuple) || !recognized(() => readText(key))) break;
-          const bytes = (key.at(1) as Atom).bytes();
-          if (bytes.length === 6 && bytesKey(bytes) === "$ontos") break;
+          const bytes = textPayload(key);
+          if (bytes === undefined || (bytes.length === 6 && bytesKey(bytes) === "$ontos")) break;
           keys.push(bytes);
         }
         if (keys.length === m) {
           let longest = 3;
-          if (m > 0) longest = Math.max(9, ...keys.map((k) => k.length));
+          if (m > 0) for (const key of keys) longest = Math.max(longest, 9, key.length);
           check(path, m > 0 ? d + 3 : d + 1, arity, -1, longest);
           out.open(OPEN_BRACE, path);
           const steps: Work[] = [];
@@ -923,7 +973,7 @@ function write(out: Output, root: Value, limits: ResolvedLimits): void {
             if (i > 0) steps.push({ k: "text", text: ",", path });
             steps.push({ k: "text", text: jsonString(key), path });
             steps.push({ k: "text", text: ":", path });
-            steps.push({ k: "value", v: value, d: d + 2, path: extend(path, keyText.decode(key)) });
+            steps.push({ k: "value", v: value, d: d + 2, path: extend(path, key) });
           });
           queue([...steps, { k: "close", bracket: CLOSE_BRACE, path }]);
         } else {

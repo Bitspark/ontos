@@ -546,6 +546,9 @@ function collectReadingCases(path) {
       }
       input = Buffer.from(c.bytes, "hex");
     }
+    if (c.chunked !== undefined && typeof c.chunked !== "boolean") {
+      throw new UsageError(`${where}.chunked must be true or false`);
+    }
     const via = c.via ?? ["argv", "stdin"];
     if (!Array.isArray(via) || via.length === 0 || via.some((v) => v !== "argv" && v !== "stdin")) {
       throw new UsageError(`${where}.via must list "argv" and/or "stdin"`);
@@ -562,16 +565,31 @@ function collectReadingCases(path) {
     } else {
       throw new UsageError(`${where}.expect must be {"hex": …} or {"error": <a contract error code>}`);
     }
-    return { name: c.name, source, input, text, sources, expect };
+    return { name: c.name, source, input, text, sources, expect, chunked: c.chunked === true };
   });
 }
 
 // Long output is cut down for a divergence report.
 const shorten = (s) => (s.length > 200 ? `${s.slice(0, 200)}… (${s.length} chars)` : s);
 
+// A "chunked" case's stdin is written 64 KiB at a time with a 2 ms pause between
+// chunks, so the impl reads faster than the pipe fills and meets an empty
+// non-blocking pipe mid-input (the EAGAIN that crashed ts's readFileSync(0)).
+const CHUNK = 1 << 16;
+const CHUNK_PAUSE_MS = 2;
+
+async function writeChunked(stream, input) {
+  for (let off = 0; off < input.length; off += CHUNK) {
+    if (stream.destroyed) return;
+    stream.write(input.subarray(off, off + CHUNK));
+    await new Promise((r) => setTimeout(r, CHUNK_PAUSE_MS));
+  }
+  stream.end();
+}
+
 // Run one impl with `args` after its prefix and `input` on stdin, never through a
 // shell. An argument given as a Buffer goes through the bytes trampoline.
-function runAsync(impl, args, input) {
+function runAsync(impl, args, input, chunked = false) {
   let [program, ...argv] = [...impl.argv, ...args];
   if (argv.some((a) => Buffer.isBuffer(a))) {
     argv = ["-I", "-c", TRAMPOLINE, ...[program, ...argv].map((a) => Buffer.from(a).toString("hex"))];
@@ -588,7 +606,8 @@ function runAsync(impl, args, input) {
       resolveRun({ stdout: Buffer.concat(out).toString("utf8"), status: status ?? `signal ${signal}` }),
     );
     child.stdin.on("error", () => {}); // an impl may exit before reading all of it
-    child.stdin.end(input);
+    if (chunked) writeChunked(child.stdin, input);
+    else child.stdin.end(input);
   });
 }
 
@@ -607,7 +626,10 @@ async function runReadingCase(impls, c) {
     const arg = via === "stdin" ? "-" : c.text ?? c.input;
     const args = ["canon", "--emit", "--format", "json", ...flag, arg];
     const input = via === "stdin" ? c.input : Buffer.alloc(0);
-    const perImpl = await Promise.all(impls.map(async (impl) => ({ impl, ...(await runAsync(impl, args, input)) })));
+    const chunked = via === "stdin" && c.chunked;
+    const perImpl = await Promise.all(
+      impls.map(async (impl) => ({ impl, ...(await runAsync(impl, args, input, chunked)) })),
+    );
     report.push({ via, perImpl });
     if (!perImpl.every((r) => r.stdout === expectedLine && r.status === expectedExit)) {
       divergences.push({
@@ -626,8 +648,8 @@ async function runReadingCase(impls, c) {
     for (const format of ["json", "human"]) {
       const perImpl = await Promise.all(
         impls.map(async (impl) => {
-          const viaJson = await runAsync(impl, ["decode", "--format", format, "--from-json", "-"], c.input);
-          const viaHex = await runAsync(impl, ["decode", "--format", format], Buffer.from(c.expect.hex));
+          const viaJson = await runAsync(impl, ["decode", "--format", format, "--from-json", "-"], c.input, c.chunked);
+          const viaHex = await runAsync(impl, ["decode", "--format", format], Buffer.from(c.expect.hex), c.chunked);
           return { impl, viaJson, viaHex };
         }),
       );

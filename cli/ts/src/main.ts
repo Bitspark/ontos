@@ -462,8 +462,25 @@ function valueFromJsonSource(source: string): Value {
   return authoringValue(readJson(text));
 }
 
-/** Sleeps the thread for a moment while a pipe is not ready (Atomics.wait does not spin). */
+/** Sleeps the thread while a pipe is not ready (Atomics.wait does not spin). */
 const NAP = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * A wait for a pipe that is not ready: 1 ms, doubling to 32 ms while it stays not
+ * ready, back to 1 ms once data moves (`reset`).
+ */
+function backoff(): { wait: () => void; reset: () => void } {
+  let ms = 1;
+  return {
+    wait: () => {
+      Atomics.wait(NAP, 0, 0, ms);
+      ms = Math.min(ms * 2, 32);
+    },
+    reset: () => {
+      ms = 1;
+    },
+  };
+}
 
 /**
  * Write `text` to fd 1 or 2 completely before returning. process.stdout.write is not
@@ -473,14 +490,16 @@ const NAP = new Int32Array(new SharedArrayBuffer(4));
  */
 function writeAll(fd: number, text: string): void {
   const buf = Buffer.from(text, "utf8");
+  const pause = backoff();
   let off = 0;
   while (off < buf.length) {
     try {
       off += writeSync(fd, buf, off, buf.length - off);
+      pause.reset();
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EAGAIN") {
-        Atomics.wait(NAP, 0, 0, 5);
+        pause.wait();
         continue;
       }
       if (code === "EPIPE") return;
@@ -497,19 +516,21 @@ const writeErr = (text: string): void => writeAll(2, text);
  * (both input paths read stdin through here). readFileSync(0) is not used: it throws
  * EAGAIN when stdin is a non-blocking pipe whose writer is slower than this reader
  * and the input is larger than the pipe's buffer. This loop waits for the data
- * instead; Atomics.wait sleeps the thread, so the wait does not spin.
+ * instead, with backoff; Atomics.wait sleeps the thread, so the wait does not spin.
  */
 function readStdinText(): string {
   const chunks: Buffer[] = [];
   const chunk = Buffer.alloc(1 << 16);
+  const pause = backoff();
   for (;;) {
     let n: number;
     try {
       n = readSync(0, chunk, 0, chunk.length, null);
+      pause.reset();
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EAGAIN") {
-        Atomics.wait(NAP, 0, 0, 5);
+        pause.wait();
         continue;
       }
       if (code === "EOF") break; // how Windows reports the end of a pipe

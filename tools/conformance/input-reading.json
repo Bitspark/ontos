@@ -1,5 +1,5 @@
 {
-  "description": "Cases for the conformance harness's --input-reading mode (tools/conformance/README.md): each is an input text and the outcome docs/spec/ontos-cli.md 'Value input' gives it under canon --emit. 'source' is 'json' (the default: the --from-json text) or 'hex' (the hex input). 'text' is the text, either a string or a list of pieces, each a string or a [string, count] pair to repeat; 'bytes' is the text as hex, for input that is not UTF-8. 'via' limits the case to 'argv' or 'stdin' (default: both, argv when the text fits). 'expect' is the canonical hex (in the same piece form) or the error code.",
+  "description": "Cases for the conformance harness's --input-reading mode (tools/conformance/README.md): each is an input text and the outcome docs/spec/ontos-cli.md 'Value input' gives it under canon --emit. 'source' is 'json' (the default: the --from-json text) or 'hex' (the hex input). 'text' is the text, either a string or a list of pieces, each a string or a [string, count] pair to repeat; 'bytes' is the text as hex, for input that is not UTF-8. 'via' limits the case to 'argv' or 'stdin' (default: both, argv when the text fits). 'chunked' writes stdin 64 KiB at a time with a pause between chunks. 'expect' is the canonical hex (in the same piece form) or the error code.",
   "cases": [
     {"name":"trailing ] after the value","text":"{\"atom\":\"00\"}]","expect":{"error":"invalid_json"}},
     {"name":"trailing } after the value","text":"{\"atom\":\"00\"}}","expect":{"error":"invalid_json"}},
@@ -65,8 +65,9 @@
     {"name":"a fault before the 2051st level wins","text":[["[",10],"x",["[",3000]],"expect":{"error":"invalid_json"}},
     {"name":"data after the value comes before any deep bracket","text":["{\"atom\":\"00\"}",["[",3000]],"expect":{"error":"invalid_json"}},
     {"name":"the 2051st level comes before a later fault","text":[["[",2051],"x"],"expect":{"error":"limit_exceeded"}},
-    {"name":"10^5 tuples around an atom (1.2 MB on stdin)","text":[["{\"tuple\":[",100000],"{\"atom\":\"00\"}",["]}",100000]],"expect":{"error":"limit_exceeded"}},
+    {"name":"10^5 tuples around an atom (1.2 MB on stdin)","chunked":true,"text":[["{\"tuple\":[",100000],"{\"atom\":\"00\"}",["]}",100000]],"expect":{"error":"limit_exceeded"}},
     {"name":"10^6 open brackets, never closed (1 MB on stdin)","text":[["[",1000000]],"expect":{"error":"limit_exceeded"}},
-    {"name":"a 1 MiB atom (2 MB in, 2 MB out)","text":["{\"atom\":\"",["ab",1048576],"\"}"],"expect":{"hex":["00808040",["ab",1048576]]}}
+    {"name":"a 1 MiB atom (2 MB in, chunked, and 2 MB out)","chunked":true,"text":["{\"atom\":\"",["ab",1048576],"\"}"],"expect":{"hex":["00808040",["ab",1048576]]}},
+    {"name":"hex input: a 1 MiB atom (2 MB in, chunked, and 2 MB out)","source":"hex","chunked":true,"text":["00808040",["ab",1048576],"\n"],"expect":{"hex":["00808040",["ab",1048576]]}}
   ]
 }

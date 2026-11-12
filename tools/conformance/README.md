@@ -82,9 +82,12 @@ the contract's exit code (`0`; `1` for `limit_exceeded` and decode errors; `2` f
 `invalid_json` and `invalid_hex`). For an accepted `--from-json` text, `decode` of the text
 must also equal `decode` of the expected hex, in each impl and across impls, in both formats:
 the value read is the value its bytes decode to. Node passes arguments only as strings, so
-on POSIX a text that is not UTF-8 reaches argv through a `python3 -I` exec trampoline;
-Windows argv is UTF-16 and cannot hold such bytes, so there those texts run through stdin
-only. `--verbose` prints each case's per-impl outcome.
+on POSIX a text that is not UTF-8 reaches argv through a `python3 -I` exec trampoline.
+A case marked `chunked` writes its stdin 64 KiB at a time with a 2 ms pause between chunks,
+so each impl outruns the pipe and meets it empty mid-input; the large cases (over 1 MB, on
+the hex path and through `--from-json`) are chunked, which is what caught ts failing on
+EAGAIN. Windows argv is UTF-16 and cannot hold a text that is not UTF-8, so there such
+texts run through stdin only. `--verbose` prints each case's per-impl outcome.
 
 *Why a mode with a cases file.* The judgment is an **oracle**, not agreement: a fault all
 four impls shared would pass an agreement check, so each case carries its expected outcome. The cases are data, so a new rule is one more line
@@ -142,7 +145,7 @@ node tools/conformance/run.mjs \
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 67 texts, 129 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 68 texts, 130 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter

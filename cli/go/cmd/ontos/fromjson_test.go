@@ -267,3 +267,47 @@ func TestFromJSONWorksForEveryCommand(t *testing.T) {
 		}
 	})
 }
+
+// nested is n tuples around inner, as authoring JSON.
+func nested(n int, inner string) string {
+	return strings.Repeat(`{"tuple":[`, n) + inner + strings.Repeat("]}", n)
+}
+
+// TestFromJSONReading pins the reading rules (ontos-cli.md "Reading the text"): RFC
+// 8259 text, only JSON whitespace, nothing after the value, member names once, and
+// nesting capped at 1024 tuple levels (limit_exceeded, exit 1).
+func TestFromJSONReading(t *testing.T) {
+	invalid := `{"ok":false,"command":"canon","error":"invalid_json"}` + "\n"
+	for _, in := range []string{
+		`{"atom":"00","atom":"01"}`,
+		`{"atom":"00","\u0061tom":"00"}`,
+		`{"atom":"00"}]`,
+		`{"atom":"00"}}`,
+		"{\"atom\":\"00\"}\f",
+		"\u00a0{\"atom\":\"00\"}",
+		`{"atom":"\ud800"}`,
+		`[NaN]`,
+	} {
+		code, stdout, _ := runCLI([]string{"canon", "--emit", "--format", "json", "--from-json", in}, "")
+		if code != 2 || stdout != invalid {
+			t.Errorf("%q: exit=%d stdout=%q, want 2 %q", in, code, stdout, invalid)
+		}
+	}
+	if code, stdout, _ := runCLI([]string{"canon", "--emit", "--from-json", " \t\r\n{ \"atom\" : \"00\" }\n"}, ""); code != 0 || stdout != "000100\n" {
+		t.Errorf("RFC 8259 whitespace: exit=%d stdout=%q", code, stdout)
+	}
+
+	code, stdout, _ := runCLI([]string{"canon", "--emit", "--from-json", nested(1024, `{"atom":"00"}`)}, "")
+	if want := strings.Repeat("0101", 1024) + "000100\n"; code != 0 || stdout != want {
+		t.Errorf("depth 1024: exit=%d stdout=%.40q…", code, stdout)
+	}
+	code, stdout, _ = runCLI([]string{"canon", "--emit", "--format", "json", "--from-json", "-"}, nested(1025, `{"atom":"00"}`))
+	if want := `{"ok":false,"command":"canon","error":"limit_exceeded"}` + "\n"; code != 1 || stdout != want {
+		t.Errorf("depth 1025: exit=%d stdout=%q, want 1 %q", code, stdout, want)
+	}
+	// A text far deeper is refused at its 2051st bracket, without recursion.
+	code, stdout, _ = runCLI([]string{"canon", "--emit", "--format", "json", "--from-json", "-"}, strings.Repeat("[", 1000000))
+	if code != 1 || !strings.Contains(stdout, "limit_exceeded") {
+		t.Errorf("10^6 brackets: exit=%d stdout=%q", code, stdout)
+	}
+}

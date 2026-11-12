@@ -191,3 +191,34 @@ test("--from-json - reads the authoring JSON from stdin", () => {
   assert.equal(status, 0);
   assert.equal(stdout, '{"ok":true,"command":"canon","hex":"000161"}\n');
 });
+
+/** `n` tuples around `inner`, as authoring JSON. */
+const nested = (n: number, inner: string): string => '{"tuple":['.repeat(n) + inner + "]}".repeat(n);
+
+test("reading refuses what RFC 8259 and the total form refuse (ontos-cli.md 'Reading the text')", () => {
+  const invalid = '{"ok":false,"command":"canon","error":"invalid_json"}\n';
+  for (const input of [
+    '{"atom":"00","atom":"01"}', // a repeated member name
+    '{"atom":"00","\\u0061tom":"00"}', // the same, spelled with an escape
+    '{"atom":"00"}]', // something after the value
+    '{"atom":"00"}}',
+    '{"atom":"00"}\f', // whitespace other than space/tab/LF/CR
+    ' {"atom":"00"}',
+    '{"atom":"\\ud800"}', // a lone surrogate escape
+    "[NaN]",
+  ]) {
+    assert.deepEqual(run(["canon", "--emit", "--format", "json", "--from-json", input]), { stdout: invalid, status: 2 }, input);
+  }
+  assert.deepEqual(run(["canon", "--emit", "--from-json", ' \t\r\n{ "atom" : "00" }\n']), { stdout: "000100\n", status: 0 });
+});
+
+test("reading caps nesting at 1024 tuple levels: limit_exceeded, exit 1, beyond", () => {
+  assert.deepEqual(run(["canon", "--emit", "--from-json", nested(1024, '{"atom":"00"}')]), {
+    stdout: "0101".repeat(1024) + "000100\n",
+    status: 0,
+  });
+  const tooDeep = { stdout: '{"ok":false,"command":"canon","error":"limit_exceeded"}\n', status: 1 };
+  assert.deepEqual(run(["canon", "--emit", "--format", "json", "--from-json", "-"], nested(1025, '{"atom":"00"}')), tooDeep);
+  // Far deeper (1.2 MB on stdin) is refused at the 2051st bracket, with no crash.
+  assert.deepEqual(run(["canon", "--emit", "--format", "json", "--from-json", "-"], nested(100000, '{"atom":"00"}')), tooDeep);
+});

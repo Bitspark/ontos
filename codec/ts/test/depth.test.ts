@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { atom, tuple, Tuple, type Value } from "@bitspark/ontos-core";
+import { atom, equals, tuple, type Value } from "@bitspark/ontos-core";
 import { decode, encode, DecodeError } from "../src/index.ts";
 
 const DEEP = 100_000;
@@ -41,14 +41,8 @@ test("ontos-internal#343: encode writes a 100,000-level value, byte for byte, wi
 
 test("ontos-internal#343: decode reads a 100,000-level value back when maxDepth allows it", () => {
   const v = decode(expectedBytes(DEEP), { maxDepth: DEEP + 1 });
-  let cur: Value = v;
-  let levels = 0;
-  while (cur instanceof Tuple) {
-    assert.equal(cur.length, 1);
-    cur = cur.items()[0]!;
-    levels += 1;
-  }
-  assert.equal(levels, DEEP);
+  // ontos-core's equals walks with an explicit stack, so the decoded value compares directly.
+  assert.equal(equals(v, nested(DEEP)), true);
   assert.deepEqual(encode(v), expectedBytes(DEEP), "decode is encode's inverse on the deep value");
 });
 

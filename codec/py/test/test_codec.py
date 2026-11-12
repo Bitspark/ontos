@@ -164,17 +164,6 @@ def _nested_value(depth):
     return v
 
 
-def _levels(v):
-    """Count the one-element tuple levels without recursing (ontos_core's equals does)."""
-    n = 0
-    while v.is_tuple:
-        assert len(v) == 1
-        v = v.at(0)
-        n += 1
-    assert v.bytes() == b"a"
-    return n
-
-
 class DepthTests(unittest.TestCase):
     """ontos-internal#347: encode and decode walk with an explicit stack, so depth is never bounded by
     Python's recursion limit (1000). ontos-codec.md §4.1 invariant 1: a 1024-deep value is
@@ -184,7 +173,10 @@ class DepthTests(unittest.TestCase):
 
     def test_default_depth_1024_decodes(self):
         v = decode(_nested_bytes(1024))
-        self.assertEqual(_levels(v), 1024)
+        # ontos_core's == and hash() walk with an explicit stack: a decoded value at the
+        # default depth compares, hashes and keys a dict like the one built by hand.
+        self.assertEqual(v, _nested_value(1024))
+        self.assertEqual(hash(v), hash(_nested_value(1024)))
         self.assertEqual(encode(v), _nested_bytes(1024))
 
     def test_depth_1025_is_limit_exceeded_not_recursion_error(self):
@@ -198,7 +190,8 @@ class DepthTests(unittest.TestCase):
     def test_deep_value_decodes_when_the_limit_allows_it(self):
         raw = _nested_bytes(100_000)
         v = decode(raw, max_depth=100_000)
-        self.assertEqual(_levels(v), 100_000)
+        self.assertEqual(v, _nested_value(100_000))
+        self.assertEqual(hash(v), hash(_nested_value(100_000)))
         self.assertEqual(encode(v), raw)
 
     def test_a_decoded_deep_value_renders(self):

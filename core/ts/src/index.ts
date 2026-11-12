@@ -191,13 +191,43 @@ export class Tuple {
     return this.#items[index];
   }
 
+  /**
+   * Walks with an explicit stack of open pairs, never one native frame per nesting level, so
+   * values nested deeper than the call stack still compare: the recursive form threw a
+   * RangeError at 100,000 levels.
+   *
+   * The answer, and the order the children are asked in, are the recursive form's. A pair
+   * whose left child is a tuple with this method is opened in place, after the checks this
+   * method makes of its argument. Any other left child (an Atom, or one whose equals is
+   * overridden) is asked through its own equals, as before.
+   */
   equals(other: Value): boolean {
     if (!(other instanceof Tuple)) return false;
     if (this.#items.length !== other.#items.length) return false;
-    for (let i = 0; i < this.#items.length; i += 1) {
-      const left = this.#items[i];
-      const right = other.#items[i];
-      if (left === undefined || right === undefined || !left.equals(right)) {
+    // The open pairs' children, innermost last, and the index of each pair's next child.
+    const lefts: (readonly Value[])[] = [this.#items];
+    const rights: (readonly Value[])[] = [other.#items];
+    const next: number[] = [0];
+    let depth = 1;
+    while (depth > 0) {
+      const leftItems = lefts[depth - 1]!;
+      const index = next[depth - 1]!;
+      if (index === leftItems.length) {
+        depth -= 1;
+        continue;
+      }
+      next[depth - 1] = index + 1;
+      const left = leftItems[index];
+      const right = rights[depth - 1]![index];
+      if (left === undefined || right === undefined) return false;
+      if (#items in left && left.equals === tupleEquals) {
+        if (!(right instanceof Tuple)) return false;
+        if (left.#items.length !== right.#items.length) return false;
+        lefts[depth] = left.#items;
+        rights[depth] = right.#items;
+        next[depth] = 0;
+        depth += 1;
+      } else if (!left.equals(right)) {
         return false;
       }
     }
@@ -261,6 +291,9 @@ export class Tuple {
 // Tuple's toString as defined above. A child whose toString is anything else, a
 // replacement assigned later included, is called like an override.
 const tupleToString = Tuple.prototype.toString;
+// Tuple's equals as defined above. A left child whose equals is anything else, a
+// replacement assigned later included, is asked like an override.
+const tupleEquals = Tuple.prototype.equals;
 
 export function atom(bytes: BytesLike = new Uint8ArrayIntrinsic()): Atom {
   return new Atom(bytes);

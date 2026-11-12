@@ -1,7 +1,6 @@
 {
   "name": "@bitspark/ontos-json",
-  "version": "0.17.1",
-  "private": true,
+  "version": "0.18.0",
   "license": "Apache-2.0",
   "description": "ontos-total-json/1 and ontos-readable-json/1: the total and the readable JSON projections of ground values, read from UTF-8 bytes with their own strict reader and written deterministically. TypeScript peer of projection/json/{go,rs,py}. Depends on @bitspark/ontos-core, @bitspark/ontos-codec and @bitspark/ontos-data.",
   "type": "module",
@@ -18,15 +17,19 @@
     "LICENSE",
     "NOTICE"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "exports": {
     "./total": "./dist/src/total.js",
     "./readable": "./dist/src/readable.js",
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@bitspark/ontos-core": "^0.17.1",
-    "@bitspark/ontos-codec": "^0.17.1",
-    "@bitspark/ontos-data": "^0.17.1"
+    "@bitspark/ontos-core": "^0.18.0",
+    "@bitspark/ontos-codec": "^0.18.0",
+    "@bitspark/ontos-data": "^0.18.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

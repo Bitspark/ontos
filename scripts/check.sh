@@ -7,7 +7,8 @@
 #   conformance  build the CLIs FRESH, run the harness over all 4 impls
 #                (.github/workflows/ci.yml)
 #   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout + the
-#                limit-policy tests over a fresh-seed corpus (.github/workflows/ci.yml)
+#                limit-policy tests and the JSON projection differential over fresh-seed
+#                corpora (.github/workflows/ci.yml)
 #   vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON
 #                projection vectors' derived fields, assert no drift, and check every JSON
 #                projection vector independently (.github/workflows/ci.yml)
@@ -30,7 +31,7 @@ usage: scripts/check.sh {test|lint|conformance|producer|fuzz|vectors|all}
   lint         check.sh/.ps1 parity, project-name spelling, gofmt+vet (incl. nested modules), cargo fmt+clippy, tsc --noEmit (discovered)
   conformance  build the CLIs fresh, run the conformance harness over all 4 impls (all 4 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
-  fuzz         go native FuzzDecode + FuzzData (FUZZTIME=, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
+  fuzz         go native FuzzDecode + FuzzData (FUZZTIME=, default 25s) + the 4-CLI differential bout + limit-policy tests + the JSON projection differential (FUZZ_JSON_COUNT=, default 2000) on a fresh seed
   vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON projection vectors, assert no drift, check the JSON projection vectors
   all          lint + test + vectors + conformance + producer (fuzz is separate — it is generative)
 EOF
@@ -262,6 +263,29 @@ do_fuzz() {
     python3 codec/py/test/test_limits.py -k LimitPolicy
   )
   rm -f limit-policy-corpus.json
+
+  # The JSON projections' differential fuzz (Bitspark/ontos#33, tools/json-projection/README.md)
+  # over a FRESH corpus. `test` replays the committed vectors in every face; this leg generates
+  # new cases, FUZZ_JSON_COUNT per profile (default 2000), whose every expectation comes from
+  # the oracle, the independent checker tools/json-projection/check.mjs, and replays them
+  # through the same four vector tests, Go at both widths. Same seed rules as above; the
+  # generator prints the seed, and `node tools/json-projection/fuzz.mjs --seed <s> --case
+  # <profile>:<i>` regenerates one case. The tests read the corpus directory that
+  # ONTOS_JSON_PROJECTION_VECTORS names and print that path with their counts. Go's and
+  # TypeScript's line per passing case is filtered out; a failure prints in full. Rust's wasm32
+  # leg needs wasmtime and stays in `test`, on the committed vectors.
+  step "JSON projection differential fuzz over a fresh-seed corpus (oracle check.mjs; go 64/32-bit + rs + ts + py)"
+  node tools/json-projection/fuzz.mjs --seed "${FUZZ_SEED:-fresh}" --count "${FUZZ_JSON_COUNT:-2000}" --out json-projection-corpus
+  (
+    export ONTOS_JSON_PROJECTION_VECTORS="$PWD/json-projection-corpus"
+    quiet='^[[:space:]]*(=== RUN|--- PASS|✔)'
+    go test -count=1 -run '^TestVectors$' -v ./projection/json/go/total ./projection/json/go/readable | grep -vE "$quiet"
+    GOARCH=386 go test -count=1 -run '^TestVectors$' -v ./projection/json/go/total ./projection/json/go/readable | grep -vE "$quiet"
+    cargo test -p bitspark-ontos-json --test vectors --locked -- --nocapture
+    node --test --test-reporter=spec projection/json/ts/test/total.test.ts projection/json/ts/test/readable.test.ts | grep -vE "$quiet"
+    python3 projection/json/py/test/test_vectors.py
+  )
+  rm -rf json-projection-corpus
 }
 
 

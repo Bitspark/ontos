@@ -7,7 +7,8 @@
 #   conformance  build the CLIs FRESH, run the harness over all 4 impls
 #                (.github/workflows/ci.yml)
 #   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout + the
-#                limit-policy tests over a fresh-seed corpus (.github/workflows/ci.yml)
+#                limit-policy tests and the JSON projection differential over fresh-seed
+#                corpora (.github/workflows/ci.yml)
 #   vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON
 #                projection vectors' derived fields, assert no drift, and check every JSON
 #                projection vector independently (.github/workflows/ci.yml)
@@ -70,7 +71,7 @@ usage: scripts/check.ps1 {test|lint|conformance|producer|fuzz|vectors|all}
   lint         check.sh/.ps1 parity, project-name spelling, gofmt+vet (incl. nested modules), cargo fmt+clippy, tsc --noEmit (discovered)
   conformance  build the CLIs fresh, run the conformance harness over all 4 impls (all 4 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
-  fuzz         go native FuzzDecode + FuzzData (`$env:FUZZTIME, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
+  fuzz         go native FuzzDecode + FuzzData (`$env:FUZZTIME, default 25s) + the 4-CLI differential bout + limit-policy tests + the JSON projection differential (`$env:FUZZ_JSON_COUNT, default 2000) on a fresh seed
   vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON projection vectors, assert no drift, check the JSON projection vectors
   all          lint + test + vectors + conformance + producer (fuzz is separate — it is generative)
 "@
@@ -283,6 +284,36 @@ function Invoke-Fuzz {
     Invoke-Checked { python codec/py/test/test_limits.py -k LimitPolicy }
   } finally { $env:ONTOS_LIMIT_POLICY_CORPUS = $prevCorpus }
   Remove-Item -Force -ErrorAction SilentlyContinue limit-policy-corpus.json
+
+  # The JSON projections' differential fuzz (Bitspark/ontos#33, tools/json-projection/README.md)
+  # over a FRESH corpus. `test` replays the committed vectors in every face; this leg generates
+  # new cases, $env:FUZZ_JSON_COUNT per profile (default 2000), whose every expectation comes
+  # from the oracle, the independent checker tools/json-projection/check.mjs, and replays them
+  # through the same four vector tests, Go at both widths. Same seed rules as above; the
+  # generator prints the seed, and `node tools/json-projection/fuzz.mjs --seed <s> --case
+  # <profile>:<i>` regenerates one case. The tests read the corpus directory that
+  # ONTOS_JSON_PROJECTION_VECTORS names and print that path with their counts. Go's and
+  # TypeScript's line per passing case is filtered out; a failure prints in full. Rust's wasm32
+  # leg needs wasmtime and runs in scripts/check.sh's `test` and in CI, on the committed vectors.
+  # Mirrors do_fuzz in scripts/check.sh; keep the two in sync.
+  Step "JSON projection differential fuzz over a fresh-seed corpus (oracle check.mjs; go 64/32-bit + rs + ts + py)"
+  $jpSeed = if ($env:FUZZ_SEED) { $env:FUZZ_SEED } else { "fresh" }
+  $jpCount = if ($env:FUZZ_JSON_COUNT) { $env:FUZZ_JSON_COUNT } else { "2000" }
+  Invoke-Checked { node tools/json-projection/fuzz.mjs --seed $jpSeed --count $jpCount --out json-projection-corpus }
+  $quiet = '^\s*(=== RUN|--- PASS|\u2714)'
+  $prevVectors = $env:ONTOS_JSON_PROJECTION_VECTORS
+  $env:ONTOS_JSON_PROJECTION_VECTORS = Join-Path (Get-Location) 'json-projection-corpus'
+  try {
+    Invoke-Checked { go test -count=1 -run '^TestVectors$' -v ./projection/json/go/total ./projection/json/go/readable | Where-Object { $_ -notmatch $quiet } }
+    $prevGoarch = $env:GOARCH; $env:GOARCH = '386'
+    try {
+      Invoke-Checked { go test -count=1 -run '^TestVectors$' -v ./projection/json/go/total ./projection/json/go/readable | Where-Object { $_ -notmatch $quiet } }
+    } finally { $env:GOARCH = $prevGoarch }
+    Invoke-Checked { cargo test -p bitspark-ontos-json --test vectors --locked -- --nocapture }
+    Invoke-Checked { node --test --test-reporter=spec projection/json/ts/test/total.test.ts projection/json/ts/test/readable.test.ts | Where-Object { $_ -notmatch $quiet } }
+    Invoke-Checked { python projection/json/py/test/test_vectors.py }
+  } finally { $env:ONTOS_JSON_PROJECTION_VECTORS = $prevVectors }
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue json-projection-corpus
 }
 
 function Invoke-Vectors {

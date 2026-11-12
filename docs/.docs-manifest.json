@@ -447,6 +447,14 @@
       "typescript-copybytes-reads-the-callers-bytes-once",
       "upgrade-together"
     ],
+    "docs/releases/v0.17.1.md": [
+      "ontos-v0171",
+      "typescript-copybytes-and-atom-keep-their-contract",
+      "rust-unbounded-decimals-at-the-byte-level",
+      "the-command-line-tools-read-input-the-same-way",
+      "also-in-this-release",
+      "upgrade"
+    ],
     "docs/spec/ontos-cli.md": [
       "ontos-cli--the-ontos-cli-contract",
       "tri-core-no-favored-language",

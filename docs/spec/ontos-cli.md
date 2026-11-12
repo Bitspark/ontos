@@ -102,7 +102,9 @@ sentinel** — `-` still names a bytes source (stdin), so combining it with `--f
 (its own source) is equally ambiguous and is rejected by every implementation. Malformed JSON,
 or JSON that is not the authoring shape — not exactly one of `atom`/`tuple`, an
 `atom` that is not even-length lowercase hex, a non-array `tuple` — is the stable
-`invalid_json` error (exit `2`).
+`invalid_json` error (exit `2`). A text nested deeper than any value the default decoder
+accepts is `limit_exceeded` (exit `1`). [Reading the text](#reading-the-text) says exactly
+which texts are which.
 
 The intended use is **author → canonical bytes**:
 
@@ -116,6 +118,51 @@ ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'
 `canon --check --from-json` is **always** canonical (the value was built, not
 decoded). It is **authoring/debugging only** — the JSON text is not a value to
 store, sign, or exchange; only the emitted bytes are.
+
+### Reading the text
+
+All four implementations read a `--from-json` text the same way, in two stages.
+
+**1. The text.** It must be exactly one JSON value as RFC 8259 defines it:
+
+- **Whitespace** is space, tab, LF and CR (RFC 8259 §2), and nothing else. A form feed,
+  a vertical tab, NBSP, U+2028, a byte-order mark or any other Unicode space is a fault
+  wherever it appears, before and after the value included.
+- **Nothing follows the value** but that whitespace: `{"atom":"00"}]` is `invalid_json`.
+- **Escapes** are decoded as RFC 8259 §7 defines them. A `\u` escape of a surrogate must
+  be a high surrogate followed at once by a `\u` escape of a low one; a lone surrogate is
+  a fault.
+- **A member name occurs once** in its object, compared after escapes are decoded:
+  `{"atom":"00","\u0061tom":"00"}` repeats `atom` and is `invalid_json`. This is the
+  total form's rule ([design record 0010](../design/0010-json-projections.md) row 13,
+  after [consultation 0001](../consults/0001-reversible-json-projection.md)).
+- **Number tokens are read for grammar only**, so a number of any length is read: no
+  number is ever part of a value. `NaN` and `Infinity` are not JSON.
+- **Nesting is capped at 2050** open arrays and objects. The deepest value the codec's
+  default decoder accepts is nested 1024 deep, with the root at depth 0
+  ([ontos-codec.md §4.1](ontos-codec.md)); when its deepest value is an empty tuple, its
+  1025 tuples take two levels each (`{"tuple":[`), 2·1024 + 2 = 2050. A 2051st level is
+  **`limit_exceeded`**, exit `1`, as a decode limit is. So no implementation builds a
+  value its own default decoder would refuse, and a text a million levels deep is
+  refused at its 2051st bracket.
+- **Bytes that are not UTF-8** are read as U+FFFD, from stdin and from an argument alike.
+  The rule can't be stricter, because Node decodes argv that way before the `ts`
+  implementation sees it. U+FFFD is never hex and never part of a member name, so such
+  a text is always refused (`invalid_json`, or `limit_exceeded` when the cap comes
+  first), and the outcome never depends on how many U+FFFD a decoder produces.
+
+The text is read from left to right, and its **first fault ends the reading**: a 2051st
+level is `limit_exceeded`, any other fault is `invalid_json`. So a plain array 3000 deep
+is `limit_exceeded`, not `invalid_json`, while `[[x` followed by 3000 brackets is
+`invalid_json`.
+
+**2. The shape.** Only then is the JSON value checked against the authoring notation:
+every object has exactly one member, `atom` (an even-length lowercase-hex string) or
+`tuple` (an array of values). Any other shape is `invalid_json`.
+
+The conformance harness's reading mode
+([tools/conformance/README.md](../../tools/conformance/README.md)) holds each rule above
+to cases, in all four implementations, through argv and through stdin.
 
 ## Commands (v1)
 
@@ -222,8 +269,8 @@ recognized: none
 | code | meaning |
 |---|---|
 | `0` | success — decoded / canonical / recognized |
-| `1` | a well-formed **negative** result — decode failed, not canonical, or not recognized (the tool ran; the answer is "no") |
-| `2` | usage error — bad flags, non-hex input, or missing input (the tool could not run) |
+| `1` | a well-formed **negative** result — decode failed, not canonical, or not recognized (the tool ran; the answer is "no"); also a `--from-json` text nested past the cap (`limit_exceeded`) |
+| `2` | usage error — bad flags, non-hex input, a malformed `--from-json` text (`invalid_json`), or missing input (the tool could not run) |
 
 The `0` / `1` split makes the tool scriptable: `ontos canon --check <hex> && echo OK`.
 

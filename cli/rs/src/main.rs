@@ -22,6 +22,7 @@
 //! differential harness can diff it byte-for-byte against the `go`/`ts` builds.
 //! See `docs/spec/ontos-cli.md`.
 
+use std::collections::HashMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
@@ -82,7 +83,14 @@ enum Parsed {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `args_os`, not `args`: `args` panics on an argument that is not Unicode. Such an
+    // argument is read with U+FFFD in place of each bad sequence, as Node reads argv
+    // (docs/spec/ontos-cli.md "Value input"): it then fails as hex, as a flag, or as
+    // JSON exactly where U+FFFD would.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     match parse_args(&args) {
         Parsed::PrintAndExit { text } => {
             println!("{text}");
@@ -605,11 +613,17 @@ fn resolve_value_with_input(
                 return Err(ExitCode::from(2));
             }
         };
-        // Parse + structurally validate the authoring notation. Any malformed input
-        // is the stable `invalid_json` error (exit 2).
+        // Read the text, then check the authoring shape (two stages, below).
         let value = match parse_authoring(&text) {
             Ok(value) => value,
-            Err(()) => return Err(decode_error(command, "invalid_json", format, 2)),
+            // Deeper than any value the default decoder accepts: `limit_exceeded`,
+            // exit 1, exactly as a decode limit (ontos-cli.md "Value input").
+            Err(JsonFault::TooDeep) => {
+                return Err(decode_error(command, "limit_exceeded", format, 1))
+            }
+            Err(JsonFault::Malformed) => {
+                return Err(decode_error(command, "invalid_json", format, 2))
+            }
         };
         // The value was built, not decoded, so its canonical encoding is the input.
         let bytes = encode(&value);
@@ -669,12 +683,19 @@ fn read_stdin() -> Result<String, String> {
 }
 
 /// Resolve the `--from-json` source text: the literal argument, or stdin when it is
-/// `-`. Surrounding whitespace is stripped (mirroring the hex path).
+/// `-`. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
 fn resolve_json_text(src: String) -> Result<String, String> {
     if src == "-" {
-        read_stdin()
+        // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
+        // U+FFFD is never hex and never part of a member name, so such text is
+        // always refused.
+        let mut buf = Vec::new();
+        io::stdin()
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("failed to read stdin: {e}"))?;
+        Ok(String::from_utf8_lossy(&buf).into_owned())
     } else {
-        Ok(src.trim().to_string())
+        Ok(src)
     }
 }
 
@@ -715,182 +736,273 @@ fn decode_error(command: &str, error: &str, format: Format, code: u8) -> ExitCod
 
 // ----- `--from-json`: authoring notation -> core `Value` ---------------------
 //
-// The exact inverse of `push_authoring_json`. Parsing is two stages, mirroring the
-// `go` (encoding/json) and `ts` (JSON.parse) peers so all three share one structural
-// validation and agree on `invalid_json` even where their raw tokenizers differ on
-// exotic syntax:
-//   (1) a hand-rolled, dependency-free JSON tokenizer -> a generic `JsonValue`
-//       (no serde, like the hand-rolled JSON *output* already here);
-//   (2) structural validation of that tree into the authoring shape
-//       (`{atom}` | `{tuple}`) -> a core `Value`.
-// Any failure in either stage is the single stable `invalid_json` result (`Err(())`).
+// The exact inverse of `push_authoring_json`, read in two stages the same way in
+// all four CLIs (docs/spec/ontos-cli.md "Value input"):
+//   (1) `read_json`: the text as RFC 8259 JSON, left to right and without
+//       recursion — only space/tab/LF/CR as whitespace, nothing after the value,
+//       escapes decoded, lone-surrogate escapes and repeated member names refused,
+//       and at most `JSON_NESTING_CAP` open arrays and objects. The first fault ends
+//       the reading: a 2051st level is `limit_exceeded`, anything else `invalid_json`.
+//   (2) `authoring_value`: the JSON value checked against the authoring shape
+//       (`{atom}` | `{tuple}`) and built into a core `Value`, again without
+//       recursion.
+// Dependency-free, like the hand-rolled JSON *output* here (no serde). This reader
+// is interim: a later task moves the CLIs onto a library reader.
 
-/// A generic JSON value, the output of the stage-(1) tokenizer. Numbers are kept as
-/// their source slice (never needed numerically — they are only ever rejected).
-enum JsonValue {
-    Null,
-    Bool,
-    Number,
-    String(String),
-    Array(Vec<JsonValue>),
-    Object(Vec<(String, JsonValue)>),
+/// The most arrays and objects the text may have open at once: 2·1024 + 2. The
+/// deepest value the codec's default decoder accepts is nested 1024 deep (root at
+/// depth 0, ontos-codec.md §4.1); when that deepest value is an empty tuple, its
+/// 1025 tuples take two levels each (`{"tuple":[`). Anything deeper in an authoring
+/// text is a value the decoder would refuse.
+const JSON_NESTING_CAP: usize = 2 * 1024 + 2;
+
+/// Why the text was refused: a 2051st nesting level, or any other fault.
+#[derive(Debug, PartialEq, Eq)]
+enum JsonFault {
+    /// `limit_exceeded` (exit 1).
+    TooDeep,
+    /// `invalid_json` (exit 2).
+    Malformed,
 }
 
-/// A dependency-free recursive-descent JSON tokenizer. Accepts the JSON grammar
-/// (RFC 8259) strictly enough that malformed input is rejected; the *shape* is then
-/// checked in stage (2). Returns `Err(())` on any syntax error.
-struct JsonParser<'a> {
+/// A generic JSON value, the output of stage (1). Numbers, `true`, `false` and
+/// `null` are only ever refused by stage (2), so they share one variant. An
+/// object maps each member name (which occurs once) to its value.
+enum JsonValue {
+    Scalar,
+    String(String),
+    Array(Vec<JsonValue>),
+    Object(HashMap<String, JsonValue>),
+}
+
+/// Drop without recursion: a 2050-deep tree would otherwise take one drop frame
+/// per level, more than a 1 MB main-thread stack (the Windows default) holds in a
+/// debug build.
+impl Drop for JsonValue {
+    fn drop(&mut self) {
+        let mut pending: Vec<JsonValue> = Vec::new();
+        take_children(self, &mut pending);
+        while let Some(mut node) = pending.pop() {
+            take_children(&mut node, &mut pending);
+        }
+    }
+}
+
+/// Move `node`'s children (if any) onto `pending`, leaving it childless.
+fn take_children(node: &mut JsonValue, pending: &mut Vec<JsonValue>) {
+    match node {
+        JsonValue::Array(items) => pending.append(items),
+        JsonValue::Object(members) => pending.extend(members.drain().map(|(_, v)| v)),
+        JsonValue::Scalar | JsonValue::String(_) => {}
+    }
+}
+
+/// An open array or object while stage (1) reads: for an object, the member name
+/// the next value belongs to.
+enum Open {
+    Array(Vec<JsonValue>),
+    Object(HashMap<String, JsonValue>, String),
+}
+
+/// Stage (1)'s cursor over the text.
+struct JsonReader<'a> {
     bytes: &'a [u8],
     pos: usize,
 }
 
-impl<'a> JsonParser<'a> {
-    fn new(text: &'a str) -> Self {
-        JsonParser {
-            bytes: text.as_bytes(),
-            pos: 0,
-        }
-    }
+/// Stage (1): read the whole text as one JSON value. Returns `TooDeep` for a 2051st
+/// nesting level and `Malformed` for any other fault, whichever comes first.
+fn read_json(text: &str) -> Result<JsonValue, JsonFault> {
+    let mut r = JsonReader {
+        bytes: text.as_bytes(),
+        pos: 0,
+    };
+    let mut stack: Vec<Open> = Vec::new();
+    r.ws();
+    loop {
+        // A value starts at the cursor.
+        let mut value = match r.peek() {
+            Some(c @ (b'{' | b'[')) => {
+                if stack.len() == JSON_NESTING_CAP {
+                    return Err(JsonFault::TooDeep);
+                }
+                r.pos += 1;
+                r.ws();
+                if c == b'[' {
+                    if r.peek() == Some(b']') {
+                        r.pos += 1;
+                        JsonValue::Array(Vec::new())
+                    } else {
+                        stack.push(Open::Array(Vec::new()));
+                        r.ws();
+                        continue;
+                    }
+                } else if r.peek() == Some(b'}') {
+                    r.pos += 1;
+                    JsonValue::Object(HashMap::new())
+                } else {
+                    let key = r.member_name()?;
+                    stack.push(Open::Object(HashMap::new(), key));
+                    r.ws();
+                    continue;
+                }
+            }
+            Some(b'"') => JsonValue::String(r.string()?),
+            Some(b't') => r.literal(b"true")?,
+            Some(b'f') => r.literal(b"false")?,
+            Some(b'n') => r.literal(b"null")?,
+            Some(b'-' | b'0'..=b'9') => r.number()?,
+            _ => return Err(JsonFault::Malformed),
+        };
 
-    /// Parse a whole document: one value, then only trailing whitespace.
-    fn parse_document(&mut self) -> Result<JsonValue, ()> {
-        self.skip_ws();
-        let value = self.parse_value()?;
-        self.skip_ws();
-        if self.pos != self.bytes.len() {
-            return Err(()); // trailing junk after the value
-        }
-        Ok(value)
-    }
-
-    fn skip_ws(&mut self) {
-        while let Some(&b) = self.bytes.get(self.pos) {
-            // JSON insignificant whitespace: space, tab, LF, CR.
-            if matches!(b, b' ' | b'\t' | b'\n' | b'\r') {
-                self.pos += 1;
-            } else {
-                break;
+        // `value` is complete: hand it to the innermost open container, closing
+        // each container whose end follows.
+        loop {
+            let Some(top) = stack.last_mut() else {
+                r.ws();
+                if r.pos != r.bytes.len() {
+                    return Err(JsonFault::Malformed); // data after the value
+                }
+                return Ok(value);
+            };
+            match top {
+                Open::Array(items) => items.push(value),
+                Open::Object(members, key) => {
+                    members.insert(std::mem::take(key), value);
+                }
+            }
+            r.ws();
+            match (r.peek(), &mut *top) {
+                (Some(b','), Open::Array(_)) => {
+                    r.pos += 1;
+                    r.ws();
+                    break;
+                }
+                (Some(b','), Open::Object(members, key)) => {
+                    r.pos += 1;
+                    let name = r.member_name()?;
+                    if members.contains_key(&name) {
+                        return Err(JsonFault::Malformed); // a repeated member name
+                    }
+                    *key = name;
+                    r.ws();
+                    break;
+                }
+                (Some(b']'), Open::Array(_)) | (Some(b'}'), Open::Object(..)) => {
+                    r.pos += 1;
+                    value = match stack.pop() {
+                        Some(Open::Array(items)) => JsonValue::Array(items),
+                        Some(Open::Object(members, _)) => JsonValue::Object(members),
+                        None => unreachable!("the stack held `top`"),
+                    };
+                }
+                _ => return Err(JsonFault::Malformed),
             }
         }
     }
+}
 
+impl JsonReader<'_> {
     fn peek(&self) -> Option<u8> {
         self.bytes.get(self.pos).copied()
     }
 
-    /// Consume an exact ASCII literal (`true`/`false`/`null`) or fail.
-    fn eat_literal(&mut self, lit: &[u8]) -> Result<(), ()> {
-        if self.bytes[self.pos..].starts_with(lit) {
-            self.pos += lit.len();
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-
-    fn parse_value(&mut self) -> Result<JsonValue, ()> {
-        self.skip_ws();
-        match self.peek().ok_or(())? {
-            b'{' => self.parse_object(),
-            b'[' => self.parse_array(),
-            b'"' => Ok(JsonValue::String(self.parse_string()?)),
-            b't' => {
-                self.eat_literal(b"true")?;
-                Ok(JsonValue::Bool)
-            }
-            b'f' => {
-                self.eat_literal(b"false")?;
-                Ok(JsonValue::Bool)
-            }
-            b'n' => {
-                self.eat_literal(b"null")?;
-                Ok(JsonValue::Null)
-            }
-            b'-' | b'0'..=b'9' => self.parse_number(),
-            _ => Err(()),
-        }
-    }
-
-    fn parse_object(&mut self) -> Result<JsonValue, ()> {
-        self.pos += 1; // consume '{'
-        let mut entries: Vec<(String, JsonValue)> = Vec::new();
-        self.skip_ws();
-        if self.peek() == Some(b'}') {
+    /// Skip RFC 8259 whitespace: space, tab, LF and CR, nothing else.
+    fn ws(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
             self.pos += 1;
-            return Ok(JsonValue::Object(entries));
-        }
-        loop {
-            self.skip_ws();
-            if self.peek() != Some(b'"') {
-                return Err(()); // a key must be a string
-            }
-            let key = self.parse_string()?;
-            self.skip_ws();
-            if self.peek() != Some(b':') {
-                return Err(());
-            }
-            self.pos += 1; // ':'
-            let value = self.parse_value()?;
-            entries.push((key, value));
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.pos += 1;
-                    continue;
-                }
-                Some(b'}') => {
-                    self.pos += 1;
-                    return Ok(JsonValue::Object(entries));
-                }
-                _ => return Err(()),
-            }
         }
     }
 
-    fn parse_array(&mut self) -> Result<JsonValue, ()> {
-        self.pos += 1; // consume '['
-        let mut items: Vec<JsonValue> = Vec::new();
-        self.skip_ws();
-        if self.peek() == Some(b']') {
+    /// Read `"name" :` (with whitespace around) and return the name. The caller
+    /// refuses a name its object already has, compared after escapes are decoded.
+    fn member_name(&mut self) -> Result<String, JsonFault> {
+        self.ws();
+        if self.peek() != Some(b'"') {
+            return Err(JsonFault::Malformed);
+        }
+        let name = self.string()?;
+        self.ws();
+        if self.peek() != Some(b':') {
+            return Err(JsonFault::Malformed);
+        }
+        self.pos += 1;
+        Ok(name)
+    }
+
+    /// Read exactly the keyword `word` (`true`/`false`/`null`).
+    fn literal(&mut self, word: &[u8]) -> Result<JsonValue, JsonFault> {
+        if !self.bytes[self.pos..].starts_with(word) {
+            return Err(JsonFault::Malformed);
+        }
+        self.pos += word.len();
+        Ok(JsonValue::Scalar)
+    }
+
+    /// Check the RFC 8259 number grammar. The value is never used, so a number of
+    /// any length is fine.
+    fn number(&mut self) -> Result<JsonValue, JsonFault> {
+        if self.peek() == Some(b'-') {
             self.pos += 1;
-            return Ok(JsonValue::Array(items));
         }
-        loop {
-            let item = self.parse_value()?;
-            items.push(item);
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.pos += 1;
-                    continue;
-                }
-                Some(b']') => {
-                    self.pos += 1;
-                    return Ok(JsonValue::Array(items));
-                }
-                _ => return Err(()),
+        match self.peek() {
+            Some(b'0') => self.pos += 1,
+            Some(b'1'..=b'9') => self.digits(),
+            _ => return Err(JsonFault::Malformed),
+        }
+        if self.peek() == Some(b'.') {
+            self.pos += 1;
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(JsonFault::Malformed);
             }
+            self.digits();
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.pos += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.pos += 1;
+            }
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(JsonFault::Malformed);
+            }
+            self.digits();
+        }
+        Ok(JsonValue::Scalar)
+    }
+
+    fn digits(&mut self) {
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
+            self.pos += 1;
         }
     }
 
-    /// Parse a JSON string (the leading `"` is at `self.pos`). Honors the standard
-    /// escapes including `\uXXXX` (and surrogate pairs). The decoded text is kept so
-    /// stage (2) can validate an `atom`'s hex; control characters are rejected.
-    fn parse_string(&mut self) -> Result<String, ()> {
-        self.pos += 1; // opening quote
+    /// Read a string (the cursor is on its opening quote) and return its decoded
+    /// text. A control character must be escaped; a `\u` escape of a surrogate must
+    /// be a high one followed at once by an escaped low one.
+    fn string(&mut self) -> Result<String, JsonFault> {
+        self.pos += 1;
         let mut out = String::new();
         loop {
-            let b = *self.bytes.get(self.pos).ok_or(())?;
-            match b {
-                b'"' => {
+            let start = self.pos;
+            // Copy a run of plain characters at once. The text is valid UTF-8 and the
+            // run ends at an ASCII byte, so the slice is on character boundaries.
+            while matches!(self.peek(), Some(c) if c >= 0x20 && c != b'"' && c != b'\\') {
+                self.pos += 1;
+            }
+            out.push_str(
+                std::str::from_utf8(&self.bytes[start..self.pos])
+                    .map_err(|_| JsonFault::Malformed)?,
+            );
+            match self.peek() {
+                Some(b'"') => {
                     self.pos += 1;
                     return Ok(out);
                 }
-                b'\\' => {
+                Some(b'\\') => {
                     self.pos += 1;
-                    let esc = *self.bytes.get(self.pos).ok_or(())?;
+                    let escape = self.peek().ok_or(JsonFault::Malformed)?;
                     self.pos += 1;
-                    match esc {
+                    match escape {
                         b'"' => out.push('"'),
                         b'\\' => out.push('\\'),
                         b'/' => out.push('/'),
@@ -899,163 +1011,122 @@ impl<'a> JsonParser<'a> {
                         b'n' => out.push('\n'),
                         b'r' => out.push('\r'),
                         b't' => out.push('\t'),
-                        b'u' => out.push(self.parse_unicode_escape()?),
-                        _ => return Err(()),
+                        b'u' => out.push(self.unicode_escape()?),
+                        _ => return Err(JsonFault::Malformed),
                     }
                 }
-                // Unescaped control characters are not allowed in JSON strings.
-                0x00..=0x1f => return Err(()),
-                _ => {
-                    // Copy one UTF-8 code point verbatim (the source is valid UTF-8).
-                    let ch = self.next_utf8_char()?;
-                    out.push(ch);
+                // The end of the text, or an unescaped control character.
+                _ => return Err(JsonFault::Malformed),
+            }
+        }
+    }
+
+    /// Decode the `XXXX` of a `\uXXXX` escape (the `\u` is consumed), and the low
+    /// half of a surrogate pair when the first is a high surrogate.
+    fn unicode_escape(&mut self) -> Result<char, JsonFault> {
+        let first = self.hex4()?;
+        let code = match first {
+            0xd800..=0xdbff => {
+                if !self.bytes[self.pos..].starts_with(b"\\u") {
+                    return Err(JsonFault::Malformed); // lone high surrogate
                 }
+                self.pos += 2;
+                let second = self.hex4()?;
+                if !(0xdc00..=0xdfff).contains(&second) {
+                    return Err(JsonFault::Malformed); // lone high surrogate
+                }
+                0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00)
             }
-        }
+            0xdc00..=0xdfff => return Err(JsonFault::Malformed), // lone low surrogate
+            _ => first,
+        };
+        char::from_u32(code).ok_or(JsonFault::Malformed)
     }
 
-    /// Decode a `\uXXXX` escape (the `\u` is already consumed), combining a
-    /// high+low surrogate pair when present.
-    fn parse_unicode_escape(&mut self) -> Result<char, ()> {
-        let first = self.read_hex4()?;
-        if (0xd800..=0xdbff).contains(&first) {
-            // High surrogate: must be followed by `\uXXXX` low surrogate.
-            if self.bytes.get(self.pos) != Some(&b'\\')
-                || self.bytes.get(self.pos + 1) != Some(&b'u')
-            {
-                return Err(());
-            }
-            self.pos += 2;
-            let second = self.read_hex4()?;
-            if !(0xdc00..=0xdfff).contains(&second) {
-                return Err(());
-            }
-            let cp = 0x10000 + ((first - 0xd800) << 10) + (second - 0xdc00);
-            char::from_u32(cp).ok_or(())
-        } else if (0xdc00..=0xdfff).contains(&first) {
-            Err(()) // lone low surrogate
-        } else {
-            char::from_u32(first).ok_or(())
-        }
-    }
-
-    /// Read exactly four hex digits as a u32.
-    fn read_hex4(&mut self) -> Result<u32, ()> {
+    /// Read four hex digits, either case.
+    fn hex4(&mut self) -> Result<u32, JsonFault> {
         let mut value = 0u32;
         for _ in 0..4 {
-            let c = *self.bytes.get(self.pos).ok_or(())?;
-            let digit = match c {
-                b'0'..=b'9' => c - b'0',
-                b'a'..=b'f' => c - b'a' + 10,
-                b'A'..=b'F' => c - b'A' + 10,
-                _ => return Err(()),
+            let digit = match self.peek() {
+                Some(c @ b'0'..=b'9') => c - b'0',
+                Some(c @ b'a'..=b'f') => c - b'a' + 10,
+                Some(c @ b'A'..=b'F') => c - b'A' + 10,
+                _ => return Err(JsonFault::Malformed),
             };
             value = value * 16 + u32::from(digit);
             self.pos += 1;
         }
         Ok(value)
     }
+}
 
-    /// Consume one UTF-8 scalar at `self.pos` (source is guaranteed valid UTF-8).
-    fn next_utf8_char(&mut self) -> Result<char, ()> {
-        let rest = std::str::from_utf8(&self.bytes[self.pos..]).map_err(|_| ())?;
-        let ch = rest.chars().next().ok_or(())?;
-        self.pos += ch.len_utf8();
-        Ok(ch)
-    }
+/// Read the `--from-json` authoring notation into a core `Value`: stage (1), then
+/// stage (2). A shape fault is `Malformed` (`invalid_json`).
+fn parse_authoring(text: &str) -> Result<Value, JsonFault> {
+    let json = read_json(text)?;
+    authoring_value(&json).ok_or(JsonFault::Malformed)
+}
 
-    /// Parse and validate a JSON number's syntax, discarding the value (it is only
-    /// ever rejected by stage (2)).
-    fn parse_number(&mut self) -> Result<JsonValue, ()> {
-        let start = self.pos;
-        if self.peek() == Some(b'-') {
-            self.pos += 1;
-        }
-        match self.peek() {
-            Some(b'0') => self.pos += 1,
-            Some(b'1'..=b'9') => {
-                while matches!(self.peek(), Some(b'0'..=b'9')) {
-                    self.pos += 1;
+/// What one authoring node is: an atom's value, or a tuple's children to walk.
+enum Authoring<'a> {
+    Atom(Value),
+    Tuple(&'a [JsonValue]),
+}
+
+/// Stage (2): check a JSON value against the authoring notation and build the core
+/// `Value`, walking the tree with an explicit stack. `None` for any other shape.
+///
+/// A value is a JSON object with EXACTLY ONE member, `atom` or `tuple` (stage (1)
+/// has already refused a repeated name). `atom` is an even-length lowercase-hex
+/// string; `tuple` is an array of values.
+fn authoring_value(root: &JsonValue) -> Option<Value> {
+    let children = match authoring_node(root)? {
+        Authoring::Atom(value) => return Some(value),
+        Authoring::Tuple(children) => children,
+    };
+    // Each open tuple: the children still to check, and those built so far.
+    let mut stack: Vec<(std::slice::Iter<'_, JsonValue>, Vec<Value>)> =
+        vec![(children.iter(), Vec::with_capacity(children.len()))];
+    loop {
+        let (rest, _) = stack.last_mut()?;
+        match rest.next() {
+            Some(child) => match authoring_node(child)? {
+                Authoring::Atom(value) => stack.last_mut()?.1.push(value),
+                Authoring::Tuple(children) => {
+                    stack.push((children.iter(), Vec::with_capacity(children.len())));
+                }
+            },
+            None => {
+                let (_, built) = stack.pop()?;
+                let tuple = Value::tuple(built);
+                match stack.last_mut() {
+                    Some((_, parent)) => parent.push(tuple),
+                    None => return Some(tuple),
                 }
             }
-            _ => return Err(()),
         }
-        if self.peek() == Some(b'.') {
-            self.pos += 1;
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(());
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.pos += 1;
-            }
-        }
-        if matches!(self.peek(), Some(b'e' | b'E')) {
-            self.pos += 1;
-            if matches!(self.peek(), Some(b'+' | b'-')) {
-                self.pos += 1;
-            }
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
-                return Err(());
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.pos += 1;
-            }
-        }
-        let _ = start;
-        Ok(JsonValue::Number)
     }
 }
 
-/// Parse the `--from-json` authoring notation into a core `Value`, or `Err(())` for
-/// the stable `invalid_json` result. Stage (1) tokenizes; stage (2) validates shape.
-fn parse_authoring(text: &str) -> Result<Value, ()> {
-    let json = JsonParser::new(text).parse_document()?;
-    validate_authoring(&json)
-}
-
-/// Stage (2): structurally validate a parsed `JsonValue` into a core `Value`.
-///
-/// A value is a JSON object with EXACTLY ONE of `atom` or `tuple` (no extra keys,
-/// neither/both rejected). `atom` is an even-length lowercase-hex string; `tuple`
-/// is an array of values (recursively). Any deviation is `Err(())`.
-fn validate_authoring(node: &JsonValue) -> Result<Value, ()> {
-    let JsonValue::Object(entries) = node else {
-        return Err(()); // a value must be an object
+/// Check one authoring node.
+fn authoring_node(node: &JsonValue) -> Option<Authoring<'_>> {
+    let JsonValue::Object(members) = node else {
+        return None; // a value must be an object
     };
-    // Duplicate keys resolve last-value-wins, matching `encoding/json` (Go) and
-    // `JSON.parse` (TS) so all three cores agree byte-for-byte on every input. After
-    // that collapse the object must have EXACTLY ONE distinct key, `atom` or `tuple`
-    // (`atom`+`tuple`, or any extra/other key, are two distinct keys -> rejected).
-    let mut distinct: Vec<(&String, &JsonValue)> = Vec::new();
-    for (k, v) in entries {
-        match distinct.iter_mut().find(|(dk, _)| *dk == k) {
-            Some(slot) => slot.1 = v,
-            None => distinct.push((k, v)),
-        }
+    if members.len() != 1 {
+        return None; // exactly one member, `atom` or `tuple`
     }
-    if distinct.len() != 1 {
-        return Err(());
+    if let Some(atom) = members.get("atom") {
+        let JsonValue::String(hex) = atom else {
+            return None; // atom payload must be a string
+        };
+        return parse_lower_hex(hex)
+            .ok()
+            .map(|bytes| Authoring::Atom(Value::atom(bytes)));
     }
-    let (key, value) = distinct[0];
-    match key.as_str() {
-        "atom" => {
-            let JsonValue::String(hex) = value else {
-                return Err(()); // atom payload must be a string
-            };
-            let bytes = parse_lower_hex(hex)?;
-            Ok(Value::atom(bytes))
-        }
-        "tuple" => {
-            let JsonValue::Array(items) = value else {
-                return Err(()); // tuple payload must be an array
-            };
-            let mut children = Vec::with_capacity(items.len());
-            for item in items {
-                children.push(validate_authoring(item)?);
-            }
-            Ok(Value::tuple(children))
-        }
-        _ => Err(()), // the single key is neither atom nor tuple
+    match members.get("tuple")? {
+        JsonValue::Array(items) => Some(Authoring::Tuple(items)),
+        _ => None, // tuple payload must be an array
     }
 }
 

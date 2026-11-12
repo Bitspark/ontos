@@ -26,7 +26,7 @@
 
 import { parseArgs } from "node:util";
 import process from "node:process";
-import { readFileSync } from "node:fs";
+import { readSync, writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { decode, encode, DecodeError } from "@bitspark/ontos-codec";
@@ -119,52 +119,318 @@ function toAuthoring(value: Value): Authoring {
 }
 
 /**
- * A malformed `--from-json` input: either not parseable JSON, or parseable but not
- * the {atom:hex}|{tuple:[…]} authoring shape. Both collapse to the single stable
- * `invalid_json` error code, so the three CLIs agree on output even if their raw-JSON
- * tokenizers differ on exotic syntax (ontos-cli.md "Value input").
+ * A malformed `--from-json` input: a fault in the JSON text, or JSON that is not
+ * the {atom:hex}|{tuple:[…]} authoring shape. Both are the single stable
+ * `invalid_json` error code (ontos-cli.md "Value input").
  */
 class AuthoringError extends Error {}
 
 /**
- * Parse the authoring notation into a core Value — the exact inverse of toAuthoring
- * (and of the `--format json` value rendering). A value is a JSON object with EXACTLY
- * ONE of "atom" (even-length lowercase hex, "" = empty atom) or "tuple" (a JSON array
- * of values). Anything else throws AuthoringError → the stable `invalid_json` code.
- *
- * Validation mirrors tools/vector/gen.mjs parseAuthoring and the cores' toJSON: the
- * post-parse structural check is identical across go/rs/ts, so any malformed input
- * yields the same result regardless of each language's JSON tokenizer.
+ * A `--from-json` text with more than JSON_NESTING_CAP nested arrays and objects:
+ * the stable `limit_exceeded` code, exit 1, as a decode limit.
  */
-function fromAuthoring(node: unknown): Value {
-  if (node === null || typeof node !== "object" || Array.isArray(node)) {
+class JsonTooDeep extends Error {}
+
+/*
+ * Reading --from-json, in two stages, the same way in all four CLIs
+ * (ontos-cli.md "Value input"):
+ *   1. readJson reads the text as RFC 8259 JSON, left to right and without
+ *      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
+ *      escapes decoded, lone-surrogate escapes and repeated member names refused,
+ *      and at most JSON_NESTING_CAP open arrays and objects. The first fault ends the
+ *      reading: a 2051st level is JsonTooDeep, anything else AuthoringError.
+ *   2. authoringValue checks the JSON value against the authoring shape and builds
+ *      the core Value, again without recursion.
+ * Node decodes argv and the utf8 stdin read with U+FFFD for each sequence that is
+ * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of a
+ * member name, so such text is always refused. This reader is interim: a later task
+ * moves the CLIs onto a library reader.
+ */
+
+/**
+ * The most arrays and objects the text may have open at once: 2·1024 + 2. The
+ * deepest value the codec's default decoder accepts is nested 1024 deep (root at
+ * depth 0, ontos-codec.md §4.1); when that deepest value is an empty tuple, its 1025
+ * tuples take two levels each (`{"tuple":[`). Anything deeper in an authoring text
+ * is a value the decoder would refuse.
+ */
+const JSON_NESTING_CAP = 2 * 1024 + 2;
+
+/**
+ * A value of the generic JSON tree stage 1 builds. Numbers, true, false and null
+ * are only ever refused by the shape check, so they share one kind. An object keeps
+ * one value per member name (a name occurs once).
+ */
+type JsonNode =
+  | { kind: "scalar" }
+  | { kind: "string"; text: string }
+  | { kind: "array"; items: JsonNode[] }
+  | { kind: "object"; members: Map<string, JsonNode> };
+
+/** An open array or object; `key` is the member name the next value belongs to. */
+type OpenContainer =
+  | { kind: "array"; node: { kind: "array"; items: JsonNode[] } }
+  | { kind: "object"; node: { kind: "object"; members: Map<string, JsonNode> }; key: string };
+
+/** Stage 1: read the whole text as one JSON value. */
+function readJson(text: string): JsonNode {
+  let pos = 0;
+  const fault = (what: string): never => {
+    throw new AuthoringError(`malformed JSON at offset ${pos}: ${what}`);
+  };
+  const peek = (): number => (pos < text.length ? text.charCodeAt(pos) : -1);
+  // RFC 8259 whitespace: space, tab, LF and CR, nothing else.
+  const ws = (): void => {
+    for (;;) {
+      const c = peek();
+      if (c !== 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) return;
+      pos += 1;
+    }
+  };
+  const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39;
+  const digits = (): void => {
+    while (isDigit(peek())) pos += 1;
+  };
+  const literal = (word: string): JsonNode => {
+    if (!text.startsWith(word, pos)) fault(`expected ${word}`);
+    pos += word.length;
+    return { kind: "scalar" };
+  };
+  // The RFC 8259 number grammar; the value is never used, so any length is fine.
+  const number = (): JsonNode => {
+    if (peek() === 0x2d) pos += 1; // -
+    if (peek() === 0x30) {
+      pos += 1;
+    } else if (peek() >= 0x31 && peek() <= 0x39) {
+      digits();
+    } else {
+      fault("expected a digit");
+    }
+    if (peek() === 0x2e) {
+      pos += 1; // .
+      if (!isDigit(peek())) fault("expected a digit after '.'");
+      digits();
+    }
+    if (peek() === 0x65 || peek() === 0x45) {
+      pos += 1; // e E
+      if (peek() === 0x2b || peek() === 0x2d) pos += 1; // + -
+      if (!isDigit(peek())) fault("expected a digit in the exponent");
+      digits();
+    }
+    return { kind: "scalar" };
+  };
+  const hex4 = (): number => {
+    let v = 0;
+    for (let i = 0; i < 4; i += 1) {
+      const c = peek();
+      let d: number;
+      if (c >= 0x30 && c <= 0x39) d = c - 0x30;
+      else if (c >= 0x61 && c <= 0x66) d = c - 0x61 + 10;
+      else if (c >= 0x41 && c <= 0x46) d = c - 0x41 + 10;
+      else return fault("expected four hex digits");
+      v = v * 16 + d;
+      pos += 1;
+    }
+    return v;
+  };
+  // A string (the cursor is on its opening quote), decoded. A control character
+  // must be escaped; a \u escape of a surrogate must be a high one followed at once
+  // by an escaped low one.
+  const string = (): string => {
+    pos += 1;
+    let out = "";
+    for (;;) {
+      const start = pos;
+      for (;;) {
+        const c = peek();
+        if (c < 0x20 || c === 0x22 || c === 0x5c) break; // also the end (-1)
+        pos += 1;
+      }
+      out += text.slice(start, pos);
+      const c = peek();
+      if (c === 0x22) {
+        pos += 1;
+        return out;
+      }
+      if (c !== 0x5c) return fault(c < 0 ? "unterminated string" : "unescaped control character");
+      pos += 1;
+      const e = peek();
+      pos += 1;
+      switch (e) {
+        case 0x22: out += '"'; break;
+        case 0x5c: out += "\\"; break;
+        case 0x2f: out += "/"; break;
+        case 0x62: out += "\b"; break;
+        case 0x66: out += "\f"; break;
+        case 0x6e: out += "\n"; break;
+        case 0x72: out += "\r"; break;
+        case 0x74: out += "\t"; break;
+        case 0x75: {
+          const first = hex4();
+          if (first >= 0xd800 && first <= 0xdbff) {
+            if (!text.startsWith("\\u", pos)) fault("lone high surrogate");
+            pos += 2;
+            const second = hex4();
+            if (second < 0xdc00 || second > 0xdfff) fault("lone high surrogate");
+            out += String.fromCharCode(first, second);
+          } else if (first >= 0xdc00 && first <= 0xdfff) {
+            fault("lone low surrogate");
+          } else {
+            out += String.fromCharCode(first);
+          }
+          break;
+        }
+        default:
+          pos -= 1;
+          fault("unknown escape");
+      }
+    }
+  };
+  const memberName = (): string => {
+    ws();
+    if (peek() !== 0x22) fault("expected a member name");
+    const name = string();
+    ws();
+    if (peek() !== 0x3a) fault("expected ':'");
+    pos += 1;
+    return name;
+  };
+
+  const stack: OpenContainer[] = [];
+  ws();
+  for (;;) {
+    // A value starts at the cursor.
+    let value: JsonNode;
+    const c = peek();
+    if (c === 0x7b || c === 0x5b) {
+      if (stack.length === JSON_NESTING_CAP) throw new JsonTooDeep("more than 2050 nested arrays and objects");
+      pos += 1;
+      ws();
+      if (c === 0x5b) {
+        const node = { kind: "array" as const, items: [] as JsonNode[] };
+        if (peek() === 0x5d) {
+          pos += 1;
+          value = node;
+        } else {
+          stack.push({ kind: "array", node });
+          ws();
+          continue;
+        }
+      } else {
+        const node = { kind: "object" as const, members: new Map<string, JsonNode>() };
+        if (peek() === 0x7d) {
+          pos += 1;
+          value = node;
+        } else {
+          stack.push({ kind: "object", node, key: memberName() });
+          ws();
+          continue;
+        }
+      }
+    } else if (c === 0x22) {
+      value = { kind: "string", text: string() };
+    } else if (c === 0x74) {
+      value = literal("true");
+    } else if (c === 0x66) {
+      value = literal("false");
+    } else if (c === 0x6e) {
+      value = literal("null");
+    } else if (c === 0x2d || isDigit(c)) {
+      value = number();
+    } else {
+      return fault("expected a value");
+    }
+
+    // `value` is complete: hand it to the innermost open container, closing each
+    // container whose end follows.
+    for (;;) {
+      const top = stack[stack.length - 1];
+      if (top === undefined) {
+        ws();
+        if (pos !== text.length) fault("data after the value");
+        return value;
+      }
+      if (top.kind === "array") top.node.items.push(value);
+      else top.node.members.set(top.key, value);
+      ws();
+      const d = peek();
+      if (d === 0x2c) {
+        pos += 1;
+        if (top.kind === "object") {
+          const name = memberName();
+          if (top.node.members.has(name)) fault(`member name ${JSON.stringify(name)} repeated`);
+          top.key = name;
+        }
+        ws();
+        break;
+      }
+      if ((top.kind === "array" && d === 0x5d) || (top.kind === "object" && d === 0x7d)) {
+        pos += 1;
+        value = top.node;
+        stack.pop();
+        continue;
+      }
+      return fault("expected ',' or the container's end");
+    }
+  }
+}
+
+/**
+ * Stage 2: check a JSON value against the authoring notation — the exact inverse of
+ * toAuthoring (and of the `--format json` value rendering) — and build the core
+ * Value, walking the tree with an explicit stack. A value is a JSON object with
+ * EXACTLY ONE member (stage 1 has already refused a repeated name): "atom" (even-length
+ * lowercase hex, "" = empty atom) or "tuple" (a JSON array of values). Anything else
+ * throws AuthoringError → `invalid_json`.
+ */
+function authoringValue(root: JsonNode): Value {
+  const first = authoringNode(root);
+  if (!Array.isArray(first)) return first;
+  // Each open tuple: its children, the next one to check, and those built so far.
+  const stack: { items: JsonNode[]; next: number; built: Value[] }[] = [
+    { items: first, next: 0, built: [] },
+  ];
+  for (;;) {
+    const top = stack[stack.length - 1]!;
+    const child = top.items[top.next];
+    if (child === undefined) {
+      const tuple = new Tuple(top.built);
+      stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent === undefined) return tuple;
+      parent.built.push(tuple);
+      continue;
+    }
+    top.next += 1;
+    const node = authoringNode(child);
+    if (Array.isArray(node)) stack.push({ items: node, next: 0, built: [] });
+    else top.built.push(node);
+  }
+}
+
+/** Check one authoring node: an atom comes back as its Value, a tuple as its children. */
+function authoringNode(node: JsonNode): Value | JsonNode[] {
+  if (node.kind !== "object") {
     throw new AuthoringError("value must be an object");
   }
-  const obj = node as Record<string, unknown>;
-  const hasAtom = Object.prototype.hasOwnProperty.call(obj, "atom");
-  const hasTuple = Object.prototype.hasOwnProperty.call(obj, "tuple");
-  // Exactly one of atom|tuple, and NO extra keys.
-  if (hasAtom === hasTuple) {
-    throw new AuthoringError('value must have exactly one of "atom" or "tuple"');
+  if (node.members.size !== 1) {
+    throw new AuthoringError('value must have exactly one member, "atom" or "tuple"');
   }
-  const keys = Object.keys(obj);
-  if (keys.length !== 1) {
-    throw new AuthoringError("value object has extra keys");
+  const atomPayload = node.members.get("atom");
+  if (atomPayload !== undefined) {
+    if (atomPayload.kind !== "string") throw new AuthoringError('"atom" must be a string');
+    return new Atom(atomBytes(atomPayload.text));
   }
-  if (hasAtom) {
-    return new Atom(atomBytes(obj.atom));
+  const tuplePayload = node.members.get("tuple");
+  if (tuplePayload === undefined) {
+    throw new AuthoringError('value must have exactly one member, "atom" or "tuple"');
   }
-  if (!Array.isArray(obj.tuple)) {
-    throw new AuthoringError('"tuple" must be an array');
-  }
-  return new Tuple(obj.tuple.map(fromAuthoring));
+  if (tuplePayload.kind !== "array") throw new AuthoringError('"tuple" must be an array');
+  return tuplePayload.items;
 }
 
 /** Decode an authoring atom string: must be even-length LOWERCASE hex ("" allowed). */
-function atomBytes(hex: unknown): Uint8Array {
-  if (typeof hex !== "string") {
-    throw new AuthoringError('"atom" must be a string');
-  }
+function atomBytes(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
     throw new AuthoringError('"atom" must be even-length hex');
   }
@@ -188,28 +454,101 @@ function lowerHexNibble(code: number): number {
 }
 
 /**
- * Build a Value from the `--from-json` source: JSON.parse, then the SAME structural
- * validation as every core. `-` reads the JSON from stdin (mirroring how hex does).
- * Any malformed input throws AuthoringError → `invalid_json`.
+ * Build a Value from the `--from-json` source: stage 1, then stage 2. `-` reads the
+ * JSON from stdin. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
  */
 function valueFromJsonSource(source: string): Value {
-  const text = source === "-" ? readFileSync(0, "utf8") : source;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new AuthoringError("malformed JSON");
+  const text = source === "-" ? readStdinText() : source;
+  return authoringValue(readJson(text));
+}
+
+/** Sleeps the thread while a pipe is not ready (Atomics.wait does not spin). */
+const NAP = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * A wait for a pipe that is not ready: 1 ms, doubling to 32 ms while it stays not
+ * ready, back to 1 ms once data moves (`reset`).
+ */
+function backoff(): { wait: () => void; reset: () => void } {
+  let ms = 1;
+  return {
+    wait: () => {
+      Atomics.wait(NAP, 0, 0, ms);
+      ms = Math.min(ms * 2, 32);
+    },
+    reset: () => {
+      ms = 1;
+    },
+  };
+}
+
+/**
+ * Write `text` to fd 1 or 2 completely before returning. process.stdout.write is not
+ * used: on a pipe it may leave part of a large write pending, and the process.exit
+ * that ends every command then drops it (a 2 MB line arrived cut at 146176 bytes,
+ * with exit 0). A reader that has gone away (EPIPE) ends the writing quietly.
+ */
+function writeAll(fd: number, text: string): void {
+  const buf = Buffer.from(text, "utf8");
+  const pause = backoff();
+  let off = 0;
+  while (off < buf.length) {
+    try {
+      off += writeSync(fd, buf, off, buf.length - off);
+      pause.reset();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") {
+        pause.wait();
+        continue;
+      }
+      if (code === "EPIPE") return;
+      throw err;
+    }
   }
-  return fromAuthoring(parsed);
+}
+
+const writeOut = (text: string): void => writeAll(1, text);
+const writeErr = (text: string): void => writeAll(2, text);
+
+/**
+ * Read all of stdin as UTF-8 text, with U+FFFD for each sequence that is not UTF-8
+ * (both input paths read stdin through here). readFileSync(0) is not used: it throws
+ * EAGAIN when stdin is a non-blocking pipe whose writer is slower than this reader
+ * and the input is larger than the pipe's buffer. This loop waits for the data
+ * instead, with backoff; Atomics.wait sleeps the thread, so the wait does not spin.
+ */
+function readStdinText(): string {
+  const chunks: Buffer[] = [];
+  const chunk = Buffer.alloc(1 << 16);
+  const pause = backoff();
+  for (;;) {
+    let n: number;
+    try {
+      n = readSync(0, chunk, 0, chunk.length, null);
+      pause.reset();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") {
+        pause.wait();
+        continue;
+      }
+      if (code === "EOF") break; // how Windows reports the end of a pipe
+      throw err;
+    }
+    if (n === 0) break;
+    chunks.push(Buffer.from(chunk.subarray(0, n)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** Emit a compact JSON line (single line, "\n"-terminated) to stdout. */
 function emitLine(obj: unknown): void {
-  process.stdout.write(`${JSON.stringify(obj)}\n`);
+  writeOut(`${JSON.stringify(obj)}\n`);
 }
 
 function dieUsage(message: string): never {
-  process.stderr.write(`ontos: ${message}\n`);
+  writeErr(`ontos: ${message}\n`);
   process.exit(EXIT_USAGE);
 }
 
@@ -238,18 +577,20 @@ function resolveInput(positional: string | undefined): string {
   if (positional !== undefined && positional !== "-") {
     return positional.trim();
   }
-  // fd 0 = stdin. Read synchronously and strip surrounding whitespace.
-  return readFileSync(0, "utf8").trim();
+  // Read synchronously and strip surrounding whitespace.
+  return readStdinText().trim();
 }
 
 /**
  * Resolve the command's one Value from exactly one input source, emitting the
  * command's error object and exiting on failure (so the return is the success path).
  *
- * - `--from-json` (fromJson !== undefined): parse + validate the authoring notation,
- *   build the Value directly. It is canonical by construction, so its bytes are
- *   simply `encode(value)`. A malformed/non-authoring input is `invalid_json`
- *   (exit 2). Mutual exclusion with `<hex>` is enforced earlier (usage_error).
+ * - `--from-json` (fromJson !== undefined): read the text and check the authoring
+ *   shape, building the Value directly. It is canonical by construction, so its
+ *   bytes are simply `encode(value)`. A text nested deeper than JSON_NESTING_CAP is
+ *   `limit_exceeded` (exit 1); any other fault or non-authoring shape is
+ *   `invalid_json` (exit 2). Mutual exclusion with `<hex>` is enforced earlier
+ *   (usage_error).
  * - otherwise: the positional `<hex>` or stdin, hex-decoded then codec-decoded.
  *   Invalid hex => `invalid_hex` (usage error, exit 2); a DecodeError => the codec's
  *   stable code (negative result, exit 1).
@@ -267,11 +608,21 @@ function resolveValue(
     try {
       value = valueFromJsonSource(fromJson);
     } catch (err) {
+      if (err instanceof JsonTooDeep) {
+        // Deeper than any value the default decoder accepts: limit_exceeded, exit 1,
+        // exactly as a decode limit (ontos-cli.md "Value input").
+        if (format === "json") {
+          emitLine({ ok: false, command, error: "limit_exceeded" });
+        } else {
+          writeErr(`ontos: json input too deep: ${err.message}\n`);
+        }
+        process.exit(EXIT_NEGATIVE);
+      }
       if (err instanceof AuthoringError) {
         if (format === "json") {
           emitLine({ ok: false, command, error: "invalid_json" });
         } else {
-          process.stderr.write(`ontos: ${err.message}\n`);
+          writeErr(`ontos: ${err.message}\n`);
         }
         process.exit(EXIT_USAGE);
       }
@@ -287,7 +638,7 @@ function resolveValue(
     if (format === "json") {
       emitLine({ ok: false, command, error: "invalid_hex" });
     } else {
-      process.stderr.write("ontos: invalid hex input\n");
+      writeErr("ontos: invalid hex input\n");
     }
     process.exit(EXIT_USAGE);
   }
@@ -299,7 +650,7 @@ function resolveValue(
       if (format === "json") {
         emitLine({ ok: false, command, error: err.code });
       } else {
-        process.stderr.write(`ontos: ${err.message}\n`);
+        writeErr(`ontos: ${err.message}\n`);
       }
       process.exit(EXIT_NEGATIVE);
     }
@@ -318,7 +669,7 @@ function runDecode(
     // Construct the object key-by-key in the contract order: ok, command, codec, value.
     emitLine({ ok: true, command: "decode", codec: CODEC_ID, value: toAuthoring(value) });
   } else {
-    process.stdout.write(`${value.toString()}\n`);
+    writeOut(`${value.toString()}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -382,9 +733,9 @@ function runInspect(
       recognized,
     });
   } else {
-    process.stdout.write(`${value.toString()}\n`);
-    process.stdout.write(`canonical: ${canonical ? "yes" : "no"}\n`);
-    process.stdout.write(`recognized: ${humanLabels(recognized)}\n`);
+    writeOut(`${value.toString()}\n`);
+    writeOut(`canonical: ${canonical ? "yes" : "no"}\n`);
+    writeOut(`recognized: ${humanLabels(recognized)}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -416,7 +767,7 @@ function runRead(
     } else {
       // The "recognized: " prefix is present on BOTH inspect and read --all (the
       // tri-core human contract, ontos-internal#46) — TS previously omitted it here.
-      process.stdout.write(`recognized: ${humanLabels(recognized)}\n`);
+      writeOut(`recognized: ${humanLabels(recognized)}\n`);
     }
     process.exit(EXIT_OK);
   }
@@ -430,7 +781,7 @@ function runRead(
     // Canonical human form: `<kind>: yes|no` (docs/spec/ontos-cli.md "Human format")
     // — names the probed kind, matching go/rs byte-for-byte (TS previously printed a
     // bare yes|no).
-    process.stdout.write(`${k}: ${recognized ? "yes" : "no"}\n`);
+    writeOut(`${k}: ${recognized ? "yes" : "no"}\n`);
   }
   process.exit(recognized ? EXIT_OK : EXIT_NEGATIVE);
 }
@@ -454,7 +805,7 @@ function runCanon(
     if (format === "json") {
       emitLine({ ok: true, command: "canon", hex });
     } else {
-      process.stdout.write(`${hex}\n`);
+      writeOut(`${hex}\n`);
     }
     process.exit(EXIT_OK);
   }
@@ -464,7 +815,7 @@ function runCanon(
   if (format === "json") {
     emitLine({ ok: true, command: "canon", canonical });
   } else {
-    process.stdout.write(`canonical: ${canonical ? "yes" : "no"}\n`);
+    writeOut(`canonical: ${canonical ? "yes" : "no"}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -500,11 +851,11 @@ function main(argv: readonly string[]): never {
   const { values, positionals } = parsed;
 
   if (values.help) {
-    process.stdout.write(`${USAGE}\n`);
+    writeOut(`${USAGE}\n`);
     process.exit(EXIT_OK);
   }
   if (values.version) {
-    process.stdout.write(`${VERSION}\n`);
+    writeOut(`${VERSION}\n`);
     process.exit(EXIT_OK);
   }
 
@@ -541,7 +892,7 @@ function main(argv: readonly string[]): never {
       if (format === "json") {
         emitLine({ ok: false, command, error: "usage_error" });
       } else {
-        process.stderr.write("ontos: --from-json and a positional <hex> are mutually exclusive\n");
+        writeErr("ontos: --from-json and a positional <hex> are mutually exclusive\n");
       }
       process.exit(EXIT_USAGE);
     }

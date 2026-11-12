@@ -32,9 +32,9 @@ and exit code.
   exactly one JSON Lines object:
   `decode` · `inspect` · `read --all` · `canon --check` · `canon --emit`.
 
-## Three check modes
+## Four check modes
 
-The runner has **three** independent check passes; select any combination (with no mode
+The runner has **four** independent check passes; select any combination (with no mode
 flag, the **decode** mode runs alone — back-compatible):
 
 | flag | mode | what it pins |
@@ -42,6 +42,7 @@ flag, the **decode** mode runs alone — back-compatible):
 | `--decode-roundtrip` | **decode** (default) | for each `(hex, command)`: `hex → JSON Lines`, **differential** (all impls byte-identical) |
 | `--human-roundtrip` | **human** | for each `(hex, command)`: `hex → --format human` (same corpus), **differential** |
 | `--from-json-roundtrip` | **author→bytes** | for each vector encode case: `value → canonical bytes` via `canon --emit --from-json`, **differential** AND **oracle** |
+| `--input-reading` | **reading** | for each text in [`input-reading.json`](input-reading.json): the outcome [`ontos-cli.md`](../../docs/spec/ontos-cli.md) "Reading the text" gives it, through argv and stdin, **oracle** |
 
 **Human mode (`--human-roundtrip`)** re-runs the same `(hex, command)` corpus as decode
 mode but with `--format human`, asserting all impls' stdout + exit code are byte-identical.
@@ -64,15 +65,45 @@ JSON as a **single argv token** (no shell) — and asserts both:
 This makes the full round-trip **author → canonical bytes** a checked, tri-core property:
 the JSON the CLI *emits* in decode mode (its `--format json` value rendering) is the exact
 notation it *parses* here, and the bytes it parses to are the same frozen bytes the decode
-side started from. The three modes are independent; a divergence in **any** fails the run
+side started from. The modes are independent; a divergence in **any** fails the run
 (exit `1`). A divergent author→bytes case skips its oracle check (with no agreed bytes the
 "emitted hex" is ill-defined; the differential finding already names the case to fix).
+
+**Reading mode (`--input-reading`)** judges how each implementation *reads* an input
+text, which the other modes cannot reach: they feed only canonical hex and well-formed
+authoring values. Its cases are in [`input-reading.json`](input-reading.json), one
+per line: a text (or raw `bytes`, for input that is not UTF-8), what it is read as
+(`source`: a `--from-json` text by default, or `hex`), and the outcome the contract gives it
+(`expect`: the canonical hex, or an error code). Long texts are written as pieces, a string
+or a `[string, count]` pair to repeat, so a text 10^5 levels deep is one line. For each case
+every impl runs `canon --emit --format json` on the text, through argv (when the text fits a
+command line, 16 KiB) and through stdin (`-`), and must print exactly the expected line with
+the contract's exit code (`0`; `1` for `limit_exceeded` and decode errors; `2` for
+`invalid_json` and `invalid_hex`). For an accepted text, `decode` of the text must also
+equal `decode` of the expected hex, whole and byte for byte, in each impl and across impls,
+in both formats: the value read is the value its bytes decode to, and a large value's output
+arrives complete (the 1 MiB atom's 2 MB lines, on both paths). Node passes arguments only as strings, so
+on POSIX a text that is not UTF-8 reaches argv through a `python3 -I` exec trampoline.
+A case marked `chunked` writes its stdin 64 KiB at a time with a 2 ms pause between chunks,
+so each impl outruns the pipe and meets it empty mid-input; the large cases (over 1 MB, on
+the hex path and through `--from-json`) are chunked, which is what caught ts failing on
+EAGAIN. Windows argv is UTF-16 and cannot hold a text that is not UTF-8, so there such
+texts run through stdin only. `--verbose` prints each case's per-impl outcome.
+
+*Why a mode with a cases file.* The judgment is an **oracle**, not agreement: a fault all
+four impls shared would pass an agreement check, so each case carries its expected outcome. The cases are data, so a new rule is one more line
+and a reviewer reads the contract's edge cases in one place; the mode is code, because the
+existing modes read only the vectors' `encode` arrays, whose values are JSON objects and
+cannot hold a malformed text, raw bytes or a choice of argv or stdin. A separate mode leaves
+the existing three modes' corpus and judgment exactly as they were. The file lives here, not
+in [`vectors/`](../../vectors/), because it pins the CLI's input contract, not the value
+model.
 
 ## How to run
 
 The one-command way — `scripts/check.sh conformance` (Linux/macOS) or
 `scripts/check.ps1 conformance` (Windows). It builds the three compiled CLIs **fresh**,
-then runs all three modes over all four implementations, exactly as CI's
+then runs all four modes over all four implementations, exactly as CI's
 `cli (tri-core parity)` job does. Building fresh is
 deliberate: a stale repo-root binary (`ontos-go`, `target/debug/ontos`) left over from
 an earlier build can otherwise produce a **false** divergence against current source —
@@ -100,26 +131,26 @@ npm run -w @bitspark/ontos-cli   build
 # py — nothing to build: the stdlib-only validation lane (ontos-internal#60) runs straight
 # from source as python3 cli/py/main.py
 
-# the four standard implementations, over both vector files, ALL THREE check modes
-# (decode hex→JSON Lines, human hex→--format human, and author→bytes via --from-json —
-# exactly what CI runs):
+# the four standard implementations, over both vector files, ALL FOUR check modes
+# (decode hex→JSON Lines, human hex→--format human, author→bytes via --from-json, and
+# the reading cases — exactly what CI runs):
 node tools/conformance/run.mjs \
   --impl ontos-rs=./target/debug/ontos \
   --impl ontos-go=./ontos-go \
   --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
   --impl "ontos-py=python3 cli/py/main.py" \
   --vectors vectors/codec.json --vectors vectors/data.json \
-  --decode-roundtrip --human-roundtrip --from-json-roundtrip
+  --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
 ```
 
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 41 hexes x 5 commands x 4 impls + human: 41 hexes x 12 commands x 4 impls + from-json: 41 encode cases x 4 impls (author->bytes) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 68 texts, 130 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter
-`checked decode: 41 hexes x 5 commands x 4 impls … — all byte-identical`.)
+`checked decode: 44 hexes x 5 commands x 4 impls … — all byte-identical`.)
 
 On any divergence it prints one block per divergence (`DIVERGENCE [<command> <hex>]`
 followed by each impl's output) and a `FAIL` summary, exiting `1`.
@@ -133,7 +164,8 @@ followed by each impl's output) and a `FAIL` summary, exiting `1`.
 node tools/conformance/run.mjs \
   --impl <name>=<command> [--impl <name>=<command> ...] \
   [--vectors <path> ...] [--commands "<csv>"] \
-  [--decode-roundtrip] [--human-roundtrip] [--from-json-roundtrip]
+  [--decode-roundtrip] [--human-roundtrip] [--from-json-roundtrip] \
+  [--input-reading [--reading-cases <path>] [--verbose]]
 ```
 
 - **`--impl NAME=COMMAND`** (repeatable, **≥1 required**) — an implementation to
@@ -156,6 +188,11 @@ node tools/conformance/run.mjs \
 - **`--from-json-roundtrip`** — run the **author→bytes** check mode: for each vector
   encode case, `canon --emit --from-json <value-json>` for each impl, asserting all impls
   agree byte-for-byte **and** the emitted hex equals the vector's pinned `.hex`.
+- **`--input-reading`** — run the **reading** check mode over the cases file: each text,
+  through argv and stdin, must give every impl exactly its expected line and exit code.
+- **`--reading-cases PATH`** — read the reading cases from `PATH` instead of
+  [`input-reading.json`](input-reading.json).
+- **`--verbose`** — with `--input-reading`, print each case's per-impl outcome.
 
 **Assumption — no spaces in paths.** Because `--impl COMMAND` and each `--commands`
 entry are tokenized on whitespace, neither an impl's program path/flags nor a command
@@ -166,9 +203,9 @@ space-free path.
 
 | code | meaning |
 |---|---|
-| `0` | every check passed — decode/human modes: byte-identical across all impls; author→bytes mode: byte-identical across all impls **and** every emit equals the pinned hex |
+| `0` | every check passed — decode/human modes: byte-identical across all impls; author→bytes mode: byte-identical across all impls **and** every emit equals the pinned hex; reading mode: every impl gave every text its expected outcome |
 | `1` | at least one divergence (the tool ran; the impls disagree — or, in author→bytes mode, an emitted hex did not equal the vector's pinned hex) |
-| `2` | usage error — no `--impl`, an unreadable/ill-formed `--vectors` file, or an impl binary that cannot be spawned (the tool could not run) |
+| `2` | usage error — no `--impl`, an unreadable/ill-formed `--vectors` or reading-cases file, or an impl binary that cannot be spawned (the tool could not run) |
 
 ## How a new implementation proves conformance
 
@@ -183,14 +220,14 @@ node tools/conformance/run.mjs \
   --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
   --impl "ontos-py=python3 cli/py/main.py" \
   --impl "ontos-new=/path/to/your/ontos" \
-  --decode-roundtrip --human-roundtrip --from-json-roundtrip
+  --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
 ```
 
 If its `--format json` **and** `--format human` output agrees byte-for-byte with the
-established peers over the full corpus — in **all three** of the decode, human, and
-author→bytes modes — it conforms; if not, the divergence names the exact case to fix
-(and, in author→bytes mode, whether it was a cross-impl disagreement or a hex that missed
-the pinned vector). This is exactly how CI enforces cross-impl parity (the
+established peers over the full corpus — in the decode, human and author→bytes modes —
+and it reads every text in the reading cases as the contract says, it conforms; if not,
+the divergence names the exact case to fix (and, in author→bytes mode, whether it was a
+cross-impl disagreement or a hex that missed the pinned vector). This is exactly how CI enforces cross-impl parity (the
 `cli (tri-core parity)` job in
 `.github/workflows/vectors.yml`).
 

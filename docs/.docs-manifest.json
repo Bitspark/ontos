@@ -454,6 +454,7 @@
       "synopsis",
       "value-rendering",
       "value-input",
+      "reading-the-text",
       "commands-v1",
       "json-lines-output-schema",
       "human-format",
@@ -503,6 +504,7 @@
       "runner-exit-codes",
       "relationship-to-vectors",
       "authorbytes-is-pinned-too---from-json",
+      "how-a-text-is-read-is-pinned-too---input-reading",
       "austerity",
       "maturity--what-a-surfaces-conformance-actually-rests-on",
       "see-also"

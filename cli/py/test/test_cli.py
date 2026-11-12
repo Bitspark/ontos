@@ -231,6 +231,50 @@ class FromJsonTests(unittest.TestCase):
                 out, b'{"ok":false,"command":"canon","error":"invalid_json"}\n', name
             )
 
+    def test_reading_refuses_what_rfc_8259_and_the_total_form_refuse(self):
+        # ontos-cli.md "Reading the text": a repeated member name (also spelled with
+        # an escape), anything after the value, non-JSON whitespace, a lone
+        # surrogate escape, NaN.
+        invalid = b'{"ok":false,"command":"canon","error":"invalid_json"}\n'
+        for text in [
+            '{"atom":"00","atom":"01"}',
+            '{"atom":"00","\\u0061tom":"00"}',
+            '{"atom":"00"}]',
+            '{"atom":"00"}}',
+            '{"atom":"00"}\f',
+            '\u00a0{"atom":"00"}',
+            '{"atom":"\\ud800"}',
+            "[NaN]",
+        ]:
+            with self.subTest(text=text):
+                code, out, _ = _run(["canon", "--emit", "--format", "json", "--from-json", text])
+                self.assertEqual((code, out), (2, invalid))
+        code, out, _ = _run(["canon", "--emit", "--from-json", ' \t\r\n{ "atom" : "00" }\n'])
+        self.assertEqual((code, out), (0, b"000100\n"))
+
+    def test_reading_caps_nesting_at_1024_tuple_levels(self):
+        def nested(n):
+            return '{"tuple":[' * n + '{"atom":"00"}' + "]}" * n
+
+        code, out, _ = _run(["canon", "--emit", "--from-json", "-"], stdin=nested(1024))
+        self.assertEqual((code, out), (0, b"0101" * 1024 + b"000100\n"))
+        too_deep = (1, b'{"ok":false,"command":"canon","error":"limit_exceeded"}\n')
+        code, out, _ = _run(["canon", "--emit", "--format", "json", "--from-json", "-"], stdin=nested(1025))
+        self.assertEqual((code, out), too_deep)
+        # Far deeper is refused at the 2051st bracket, with no RecursionError.
+        code, out, _ = _run(["canon", "--emit", "--format", "json", "--from-json", "-"], stdin=nested(100000))
+        self.assertEqual((code, out), too_deep)
+
+    def test_a_1024_deep_value_renders(self):
+        # The human and json renderings walk with an explicit stack (core/py's
+        # recursive __str__ exceeds the recursion limit at this depth).
+        value = '{"tuple":[' * 1024 + '{"atom":"00"}' + "]}" * 1024
+        code, out, _ = _run(["decode", "--from-json", "-"], stdin=value)
+        self.assertEqual((code, out), (0, ("Tuple(" * 1024 + "Atom(0x00)" + ")" * 1024 + "\n").encode()))
+        code, out, _ = _run(["decode", "--format", "json", "--from-json", "-"], stdin=value)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, b'{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":' + value.encode() + b"}\n")
+
     def test_invalid_json_is_emitted_per_command(self):
         for command, extra in [("decode", []), ("inspect", []), ("read", ["--all"]), ("canon", ["--emit"])]:
             code, out, _ = _run([command, *extra, "--format", "json", "--from-json", "{"])

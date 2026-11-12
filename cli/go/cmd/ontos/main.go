@@ -321,9 +321,8 @@ func parseFormat(s string) (outputFormat, error) {
 	}
 }
 
-// readInput reads the textual input (hex or, for --from-json, JSON): the given
-// argument when present and not "-", otherwise the whole of stdin. Surrounding
-// whitespace is stripped either way.
+// readInput reads the hex input: the given argument when present and not "-",
+// otherwise the whole of stdin. Surrounding whitespace is stripped.
 func readInput(arg *string, stdin io.Reader) (string, error) {
 	if arg != nil && *arg != "-" {
 		return strings.TrimSpace(*arg), nil
@@ -333,6 +332,15 @@ func readInput(arg *string, stdin io.Reader) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(raw)), nil
+}
+
+// readJSONSource reads the --from-json text as given: the argument, or the whole of
+// stdin for "-". Nothing is trimmed; the reader allows only RFC 8259 whitespace.
+func readJSONSource(arg *string, stdin io.Reader) ([]byte, error) {
+	if *arg != "-" {
+		return []byte(*arg), nil
+	}
+	return io.ReadAll(stdin)
 }
 
 // decode implements `ontos decode`: obtain the value (hex or --from-json) and
@@ -549,15 +557,29 @@ func resolveValue(src valueSource, stdin io.Reader, command string, format outpu
 	}
 
 	if src.fromJSON != nil {
-		text, err := readInput(src.fromJSON, stdin)
+		raw, err := readJSONSource(src.fromJSON, stdin)
 		if err != nil {
 			fmt.Fprintln(stderr, "ontos: cannot read input: "+err.Error())
 			return nil, nil, 2
 		}
-		value, err := parseAuthoringJSON(text)
+		node, err := readJSON(readJSONText(raw))
+		if errors.Is(err, errTooDeep) {
+			// Deeper than any value the default decoder accepts: limit_exceeded,
+			// exit 1, exactly as a decode limit (ontos-cli.md "Value input").
+			if format == formatJSON {
+				emitError(stdout, command, "limit_exceeded")
+			} else {
+				fmt.Fprintln(stderr, "ontos: json input too deep: "+err.Error())
+			}
+			return nil, nil, 1
+		}
+		var value core.Value
+		if err == nil {
+			value, err = authoringValue(node)
+		}
 		if err != nil {
-			// Any malformed JSON or non-authoring shape is the stable invalid_json
-			// usage error (exit 2). The specific reason goes to stderr (human only).
+			// Any other fault in the text, or a non-authoring shape, is the stable
+			// invalid_json usage error (exit 2). The reason goes to stderr (human only).
 			if format == formatJSON {
 				emitError(stdout, command, "invalid_json")
 			} else {
@@ -595,105 +617,6 @@ func resolveValue(src valueSource, stdin io.Reader, command string, format outpu
 		return nil, nil, 1
 	}
 	return value, raw, 0
-}
-
-// parseAuthoringJSON parses the authoring notation — the exact inverse of the
-// --format json value rendering — into a core.Value. The grammar (vectors/, and
-// gen.mjs parseAuthoring, which this mirrors):
-//
-//	value ::= { "atom":  "<lowercase-hex>" }   // even-length; "" = empty atom
-//	        | { "tuple": [ value, … ] }         // [] = empty tuple
-//
-// A value is a JSON object with EXACTLY ONE of "atom"/"tuple" and no other keys.
-// Any malformed JSON or non-authoring shape (not an object, neither/both keys,
-// extra keys, non-string atom, odd-length/uppercase/non-hex atom, non-array
-// tuple) is an error — the caller maps every such error to the single stable
-// invalid_json code, so the three cores agree on output even where their raw
-// tokenizers might differ on exotic syntax.
-//
-// Per the dependency ethos (ontos-cli.md): Go decodes with the stdlib
-// encoding/json (TS uses JSON.parse; Rust hand-rolls), then all three apply this
-// same structural validation.
-func parseAuthoringJSON(text string) (core.Value, error) {
-	var node any
-	dec := json.NewDecoder(strings.NewReader(text))
-	dec.UseNumber()
-	if err := dec.Decode(&node); err != nil {
-		return nil, fmt.Errorf("malformed json: %w", err)
-	}
-	// Reject trailing content after the top-level value (e.g. `{} {}` or
-	// `{"atom":"00"} x`); the input must be exactly one JSON value.
-	if dec.More() {
-		return nil, errors.New("trailing data after top-level json value")
-	}
-	return authoringFromNode(node, "$")
-}
-
-// authoringFromNode validates one decoded JSON node against the authoring
-// grammar and builds the corresponding core.Value. `where` is a JSON-path-ish
-// breadcrumb for the (human-only) diagnostic message.
-func authoringFromNode(node any, where string) (core.Value, error) {
-	obj, ok := node.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("%s: value must be an object with one of \"atom\"/\"tuple\"", where)
-	}
-	_, hasAtom := obj["atom"]
-	_, hasTuple := obj["tuple"]
-	if hasAtom == hasTuple {
-		// Both present or neither present.
-		return nil, fmt.Errorf("%s: value must have exactly one of \"atom\" or \"tuple\"", where)
-	}
-	// Exactly one of atom/tuple AND no other keys: with exactly one present, the
-	// object must have exactly one key total.
-	if len(obj) != 1 {
-		return nil, fmt.Errorf("%s: value must have no keys besides \"atom\"/\"tuple\"", where)
-	}
-
-	if hasAtom {
-		s, ok := obj["atom"].(string)
-		if !ok {
-			return nil, fmt.Errorf("%s: \"atom\" must be a string", where)
-		}
-		b, err := authoringHex(s, where)
-		if err != nil {
-			return nil, err
-		}
-		return core.NewAtom(b), nil
-	}
-
-	arr, ok := obj["tuple"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("%s: \"tuple\" must be an array", where)
-	}
-	items := make([]core.Value, len(arr))
-	for i, child := range arr {
-		v, err := authoringFromNode(child, fmt.Sprintf("%s.tuple[%d]", where, i))
-		if err != nil {
-			return nil, err
-		}
-		items[i] = v
-	}
-	return core.NewTuple(items...), nil
-}
-
-// authoringHex validates an atom string as even-length LOWERCASE hex ("" is the
-// empty atom) and returns its bytes. It rejects uppercase explicitly because
-// encoding/hex would otherwise accept it, which would break round-trip with the
-// lowercase json rendering and the cross-core agreement.
-func authoringHex(s, where string) ([]byte, error) {
-	if len(s)%2 != 0 {
-		return nil, fmt.Errorf("%s: \"atom\" must be even-length hex", where)
-	}
-	for _, c := range s {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
-			return nil, fmt.Errorf("%s: \"atom\" must be lowercase hex (got %q)", where, s)
-		}
-	}
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("%s: \"atom\" must be hex: %w", where, err)
-	}
-	return b, nil
 }
 
 // yesNo renders a bool as the human-format "yes"/"no".

@@ -29,6 +29,8 @@ installed packages — they are repo-local source, like the npm-workspace TS lan
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple as PyTuple
@@ -157,47 +159,297 @@ def _die_usage(message: str) -> int:
 # --- authoring notation ---------------------------------------------------------
 
 
-def _to_authoring(value: Value) -> object:
-    """Render a Value as the authoring notation: {"atom":hex} | {"tuple":[...]}."""
-    if isinstance(value, Atom):
-        return {"atom": value.bytes().hex()}
-    return {"tuple": [_to_authoring(item) for item in value.items()]}
+def _to_authoring_json(value: Value) -> str:
+    """Render a Value as the compact authoring notation, {"atom":"<hex>"} |
+    {"tuple":[...]}: the same text json.dumps gives for the nested dicts, built
+    with an explicit stack so a value of any depth renders (a recursive walk
+    exceeds Python's recursion limit near depth 1000)."""
+    out: List[str] = []
+    # Each entry is a value still to render, or the literal text to write next.
+    pending: List[object] = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, Atom):
+            out.append('{"atom":"' + item.bytes().hex() + '"}')
+        else:
+            out.append('{"tuple":[')
+            pending.append("]}")
+            children = item.items()
+            for i in range(len(children) - 1, -1, -1):
+                pending.append(children[i])
+                if i:
+                    pending.append(",")
+    return "".join(out)
+
+
+def _human_value(value: Value) -> str:
+    """The core's display form, str(value) — Tuple(Atom(0x..), ...) — built with an
+    explicit stack, since core/py's recursive __str__ exceeds Python's recursion
+    limit on a 1024-deep value. The text is the same; only the walk differs."""
+    out: List[str] = []
+    pending: List[object] = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, Atom):
+            out.append(str(item))
+        else:
+            out.append("Tuple(")
+            pending.append(")")
+            children = item.items()
+            for i in range(len(children) - 1, -1, -1):
+                pending.append(children[i])
+                if i:
+                    pending.append(", ")
+    return "".join(out)
 
 
 class _AuthoringError(Exception):
-    """A malformed --from-json input: not parseable JSON, or parseable but not
-    the {atom:hex}|{tuple:[...]} authoring shape. Both collapse to the single
-    stable `invalid_json` error code, so the four CLIs agree on output even if
-    their raw-JSON tokenizers differ on exotic syntax (ontos-cli.md "Value input").
+    """A malformed --from-json input: a fault in the JSON text, or JSON that is
+    not the {atom:hex}|{tuple:[...]} authoring shape. Both are the single stable
+    `invalid_json` error code (ontos-cli.md "Value input").
     """
 
 
-def _from_authoring(node: object) -> Value:
-    """Parse the authoring notation into a core Value — the exact inverse of
-    _to_authoring (and of the --format json value rendering). A value is a JSON
-    object with EXACTLY ONE of "atom" (even-length lowercase hex, "" = empty
-    atom) or "tuple" (a JSON array of values), and no extra keys. Anything else
-    raises _AuthoringError -> the stable `invalid_json` code.
+class _JsonTooDeep(Exception):
+    """A --from-json text with more than _JSON_NESTING_CAP nested arrays and
+    objects: the stable `limit_exceeded` code, exit 1, as a decode limit."""
 
-    Validation mirrors the go/rs/ts CLIs and tools/vector/gen.mjs parseAuthoring:
-    the post-parse structural check is identical across the cores, so any
-    malformed input yields the same result regardless of each language's JSON
-    tokenizer.
-    """
+
+# Reading --from-json, in two stages, the same way in all four CLIs
+# (ontos-cli.md "Value input"):
+#   1. _read_json reads the text as RFC 8259 JSON, left to right and without
+#      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
+#      escapes decoded, lone-surrogate escapes and repeated member names
+#      refused, and at most _JSON_NESTING_CAP open arrays and objects. The first
+#      fault ends the reading: a 2051st level is _JsonTooDeep, anything else
+#      _AuthoringError.
+#   2. _authoring_value checks the JSON value against the authoring shape and
+#      builds the core Value, again without recursion.
+# This reader is interim: a later task moves the CLIs onto a library reader.
+# Python's json module is not used: it accepts NaN/Infinity, refuses integers
+# over 4300 digits, and recurses once per nesting level.
+
+# The most arrays and objects the text may have open at once: 2*1024 + 2. The
+# deepest value the codec's default decoder accepts is nested 1024 deep (root at
+# depth 0, ontos-codec.md 4.1); when that deepest value is an empty tuple, its
+# 1025 tuples take two levels each ({"tuple":[). Anything deeper in an authoring
+# text is a value the decoder would refuse.
+_JSON_NESTING_CAP = 2 * 1024 + 2
+
+_WS = re.compile(r"[ \t\n\r]*")
+_PLAIN = re.compile(r'[^"\\\x00-\x1f]*')
+_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+_HEX4 = re.compile(r"[0-9a-fA-F]{4}")
+_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+
+# Generic JSON nodes: a str is a JSON string, a list an array, a dict an object
+# (each member name occurs once), and _SCALAR stands for every number,
+# true, false and null, which the shape check only ever refuses.
+_SCALAR = object()
+
+
+def _read_json(text: str) -> object:
+    """Stage 1: read the whole text as one JSON value."""
+    pos = 0
+    n = len(text)
+
+    def fault(what: str) -> _AuthoringError:
+        return _AuthoringError(f"malformed JSON at offset {pos}: {what}")
+
+    def ws() -> None:
+        nonlocal pos
+        pos = _WS.match(text, pos).end()
+
+    def string() -> str:
+        # The cursor is on the opening quote. A control character must be
+        # escaped; a \u escape of a surrogate must be a high one followed at once
+        # by an escaped low one.
+        nonlocal pos
+        pos += 1
+        parts: List[str] = []
+        while True:
+            end = _PLAIN.match(text, pos).end()
+            parts.append(text[pos:end])
+            pos = end
+            if pos >= n:
+                raise fault("unterminated string")
+            c = text[pos]
+            if c == '"':
+                pos += 1
+                return "".join(parts)
+            if c != "\\":
+                raise fault("unescaped control character")
+            e = text[pos + 1 : pos + 2]
+            if e in _ESCAPES:
+                parts.append(_ESCAPES[e])
+                pos += 2
+                continue
+            if e != "u":
+                pos += 1
+                raise fault("unknown escape")
+            pos += 2
+            first = hex4()
+            if 0xD800 <= first <= 0xDBFF:
+                if text[pos : pos + 2] != "\\u":
+                    raise fault("lone high surrogate")
+                pos += 2
+                second = hex4()
+                if not 0xDC00 <= second <= 0xDFFF:
+                    raise fault("lone high surrogate")
+                parts.append(chr(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00)))
+            elif 0xDC00 <= first <= 0xDFFF:
+                raise fault("lone low surrogate")
+            else:
+                parts.append(chr(first))
+
+    def hex4() -> int:
+        nonlocal pos
+        m = _HEX4.match(text, pos)
+        if m is None:
+            raise fault("expected four hex digits")
+        pos = m.end()
+        return int(m.group(), 16)
+
+    def member_name() -> str:
+        nonlocal pos
+        ws()
+        if text[pos : pos + 1] != '"':
+            raise fault("expected a member name")
+        name = string()
+        ws()
+        if text[pos : pos + 1] != ":":
+            raise fault("expected ':'")
+        pos += 1
+        return name
+
+    # The open arrays and objects, innermost last: [container, key], where key is
+    # the member name the next value of an open object belongs to.
+    stack: List[list] = []
+    ws()
+    while True:
+        # A value starts at the cursor.
+        c = text[pos : pos + 1]
+        if c == "{" or c == "[":
+            if len(stack) == _JSON_NESTING_CAP:
+                raise _JsonTooDeep("more than 2050 nested arrays and objects")
+            pos += 1
+            ws()
+            if c == "[":
+                if text[pos : pos + 1] == "]":
+                    pos += 1
+                    value: object = []
+                else:
+                    stack.append([[], None])
+                    ws()
+                    continue
+            elif text[pos : pos + 1] == "}":
+                pos += 1
+                value = {}
+            else:
+                stack.append([{}, member_name()])
+                ws()
+                continue
+        elif c == '"':
+            value = string()
+        elif c in ("t", "f", "n"):
+            word = {"t": "true", "f": "false", "n": "null"}[c]
+            if not text.startswith(word, pos):
+                raise fault("expected " + word)
+            pos += len(word)
+            value = _SCALAR
+        elif c == "-" or "0" <= c <= "9":
+            m = _NUMBER.match(text, pos)
+            if m is None:
+                raise fault("expected a number")
+            pos = m.end()
+            value = _SCALAR
+        else:
+            raise fault("expected a value")
+
+        # value is complete: hand it to the innermost open container, closing
+        # each container whose end follows.
+        while True:
+            if not stack:
+                ws()
+                if pos != n:
+                    raise fault("data after the value")
+                return value
+            top = stack[-1]
+            container = top[0]
+            if isinstance(container, list):
+                container.append(value)
+            else:
+                container[top[1]] = value
+            ws()
+            d = text[pos : pos + 1]
+            if d == ",":
+                pos += 1
+                if isinstance(container, dict):
+                    name = member_name()
+                    if name in container:
+                        raise fault(f"member name {name!r} repeated")
+                    top[1] = name
+                ws()
+                break
+            if (d == "]" and isinstance(container, list)) or (d == "}" and isinstance(container, dict)):
+                pos += 1
+                value = container
+                stack.pop()
+                continue
+            raise fault("expected ',' or the container's end")
+
+
+def _authoring_node(node: object) -> object:
+    """Check one authoring node: an atom comes back as its Value, a tuple as its
+    children (a list) for the caller to walk."""
     if not isinstance(node, dict):
         raise _AuthoringError("value must be an object")
-    has_atom = "atom" in node
-    has_tuple = "tuple" in node
-    if has_atom == has_tuple:
-        raise _AuthoringError('value must have exactly one of "atom" or "tuple"')
     if len(node) != 1:
-        raise _AuthoringError("value object has extra keys")
-    if has_atom:
+        raise _AuthoringError('value must have exactly one member, "atom" or "tuple"')
+    if "atom" in node:
         return atom(_authoring_atom_bytes(node["atom"]))
-    arr = node["tuple"]
-    if not isinstance(arr, list):
+    if "tuple" not in node:
+        raise _AuthoringError('value must have exactly one member, "atom" or "tuple"')
+    children = node["tuple"]
+    if not isinstance(children, list):
         raise _AuthoringError('"tuple" must be an array')
-    return tuple_([_from_authoring(child) for child in arr])
+    return children
+
+
+def _authoring_value(root: object) -> Value:
+    """Stage 2: check a JSON value against the authoring notation — the exact
+    inverse of _to_authoring_json (and of the --format json value rendering) —
+    and build the core Value, walking the tree with an explicit stack. A value is
+    a JSON object with EXACTLY ONE member (stage 1 has already refused a
+    repeated name): "atom" (even-length lowercase hex, "" = empty atom) or "tuple" (a
+    JSON array of values). Anything else raises _AuthoringError -> the stable
+    `invalid_json` code.
+    """
+    first = _authoring_node(root)
+    if not isinstance(first, list):
+        return first  # type: ignore[return-value]
+    # Each open tuple: [children, index of the next one to check, values built].
+    stack: List[list] = [[first, 0, []]]
+    while True:
+        top = stack[-1]
+        children, index, built = top
+        if index == len(children):
+            stack.pop()
+            done = tuple_(built)
+            if not stack:
+                return done
+            stack[-1][2].append(done)
+            continue
+        top[1] = index + 1
+        node = _authoring_node(children[index])
+        if isinstance(node, list):
+            stack.append([node, 0, []])
+        else:
+            built.append(node)
 
 
 def _authoring_atom_bytes(hex_str: object) -> bytes:
@@ -213,16 +465,21 @@ def _authoring_atom_bytes(hex_str: object) -> bytes:
 
 
 def _value_from_json_source(source: str) -> Value:
-    """Build a Value from the --from-json source: json parse, then the SAME
-    structural validation as every core. "-" reads the JSON from stdin
-    (mirroring how hex does). Any malformed input raises _AuthoringError.
+    """Build a Value from the --from-json source: stage 1, then stage 2. "-"
+    reads the JSON from stdin. Nothing is trimmed: the reader allows only RFC
+    8259 whitespace.
+
+    Bytes that are not UTF-8 are read as U+FFFD, from stdin and from argv alike
+    (Node reads argv that way before ts sees it; ontos-cli.md "Value input").
+    U+FFFD is never hex and never part of a member name, so such text is always
+    refused. os.fsencode recovers an argument's bytes from the surrogateescape
+    decoding Python applied to it.
     """
-    text = sys.stdin.read() if source == "-" else source
-    try:
-        parsed = json.loads(text)
-    except ValueError:
-        raise _AuthoringError("malformed JSON") from None
-    return _from_authoring(parsed)
+    if source == "-":
+        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+    else:
+        text = os.fsencode(source).decode("utf-8", "replace")
+    return _authoring_value(_read_json(text))
 
 
 # --- input resolution -----------------------------------------------------------
@@ -291,9 +548,17 @@ def _resolve_value(
     if from_json is not None:
         try:
             value = _value_from_json_source(from_json)
+        except _JsonTooDeep as err:
+            # Deeper than any value the default decoder accepts: limit_exceeded,
+            # exit 1, exactly as a decode limit (ontos-cli.md "Value input").
+            if fmt == "json":
+                _emit_error(command, "limit_exceeded")
+            else:
+                _write_err(f"ontos: json input too deep: {err}\n")
+            return None, EXIT_NEGATIVE
         except _AuthoringError as err:
-            # Any malformed JSON or non-authoring shape is the stable invalid_json
-            # usage error (exit 2). The specific reason goes to stderr (human only).
+            # Any other fault in the text, or a non-authoring shape, is the stable
+            # invalid_json usage error (exit 2). The reason goes to stderr (human only).
             if fmt == "json":
                 _emit_error(command, "invalid_json")
             else:
@@ -366,11 +631,12 @@ def _run_decode(fmt: str, from_json: Optional[str], positional: Optional[str]) -
 
     if fmt == "json":
         # Contract key order: ok, command, codec, value.
-        _emit_line(
-            {"ok": True, "command": "decode", "codec": CODEC_ID, "value": _to_authoring(resolved.value)}
+        _write_out(
+            '{"ok":true,"command":"decode","codec":"' + CODEC_ID + '","value":'
+            + _to_authoring_json(resolved.value) + "}\n"
         )
     else:
-        _write_out(str(resolved.value) + "\n")
+        _write_out(_human_value(resolved.value) + "\n")
     return EXIT_OK
 
 
@@ -384,18 +650,15 @@ def _run_inspect(fmt: str, from_json: Optional[str], positional: Optional[str]) 
 
     if fmt == "json":
         # Contract key order: ok, command, codec, canonical, value, recognized.
-        _emit_line(
-            {
-                "ok": True,
-                "command": "inspect",
-                "codec": CODEC_ID,
-                "canonical": canonical,
-                "value": _to_authoring(resolved.value),
-                "recognized": recognized,
-            }
+        # The value is spliced in as text: json.dumps would recurse once per level.
+        head = json.dumps(
+            {"ok": True, "command": "inspect", "codec": CODEC_ID, "canonical": canonical},
+            separators=(",", ":"),
         )
+        tail = json.dumps(recognized, separators=(",", ":"))
+        _write_out(head[:-1] + ',"value":' + _to_authoring_json(resolved.value) + ',"recognized":' + tail + "}\n")
     else:
-        _write_out(str(resolved.value) + "\n")
+        _write_out(_human_value(resolved.value) + "\n")
         _write_out(f"canonical: {_yes_no(canonical)}\n")
         _write_out(f"recognized: {_human_labels(recognized)}\n")
     return EXIT_OK

@@ -376,31 +376,64 @@ fn empty_atom_and_empty_tuple_build() {
     assert_eq!(tuple.stdout, "0100\n"); // tag 0x01, uvarint arity 0
 }
 
-// ----- duplicate keys: last-value-wins (tri-core parity) ---------------------
+// ----- reading the text (docs/spec/ontos-cli.md "Reading the text") -----------
+
+/// `n` tuples around `inner`, as authoring JSON.
+fn nested(n: usize, inner: &str) -> String {
+    format!("{}{inner}{}", r#"{"tuple":["#.repeat(n), "]}".repeat(n))
+}
 
 #[test]
-fn duplicate_keys_resolve_last_wins() {
-    // A duplicate object key collapses last-value-wins, matching `encoding/json`
-    // (Go) and `JSON.parse` (TS) — so go/rs/ts agree byte-for-byte. `00` then `01`
-    // resolves to the atom `01` (0x00 ‖ uvarint(1) ‖ 0x01); three duplicates still
-    // take the last. (Two DISTINCT keys, e.g. atom+tuple, remain a reject — covered
-    // above — because the collapsed object then has two keys, not one.)
-    let dup = run(&[
-        "canon",
-        "--emit",
-        "--from-json",
+fn reading_refuses_what_rfc_8259_and_the_total_form_refuse() {
+    // A repeated member name (also when spelled with an escape), anything after the
+    // value, whitespace other than space/tab/LF/CR, and a lone surrogate escape.
+    for input in [
         r#"{"atom":"00","atom":"01"}"#,
-    ]);
-    assert_eq!(dup.code, 0, "dup-key exit {}", dup.code);
-    assert_eq!(dup.stdout, "000101\n");
-
-    let three = run(&[
+        r#"{"atom":"00","atom":"00"}"#,
+        r#"{"atom":"00"}]"#,
+        r#"{"atom":"00"}}"#,
+        "{\"atom\":\"00\"}\u{000c}",
+        "\u{00a0}{\"atom\":\"00\"}",
+        r#"{"atom":"\ud800"}"#,
+        r#"[NaN]"#,
+    ] {
+        let json = run(&["canon", "--emit", "--format", "json", "--from-json", input]);
+        assert_eq!(json.code, 2, "reject {input:?} exit {}", json.code);
+        assert_eq!(
+            json.stdout, "{\"ok\":false,\"command\":\"canon\",\"error\":\"invalid_json\"}\n",
+            "reject {input:?}"
+        );
+    }
+    // RFC 8259 whitespace is fine anywhere between tokens.
+    let spaced = run(&[
         "canon",
         "--emit",
         "--from-json",
-        r#"{"atom":"00","atom":"01","atom":"02"}"#,
+        " \t\r\n{ \"atom\" : \"00\" }\n",
     ]);
-    assert_eq!(three.stdout, "000102\n");
+    assert_eq!((spaced.code, spaced.stdout.as_str()), (0, "000100\n"));
+}
+
+#[test]
+fn reading_caps_nesting_at_1024_tuple_levels() {
+    // 1024 tuples around an atom are nested 1024 deep: accepted, as the default decoder
+    // accepts them. One more is limit_exceeded, exit 1, like a decode limit.
+    let ok = run(&[
+        "canon",
+        "--emit",
+        "--from-json",
+        &nested(1024, r#"{"atom":"00"}"#),
+    ]);
+    assert_eq!(ok.code, 0);
+    assert_eq!(ok.stdout, format!("{}000100\n", "0101".repeat(1024)));
+
+    let deep = nested(1025, r#"{"atom":"00"}"#);
+    let refused = run(&["canon", "--emit", "--format", "json", "--from-json", &deep]);
+    assert_eq!(refused.code, 1);
+    assert_eq!(
+        refused.stdout,
+        "{\"ok\":false,\"command\":\"canon\",\"error\":\"limit_exceeded\"}\n"
+    );
 }
 
 // ----- --from-json works with every command (not just canon) -----------------

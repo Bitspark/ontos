@@ -100,7 +100,9 @@ do_test() {
   # Executes the 32-bit build (ontos-internal#352). CI can only compile it until the fleet can exec
   # i386 (bitagent-ci); a host without IA32 support fails here with
   # "exec format error", which is that same gap, not a codec failure.
-  step "go codec, 32-bit build (GOARCH=386)"; GOARCH=386 go test -count=1 ./codec/go/
+  # The whole root module, not only the codec: core, data, data/json and the JSON projections
+  # also do length, magnitude and span arithmetic that a 32-bit int must hold.
+  step "go root module, 32-bit build (GOARCH=386)"; GOARCH=386 go test -count=1 ./...
   # The line above walks the MAIN module only (ontos-internal#304). `-count=1` matters here
   # specifically: projection/deixis/go reads its corpus from ABOVE its own module root, so
   # those files are not in the test cache key and a stale PASS would otherwise stand.

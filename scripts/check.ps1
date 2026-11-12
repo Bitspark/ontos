@@ -104,9 +104,11 @@ function Invoke-Test {
   Step "go (go test -cover ./...)";     Invoke-Checked { go test -cover ./... }
   # Executes the 32-bit build (ontos-internal#352); Windows runs i386 natively. CI can only compile
   # it until the fleet can exec i386 (bitagent-ci).
-  Step "go codec, 32-bit build (GOARCH=386)"
+  # The whole root module, not only the codec: core, data, data/json and the JSON projections
+  # also do length, magnitude and span arithmetic that a 32-bit int must hold.
+  Step "go root module, 32-bit build (GOARCH=386)"
   $prevGoarch = $env:GOARCH; $env:GOARCH = '386'
-  try { Invoke-Checked { go test -count=1 ./codec/go/ } } finally { $env:GOARCH = $prevGoarch }
+  try { Invoke-Checked { go test -count=1 ./... } } finally { $env:GOARCH = $prevGoarch }
   # The line above walks the MAIN module only (ontos-internal#304). `-count=1` matters here
   # specifically: projection/deixis/go reads its corpus from ABOVE its own module root, so
   # those files are not in the test cache key and a stale PASS would otherwise stand.

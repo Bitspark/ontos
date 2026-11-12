@@ -512,7 +512,10 @@ profiles, with `readable` depending on `total`.
   "Unbounded" is the largest value of the type in Go and Rust (`math.MaxInt`, `u64::MAX`, as
   in the codec), `Infinity` in TypeScript and `None` in Python. `max_json_depth` has a further
   setting, **derived** (§9.2): `DeriveJSONDepth` (a negative constant) in Go, `None` in Rust
-  and Python, and a missing field in TypeScript. Each profile's defaults set it to derived. A
+  and Python, and a missing field in TypeScript. Each profile's defaults set it to derived.
+  Python's `None` therefore cannot ask for an unbounded JSON depth beside a bounded value depth,
+  and nothing needs one: the derived bound already admits every text whose value is within the
+  value depth bound. A
   TypeScript `Partial<Limits>` overrides exactly the fields it gives, on that profile's
   `DEFAULT_LIMITS`; every field it leaves out keeps its default, and `maxJsonDepth`, when left
   out, is derived from the effective `maxValueDepth`. So `parseUtf8(text, { maxValueDepth: 10 })`

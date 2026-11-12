@@ -350,7 +350,8 @@ output, a path is a JSON array of strings and integers.
 Refusals from stages 1 and 2 have the empty path. Stage 3 gives the path of the value being
 read when the fault was found (§4.3). Stage 4 gives the path of the node the check names. A
 path does not distinguish repeated occurrences of one member name, and the span does: a
-`duplicate_member` refusal carries the span of the second occurrence.
+`duplicate_member` refusal carries the span of the second occurrence. The record names only
+that one. A face may mention the first occurrence in its message.
 
 ### 8.3 Spans
 

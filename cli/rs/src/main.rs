@@ -696,8 +696,8 @@ fn trim_hex_input(s: &str) -> &str {
 fn resolve_json_text(src: String) -> Result<String, String> {
     if src == "-" {
         // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
-        // U+FFFD is never hex and never part of a member name, so such text is
-        // always refused.
+        // U+FFFD is never hex and never part of `atom` or `tuple`, so such text is
+        // always refused (a member named with it fails the shape check).
         let mut buf = Vec::new();
         io::stdin()
             .read_to_end(&mut buf)

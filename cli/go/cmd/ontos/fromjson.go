@@ -56,7 +56,8 @@ type jsonNode struct {
 }
 
 // readJSONText decodes the --from-json text: invalid UTF-8 becomes U+FFFD. U+FFFD
-// is never hex and never part of a member name, so such text is always refused.
+// is never hex and never part of "atom" or "tuple", so such text is always refused
+// (a member named with it fails the shape check).
 func readJSONText(raw []byte) string {
 	return strings.ToValidUTF8(string(raw), "\uFFFD")
 }
@@ -393,11 +394,11 @@ func (r *jsonReader) hex4() (rune, error) {
 // refused a repeated name). Any other shape is an error, which the caller reports
 // as invalid_json. It walks the tree with an explicit stack.
 func authoringValue(root *jsonNode) (core.Value, error) {
-	v, items, err := authoringNode(root)
+	kind, v, items, err := authoringNode(root)
 	if err != nil {
 		return nil, fmt.Errorf("$: %w", err)
 	}
-	if items == nil {
+	if kind == authoringAtom {
 		return v, nil
 	}
 	// An open tuple: its children, the next one to check, and those built so far.
@@ -421,7 +422,7 @@ func authoringValue(root *jsonNode) (core.Value, error) {
 		}
 		child := top.items[top.next]
 		top.next++
-		v, items, err := authoringNode(child)
+		kind, v, items, err := authoringNode(child)
 		if err != nil {
 			// The breadcrumb for the (human-only) diagnostic: $.tuple[i].tuple[j]…
 			var path strings.Builder
@@ -431,7 +432,7 @@ func authoringValue(root *jsonNode) (core.Value, error) {
 			}
 			return nil, fmt.Errorf("%s: %w", path.String(), err)
 		}
-		if items == nil {
+		if kind == authoringAtom {
 			top.built = append(top.built, v)
 		} else {
 			stack = append(stack, &open{items: items, built: make([]core.Value, 0, len(items))})
@@ -439,35 +440,40 @@ func authoringValue(root *jsonNode) (core.Value, error) {
 	}
 }
 
+// authoringKind tells what authoringNode found.
+type authoringKind uint8
+
+const (
+	authoringAtom  authoringKind = iota // the Value is the atom
+	authoringTuple                      // the items are the tuple's children, maybe none
+)
+
 // authoringNode checks one node: an atom comes back as its Value, a tuple as its
-// children (non-nil, possibly empty) for the caller to walk.
-func authoringNode(n *jsonNode) (core.Value, []*jsonNode, error) {
+// children for the caller to walk.
+func authoringNode(n *jsonNode) (authoringKind, core.Value, []*jsonNode, error) {
 	if n.kind != jsonObject {
-		return nil, nil, errors.New(`value must be an object with one of "atom"/"tuple"`)
+		return 0, nil, nil, errors.New(`value must be an object with one of "atom"/"tuple"`)
 	}
 	if len(n.members) != 1 {
-		return nil, nil, errors.New(`value must have exactly one member, "atom" or "tuple"`)
+		return 0, nil, nil, errors.New(`value must have exactly one member, "atom" or "tuple"`)
 	}
 	if a, ok := n.members["atom"]; ok {
 		if a.kind != jsonString {
-			return nil, nil, errors.New(`"atom" must be a string`)
+			return 0, nil, nil, errors.New(`"atom" must be a string`)
 		}
 		b, err := authoringHex(a.str)
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, nil, err
 		}
-		return core.NewAtom(b), nil, nil
+		return authoringAtom, core.NewAtom(b), nil, nil
 	}
 	if t, ok := n.members["tuple"]; ok {
 		if t.kind != jsonArray {
-			return nil, nil, errors.New(`"tuple" must be an array`)
+			return 0, nil, nil, errors.New(`"tuple" must be an array`)
 		}
-		if t.items == nil {
-			return nil, []*jsonNode{}, nil
-		}
-		return nil, t.items, nil
+		return authoringTuple, nil, t.items, nil
 	}
-	return nil, nil, errors.New(`value must have exactly one member, "atom" or "tuple"`)
+	return 0, nil, nil, errors.New(`value must have exactly one member, "atom" or "tuple"`)
 }
 
 // authoringHex validates an atom string as even-length LOWERCASE hex ("" is the

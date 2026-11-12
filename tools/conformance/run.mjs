@@ -458,6 +458,7 @@ function runFromJsonMode(impls, cases) {
       divergences.push({
         mode: "from-json (oracle)",
         label: `${c.name} ${c.valueJson}`,
+        kind: "pinned-hex",
         oracle: { expected: c.hex, got: got ?? `<no hex in: ${ref.stdout.replace(/\n$/, "")}>` },
         perImpl: perImpl.map((r) => ({ name: r.impl.name, stdout: r.stdout, status: r.status })),
       });
@@ -491,9 +492,13 @@ const READING_EXIT = {
   invalid_hex: 2,
 };
 
-// A text longer than this (UTF-8 bytes) runs through stdin only. Windows caps a whole
-// command line at 32767 characters, and its quoting escapes every '"' in a JSON text.
+// A text whose argument would be longer than this runs through stdin only. Windows
+// caps a whole command line at 32767 UTF-16 units, and its quoting can escape every
+// '"' and '\' and adds two quotes, so the length that counts is the escaped one
+// (argvLength); the same rule applies on every platform, so every platform runs the
+// same set.
 const ARGV_MAX = 16384;
+const argvLength = (text) => text.length + 2 + (text.match(/["\\]/g)?.length ?? 0);
 
 // Node passes arguments only as strings, so a text that is not UTF-8 reaches an impl's
 // argv through this trampoline: python3 decodes the hex arguments and execs the impl
@@ -554,13 +559,14 @@ function collectReadingCases(path) {
       throw new UsageError(`${where}.via must list "argv" and/or "stdin"`);
     }
     // A text with NUL cannot be an argument; a long one would not fit a command line.
-    const argvFits = !input.includes(0) && input.length <= ARGV_MAX && (text !== null || ARGV_BYTES);
+    const length = text !== null ? argvLength(text) : input.length + 2;
+    const argvFits = !input.includes(0) && length <= ARGV_MAX && (text !== null || ARGV_BYTES);
     const sources = via.filter((v) => v === "stdin" || argvFits);
     const e = c.expect ?? {};
     let expect;
     if (e.hex !== undefined && e.error === undefined) {
       expect = { hex: expandPieces(e.hex, `${where}.expect.hex`) };
-    } else if (e.error !== undefined && e.hex === undefined && e.error in READING_EXIT && e.error !== "ok") {
+    } else if (e.error !== undefined && e.hex === undefined && Object.hasOwn(READING_EXIT, e.error) && e.error !== "ok") {
       expect = { error: e.error };
     } else {
       throw new UsageError(`${where}.expect must be {"hex": …} or {"error": <a contract error code>}`);
@@ -568,6 +574,13 @@ function collectReadingCases(path) {
     return { name: c.name, source, input, text, sources, expect, chunked: c.chunked === true };
   });
 }
+
+// The py lane must read stdin as bytes. Python decodes sys.stdin through the
+// locale: with surrogateescape under C or C.UTF-8 (where this usually runs), strictly
+// under en_US.UTF-8, where a lane that read text crashed on a byte that is not
+// UTF-8. Strict here judges the stricter of the two on every runner; it changes
+// nothing for an impl that is not Python (and python's stderr stays backslashreplace).
+const READING_ENV = { ...process.env, PYTHONIOENCODING: "utf-8:strict" };
 
 // Long output is cut down for a divergence report.
 const shorten = (s) => (s.length > 200 ? `${s.slice(0, 200)}… (${s.length} chars)` : s);
@@ -596,7 +609,7 @@ function runAsync(impl, args, input, chunked = false) {
     program = PYTHON;
   }
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(program, argv, { stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(program, argv, { stdio: ["pipe", "pipe", "ignore"], env: READING_ENV });
     const out = [];
     child.stdout.on("data", (d) => out.push(d));
     child.on("error", (err) =>
@@ -635,7 +648,8 @@ async function runReadingCase(impls, c) {
       divergences.push({
         mode: `reading (${c.source} through ${via})`,
         label: c.name,
-        oracle: { expected: `${shorten(expectedLine.replace(/\n$/, ""))} with exit ${expectedExit}`, got: "see below" },
+        kind: "outcome",
+        expected: `${shorten(expectedLine.replace(/\n$/, ""))} with exit ${expectedExit}`,
         perImpl: perImpl.map((r) => ({ name: r.impl.name, stdout: shorten(r.stdout), status: r.status })),
       });
     }
@@ -788,9 +802,9 @@ async function main() {
   // --- report ----------------------------------------------------------------
   for (const d of divergences) {
     process.stdout.write(`DIVERGENCE [${d.mode}: ${d.label}]\n`);
-    if (d.oracle && d.oracle.got === "see below") {
-      process.stdout.write(`  expected ${d.oracle.expected}\n`);
-    } else if (d.oracle) {
+    if (d.kind === "outcome") {
+      process.stdout.write(`  expected ${d.expected}\n`);
+    } else if (d.kind === "pinned-hex") {
       process.stdout.write(`  emit != pinned hex: expected ${d.oracle.expected}, got ${d.oracle.got}\n`);
     }
     for (const r of d.perImpl) {

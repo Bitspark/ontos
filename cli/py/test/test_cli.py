@@ -11,6 +11,7 @@ Run: ``python3 cli/py/test/test_cli.py``
 """
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -145,12 +146,16 @@ class ErrorPathTests(unittest.TestCase):
                 self.assertEqual(_run(["canon", "--emit"], stdin=text)[:2], (0, b"000100\n"))
 
     def test_hex_input_that_is_not_utf8_is_invalid_hex(self):
+        # Strict stdin decoding, as under en_US.UTF-8, where reading stdin as text
+        # crashed with UnicodeDecodeError (C.UTF-8 masks it with surrogateescape).
         invalid = b'{"ok":false,"command":"canon","error":"invalid_hex"}\n'
+        strict = {**os.environ, "PYTHONIOENCODING": "utf-8:strict"}
         for raw in [b"\xff", b"000100\xff"]:
             proc = subprocess.run(
                 [sys.executable, str(_MAIN), "canon", "--emit", "--format", "json"],
                 input=raw,
                 capture_output=True,
+                env=strict,
             )
             self.assertEqual((proc.returncode, proc.stdout), (2, invalid))
 

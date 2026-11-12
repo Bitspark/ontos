@@ -142,8 +142,9 @@ class JsonTooDeep extends Error {}
  *   2. authoringValue checks the JSON value against the authoring shape and builds
  *      the core Value, again without recursion.
  * Node decodes argv and the utf8 stdin read with U+FFFD for each sequence that is
- * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of a
- * member name, so such text is always refused. This reader is interim: a later task
+ * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of
+ * "atom" or "tuple", so such text is always refused (a member named with it fails
+ * the shape check). This reader is interim: a later task
  * moves the CLIs onto a library reader.
  */
 

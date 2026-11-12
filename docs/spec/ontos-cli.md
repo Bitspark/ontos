@@ -153,9 +153,10 @@ All four implementations read a `--from-json` text the same way, in two stages.
   refused at its 2051st bracket.
 - **Bytes that are not UTF-8** are read as U+FFFD, from stdin and from an argument alike.
   The rule can't be stricter, because Node decodes argv that way before the `ts`
-  implementation sees it. U+FFFD is never hex and never part of a member name, so such
-  a text is always refused (`invalid_json`, or `limit_exceeded` when the cap comes
-  first), and the outcome never depends on how many U+FFFD a decoder produces.
+  implementation sees it. U+FFFD is never hex and never part of `atom` or `tuple` (a
+  member named with it fails the shape check), so such a text is always refused
+  (`invalid_json`, or `limit_exceeded` when the cap comes first), and the outcome never
+  depends on how many U+FFFD a decoder produces.
 
 The text is read from left to right, and its **first fault ends the reading**: a 2051st
 level is `limit_exceeded`, any other fault is `invalid_json`. So a plain array 3000 deep

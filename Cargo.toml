@@ -1,5 +1,5 @@
 [workspace]
-members = ["core/rs", "codec/rs", "data/rs", "data/json/rs", "cli/rs", "projection/deixis/rs", "tools/producer-conformance/adapters/rs"]
+members = ["core/rs", "codec/rs", "data/rs", "data/json/rs", "cli/rs", "projection/deixis/rs", "projection/json/rs", "tools/producer-conformance/adapters/rs"]
 resolver = "2"
 
 [workspace.package]

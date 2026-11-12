@@ -1,0 +1,1758 @@
+{
+  "profile": "ontos-readable-json/1",
+  "codec": "ontos-codec-v1",
+  "spec": "docs/spec/ontos-readable-json.md",
+  "note": "Conformance vectors for ontos-readable-json/1. Hand-authored from the spec page; input_hex and value_hex are derived by tools/json-projection/gen.mjs and every case is checked by tools/json-projection/check.mjs. Format: README.md beside this file.",
+  "cases": [
+    {
+      "name": "null",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "null",
+      "input_hex": "6e756c6c",
+      "value": ["null"],
+      "value_hex": "010100046e756c6c",
+      "output": "null"
+    },
+    {
+      "name": "true",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "true",
+      "input_hex": "74727565",
+      "value": ["bool",true],
+      "value_hex": "01020004626f6f6c000101",
+      "output": "true"
+    },
+    {
+      "name": "false",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "false",
+      "input_hex": "66616c7365",
+      "value": ["bool",false],
+      "value_hex": "01020004626f6f6c000100",
+      "output": "false"
+    },
+    {
+      "name": "string",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "\"hi\"",
+      "input_hex": "22686922",
+      "value": ["text","hi"],
+      "value_hex": "01020009757466382d7465787400026869",
+      "output": "\"hi\""
+    },
+    {
+      "name": "string-empty",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "\"\"",
+      "input_hex": "2222",
+      "value": ["text",""],
+      "value_hex": "01020009757466382d746578740000",
+      "output": "\"\""
+    },
+    {
+      "name": "string-escaping",
+      "group": "plain",
+      "note": "the fixed escaping of readable §5: short escapes, \\u00xx lowercase for other controls, everything else literal, / unescaped",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "\"a\\\"b\\\\c\\/d\\b\\f\\n\\r\\t\\u0000\\u001F\\u007f\\u2028\\u00e9\\ud83d\\ude00\"",
+      "input_hex": "22615c22625c5c635c2f645c625c665c6e5c725c745c75303030305c75303031465c75303037665c75323032385c75303065395c75643833645c756465303022",
+      "value": ["text","a\"b\\c/d\b\f\n\r\t\u0000\u001f é😀"],
+      "value_hex": "01020009757466382d7465787400186122625c632f64080c0a0d09001f7fe280a8c3a9f09f9880",
+      "output": "\"a\\\"b\\\\c/d\\b\\f\\n\\r\\t\\u0000\\u001f é😀\""
+    },
+    {
+      "name": "string-leading-feff",
+      "group": "plain",
+      "note": "U+FEFF inside a string is content",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "\"\\ufeffx\"",
+      "input_hex": "225c75666566667822",
+      "value": ["text","﻿x"],
+      "value_hex": "01020009757466382d746578740004efbbbf78",
+      "output": "\"﻿x\""
+    },
+    {
+      "name": "string-no-normalization",
+      "group": "plain",
+      "note": "composed and decomposed é stay distinct",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[\"\\u00e9\",\"e\\u0301\"]",
+      "input_hex": "5b225c7530306539222c22655c7530333031225d",
+      "value": ["list",[["text","é"],["text","é"]]],
+      "value_hex": "010300046c69737401020009757466382d746578740002c3a901020009757466382d74657874000365cc81",
+      "output": "[\"é\",\"é\"]"
+    },
+    {
+      "name": "int-zero",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "0",
+      "input_hex": "30",
+      "value": ["int","0"],
+      "value_hex": "01020003696e74000100",
+      "output": "0"
+    },
+    {
+      "name": "int-257",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "257",
+      "input_hex": "323537",
+      "value": ["int","257"],
+      "value_hex": "01020003696e740003000101",
+      "output": "257"
+    },
+    {
+      "name": "int-minus-one",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "-1",
+      "input_hex": "2d31",
+      "value": ["int","-1"],
+      "value_hex": "01020003696e7400020101",
+      "output": "-1"
+    },
+    {
+      "name": "int-safe-max",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "9007199254740991",
+      "input_hex": "39303037313939323534373430393931",
+      "value": ["int","9007199254740991"],
+      "value_hex": "01020003696e740008001fffffffffffff",
+      "output": "9007199254740991"
+    },
+    {
+      "name": "int-safe-min",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "-9007199254740991",
+      "input_hex": "2d39303037313939323534373430393931",
+      "value": ["int","-9007199254740991"],
+      "value_hex": "01020003696e740008011fffffffffffff",
+      "output": "-9007199254740991"
+    },
+    {
+      "name": "negative-zero",
+      "group": "integers",
+      "note": "normalization negative-zero",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "-0",
+      "input_hex": "2d30",
+      "value": ["int","0"],
+      "value_hex": "01020003696e74000100",
+      "output": "0"
+    },
+    {
+      "name": "list-empty",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[]",
+      "input_hex": "5b5d",
+      "value": ["list",[]],
+      "value_hex": "010100046c697374",
+      "output": "[]"
+    },
+    {
+      "name": "list-mixed",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[1,\"a\",null,[true]]",
+      "input_hex": "5b312c2261222c6e756c6c2c5b747275655d5d",
+      "value": ["list",[["int","1"],["text","a"],["null"],["list",[["bool",true]]]]],
+      "value_hex": "010500046c69737401020003696e740002000101020009757466382d74657874000161010100046e756c6c010200046c69737401020004626f6f6c000101",
+      "output": "[1,\"a\",null,[true]]"
+    },
+    {
+      "name": "object-empty",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{}",
+      "input_hex": "7b7d",
+      "value": ["map",[]],
+      "value_hex": "010100036d6170",
+      "output": "{}"
+    },
+    {
+      "name": "object-codec-order",
+      "group": "objects",
+      "note": "codec order: the shorter key first, so b before aa",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"b\":1,\"aa\":2}",
+      "input_hex": "7b2262223a312c226161223a327d",
+      "value": ["map",[[["text","aa"],["int","2"]],[["text","b"],["int","1"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400016201020003696e7400020001010201020009757466382d746578740002616101020003696e7400020002",
+      "output": "{\"b\":1,\"aa\":2}"
+    },
+    {
+      "name": "object-member-order",
+      "group": "objects",
+      "note": "normalization member-order; origins follow the members to their sorted entries",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"aa\":2,\"b\":1}",
+      "input_hex": "7b226161223a322c2262223a317d",
+      "value": ["map",[[["text","aa"],["int","2"]],[["text","b"],["int","1"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400016201020003696e7400020001010201020009757466382d746578740002616101020003696e7400020002",
+      "output": "{\"b\":1,\"aa\":2}",
+      "origins": [[[],[],[0,14]],[[0],[],[0,14]],[[1],["b"],[8,13]],[[1,0],["b"],[8,11]],[[1,0,0],["b"],[8,11]],[[1,0,1],["b"],[8,11]],[[1,1],["b"],[12,13]],[[1,1,0],["b"],[12,13]],[[1,1,1],["b"],[12,13]],[[2],["aa"],[1,7]],[[2,0],["aa"],[1,5]],[[2,0,0],["aa"],[1,5]],[[2,0,1],["aa"],[1,5]],[[2,1],["aa"],[6,7]],[[2,1,0],["aa"],[6,7]],[[2,1,1],["aa"],[6,7]]]
+    },
+    {
+      "name": "object-bytewise-order",
+      "group": "objects",
+      "note": "equal lengths compare bytewise: Z (5A) before a (61)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"a\":2,\"Z\":1}",
+      "input_hex": "7b2261223a322c225a223a317d",
+      "value": ["map",[[["text","a"],["int","2"]],[["text","Z"],["int","1"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400015a01020003696e7400020001010201020009757466382d7465787400016101020003696e7400020002",
+      "output": "{\"Z\":1,\"a\":2}"
+    },
+    {
+      "name": "object-long-key-order",
+      "group": "objects",
+      "note": "from 128 bytes on the uvarint is not in numeric order: 256 (80 02) sorts before 129 (81 01)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\":1,\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\":2}",
+      "input_hex": "7b226b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b223a312c226b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b223a327d",
+      "value": ["map",[[["text","kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"],["int","1"]],[["text","kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d746578740080026b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b01020003696e7400020002010201020009757466382d746578740081016b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b01020003696e7400020001",
+      "output": "{\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\":2,\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\":1}"
+    },
+    {
+      "name": "object-proto-keys",
+      "group": "objects",
+      "note": "__proto__ and constructor are data",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"constructor\":2,\"__proto__\":1}",
+      "input_hex": "7b22636f6e7374727563746f72223a322c225f5f70726f746f5f5f223a317d",
+      "value": ["map",[[["text","__proto__"],["int","1"]],[["text","constructor"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400095f5f70726f746f5f5f01020003696e7400020001010201020009757466382d74657874000b636f6e7374727563746f7201020003696e7400020002",
+      "output": "{\"__proto__\":1,\"constructor\":2}"
+    },
+    {
+      "name": "object-dollar-keys",
+      "group": "objects",
+      "note": "only $ontos is reserved: $bytes and $undefined are ordinary keys",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$undefined\":true,\"$bytes\":\"AA==\"}",
+      "input_hex": "7b2224756e646566696e6564223a747275652c22246279746573223a2241413d3d227d",
+      "value": ["map",[[["text","$undefined"],["bool",true]],[["text","$bytes"],["text","AA=="]]]],
+      "value_hex": "010300036d6170010201020009757466382d74657874000624627974657301020009757466382d74657874000441413d3d010201020009757466382d74657874000a24756e646566696e656401020004626f6f6c000101",
+      "output": "{\"$bytes\":\"AA==\",\"$undefined\":true}"
+    },
+    {
+      "name": "object-escaped-key",
+      "group": "objects",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"\\u0061\":1,\"a\\\"b\":2}",
+      "input_hex": "7b225c7530303631223a312c22615c2262223a327d",
+      "value": ["map",[[["text","a"],["int","1"]],[["text","a\"b"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400016101020003696e7400020001010201020009757466382d74657874000361226201020003696e7400020002",
+      "output": "{\"a\":1,\"a\\\"b\":2}"
+    },
+    {
+      "name": "object-unnormalized-keys",
+      "group": "objects",
+      "note": "two keys that differ only by normalization are two keys; C3 A9 (2 bytes) sorts before 65 CC 81 (3 bytes)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"e\\u0301\":2,\"\\u00e9\":1}",
+      "input_hex": "7b22655c7530333031223a322c225c7530306539223a317d",
+      "value": ["map",[[["text","é"],["int","1"]],[["text","é"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d746578740002c3a901020003696e7400020001010201020009757466382d74657874000365cc8101020003696e7400020002",
+      "output": "{\"é\":1,\"é\":2}"
+    },
+    {
+      "name": "total-form-is-a-map-here",
+      "group": "objects",
+      "note": "the same text is Atom(0x00) under ontos-total-json/1 (readable §11)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"atom\":\"00\"}",
+      "input_hex": "7b2261746f6d223a223030227d",
+      "value": ["map",[[["text","atom"],["text","00"]]]],
+      "value_hex": "010200036d6170010201020009757466382d74657874000461746f6d01020009757466382d7465787400023030",
+      "output": "{\"atom\":\"00\"}"
+    },
+    {
+      "name": "whitespace",
+      "group": "plain",
+      "provenance": "derived-from-spec-algorithm",
+      "input": " [ 1 ,\t{ \"a\" : null } ]\r\n",
+      "input_hex": "205b2031202c097b20226122203a206e756c6c207d205d0d0a",
+      "value": ["list",[["int","1"],["map",[[["text","a"],["null"]]]]]],
+      "value_hex": "010300046c69737401020003696e7400020001010200036d6170010201020009757466382d74657874000161010100046e756c6c",
+      "output": "[1,{\"a\":null}]"
+    },
+    {
+      "name": "bytes",
+      "group": "bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"bytes\",\"AA==\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241413d3d225d7d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"$ontos\":[\"bytes\",\"AA==\"]}"
+    },
+    {
+      "name": "bytes-empty",
+      "group": "bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"bytes\",\"\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c22225d7d",
+      "value": ["atom",""],
+      "value_hex": "0000",
+      "output": "{\"$ontos\":[\"bytes\",\"\"]}"
+    },
+    {
+      "name": "bytes-three",
+      "group": "bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"bytes\",\"AQID\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241514944225d7d",
+      "value": ["atom","010203"],
+      "value_hex": "0003010203",
+      "output": "{\"$ontos\":[\"bytes\",\"AQID\"]}"
+    },
+    {
+      "name": "bytes-plus-slash",
+      "group": "bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"bytes\",\"/+8=\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c222f2b383d225d7d",
+      "value": ["atom","ffef"],
+      "value_hex": "0002ffef",
+      "output": "{\"$ontos\":[\"bytes\",\"/+8=\"]}"
+    },
+    {
+      "name": "bytes-escaped-envelope",
+      "group": "bytes",
+      "note": "the reserved name and the tag name are compared after escape decoding",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"\\u0024ontos\":[\"\\u0062ytes\",\"AA==\"]}",
+      "input_hex": "7b225c75303032346f6e746f73223a5b225c753030363279746573222c2241413d3d225d7d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"$ontos\":[\"bytes\",\"AA==\"]}"
+    },
+    {
+      "name": "envelope-whitespace",
+      "group": "bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{ \"$ontos\" : [ \"bytes\" , \"AA==\" ] }",
+      "input_hex": "7b2022246f6e746f7322203a205b2022627974657322202c202241413d3d22205d207d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"$ontos\":[\"bytes\",\"AA==\"]}"
+    },
+    {
+      "name": "list-of-bytes",
+      "group": "bytes",
+      "note": "a plain string that looks like base64 stays text",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[{\"$ontos\":[\"bytes\",\"AA==\"]},\"AA==\"]",
+      "input_hex": "5b7b22246f6e746f73223a5b226279746573222c2241413d3d225d7d2c2241413d3d225d",
+      "value": ["list",[["atom","00"],["text","AA=="]]],
+      "value_hex": "010300046c69737400010001020009757466382d74657874000441413d3d",
+      "output": "[{\"$ontos\":[\"bytes\",\"AA==\"]},\"AA==\"]"
+    },
+    {
+      "name": "int-tag-2pow53",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"9007199254740992\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2239303037313939323534373430393932225d7d",
+      "value": ["int","9007199254740992"],
+      "value_hex": "01020003696e7400080020000000000000",
+      "output": "{\"$ontos\":[\"int\",\"9007199254740992\"]}"
+    },
+    {
+      "name": "int-tag-minus-2pow53",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"-9007199254740992\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222d39303037313939323534373430393932225d7d",
+      "value": ["int","-9007199254740992"],
+      "value_hex": "01020003696e7400080120000000000000",
+      "output": "{\"$ontos\":[\"int\",\"-9007199254740992\"]}"
+    },
+    {
+      "name": "int-tag-2pow53-plus-1",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"9007199254740993\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2239303037313939323534373430393933225d7d",
+      "value": ["int","9007199254740993"],
+      "value_hex": "01020003696e7400080020000000000001",
+      "output": "{\"$ontos\":[\"int\",\"9007199254740993\"]}"
+    },
+    {
+      "name": "int-tag-2pow127",
+      "group": "integers",
+      "note": "the smallest positive int beyond i128",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"170141183460469231731687303715884105728\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c22313730313431313833343630343639323331373331363837333033373135383834313035373238225d7d",
+      "value": ["int","170141183460469231731687303715884105728"],
+      "value_hex": "01020003696e7400110080000000000000000000000000000000",
+      "output": "{\"$ontos\":[\"int\",\"170141183460469231731687303715884105728\"]}"
+    },
+    {
+      "name": "int-tag-minus-2pow127-minus-1",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"-170141183460469231731687303715884105729\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222d313730313431313833343630343639323331373331363837333033373135383834313035373239225d7d",
+      "value": ["int","-170141183460469231731687303715884105729"],
+      "value_hex": "01020003696e7400110180000000000000000000000000000001",
+      "output": "{\"$ontos\":[\"int\",\"-170141183460469231731687303715884105729\"]}"
+    },
+    {
+      "name": "int-tag-2pow128",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"340282366920938463463374607431768211456\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c22333430323832333636393230393338343633343633333734363037343331373638323131343536225d7d",
+      "value": ["int","340282366920938463463374607431768211456"],
+      "value_hex": "01020003696e740012000100000000000000000000000000000000",
+      "output": "{\"$ontos\":[\"int\",\"340282366920938463463374607431768211456\"]}"
+    },
+    {
+      "name": "int-tag-small",
+      "group": "integers",
+      "note": "normalization tagged-small-int",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"5\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2235225d7d",
+      "value": ["int","5"],
+      "value_hex": "01020003696e7400020005",
+      "output": "5"
+    },
+    {
+      "name": "int-tag-zero",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2230225d7d",
+      "value": ["int","0"],
+      "value_hex": "01020003696e74000100",
+      "output": "0"
+    },
+    {
+      "name": "int-tag-safe-min",
+      "group": "integers",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"-9007199254740991\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222d39303037313939323534373430393931225d7d",
+      "value": ["int","-9007199254740991"],
+      "value_hex": "01020003696e740008011fffffffffffff",
+      "output": "-9007199254740991"
+    },
+    {
+      "name": "string-of-digits",
+      "group": "integers",
+      "note": "a string of digits is text",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "\"9007199254740993\"",
+      "input_hex": "223930303731393932353437343039393322",
+      "value": ["text","9007199254740993"],
+      "value_hex": "01020009757466382d74657874001039303037313939323534373430393933",
+      "output": "\"9007199254740993\""
+    },
+    {
+      "name": "decimal",
+      "group": "decimals",
+      "note": "3.14",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"314\",\"-2\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c22333134222c222d32225d7d",
+      "value": ["decimal","314","-2"],
+      "value_hex": "01030007646563696d616c01020003696e74000300013a01020003696e7400020102",
+      "output": "{\"$ontos\":[\"decimal\",\"314\",\"-2\"]}"
+    },
+    {
+      "name": "decimal-zero",
+      "group": "decimals",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"0\",\"0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2230222c2230225d7d",
+      "value": ["decimal","0","0"],
+      "value_hex": "01030007646563696d616c01020003696e7400010001020003696e74000100",
+      "output": "{\"$ontos\":[\"decimal\",\"0\",\"0\"]}"
+    },
+    {
+      "name": "decimal-hundred",
+      "group": "decimals",
+      "note": "100 is 1·10², never 100·10⁰",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"1\",\"2\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2231222c2232225d7d",
+      "value": ["decimal","1","2"],
+      "value_hex": "01030007646563696d616c01020003696e740002000101020003696e7400020002",
+      "output": "{\"$ontos\":[\"decimal\",\"1\",\"2\"]}"
+    },
+    {
+      "name": "decimal-negative",
+      "group": "decimals",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"-5\",\"-1\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c222d35222c222d31225d7d",
+      "value": ["decimal","-5","-1"],
+      "value_hex": "01030007646563696d616c01020003696e740002010501020003696e7400020101",
+      "output": "{\"$ontos\":[\"decimal\",\"-5\",\"-1\"]}"
+    },
+    {
+      "name": "decimal-one-is-not-int",
+      "group": "decimals",
+      "note": "a decimal and an int of the same number are distinct values",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[{\"$ontos\":[\"decimal\",\"1\",\"0\"]},1]",
+      "input_hex": "5b7b22246f6e746f73223a5b22646563696d616c222c2231222c2230225d7d2c315d",
+      "value": ["list",[["decimal","1","0"],["int","1"]]],
+      "value_hex": "010300046c69737401030007646563696d616c01020003696e740002000101020003696e7400010001020003696e7400020001",
+      "output": "[{\"$ontos\":[\"decimal\",\"1\",\"0\"]},1]"
+    },
+    {
+      "name": "decimal-huge-exponent",
+      "group": "decimals",
+      "note": "never expanded: the exponent stays an integer component",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"7\",\"-99999999999999999999999999999999999999999\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2237222c222d3939393939393939393939393939393939393939393939393939393939393939393939393939393939225d7d",
+      "value": ["decimal","7","-99999999999999999999999999999999999999999"],
+      "value_hex": "01030007646563696d616c01020003696e740002000701020003696e740013010125dfa371a19e6f7cb54395c9ffffffffff",
+      "output": "{\"$ontos\":[\"decimal\",\"7\",\"-99999999999999999999999999999999999999999\"]}"
+    },
+    {
+      "name": "decimal-huge-mantissa",
+      "group": "decimals",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"decimal\",\"340282366920938463463374607431768211457\",\"3\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c22333430323832333636393230393338343633343633333734363037343331373638323131343537222c2233225d7d",
+      "value": ["decimal","340282366920938463463374607431768211457","3"],
+      "value_hex": "01030007646563696d616c01020003696e74001200010000000000000000000000000000000101020003696e7400020003",
+      "output": "{\"$ontos\":[\"decimal\",\"340282366920938463463374607431768211457\",\"3\"]}"
+    },
+    {
+      "name": "map-non-text-keys",
+      "group": "maps",
+      "note": "normalization entry-order: an atom key (tag 00) sorts before a tuple key (tag 01)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[1,\"one\"],[{\"$ontos\":[\"bytes\",\"AA==\"]},\"zero byte\"]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b312c226f6e65225d2c5b7b22246f6e746f73223a5b226279746573222c2241413d3d225d7d2c227a65726f2062797465225d5d5d7d",
+      "value": ["map",[[["int","1"],["text","one"]],[["atom","00"],["text","zero byte"]]]],
+      "value_hex": "010300036d6170010200010001020009757466382d7465787400097a65726f2062797465010201020003696e740002000101020009757466382d7465787400036f6e65",
+      "output": "{\"$ontos\":[\"map\",[[{\"$ontos\":[\"bytes\",\"AA==\"]},\"zero byte\"],[1,\"one\"]]]}"
+    },
+    {
+      "name": "map-reserved-key",
+      "group": "maps",
+      "note": "the map from the text $ontos to null(): the map tag is the escape",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[\"$ontos\",null]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b22246f6e746f73222c6e756c6c5d5d5d7d",
+      "value": ["map",[[["text","$ontos"],["null"]]]],
+      "value_hex": "010200036d6170010201020009757466382d746578740006246f6e746f73010100046e756c6c",
+      "output": "{\"$ontos\":[\"map\",[[\"$ontos\",null]]]}"
+    },
+    {
+      "name": "map-reserved-key-among-others",
+      "group": "maps",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[\"zz\",1],[\"$ontos\",2],[\"a\",3]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b227a7a222c315d2c5b22246f6e746f73222c325d2c5b2261222c335d5d5d7d",
+      "value": ["map",[[["text","zz"],["int","1"]],[["text","$ontos"],["int","2"]],[["text","a"],["int","3"]]]],
+      "value_hex": "010400036d6170010201020009757466382d7465787400016101020003696e7400020003010201020009757466382d7465787400027a7a01020003696e7400020001010201020009757466382d746578740006246f6e746f7301020003696e7400020002",
+      "output": "{\"$ontos\":[\"map\",[[\"a\",3],[\"zz\",1],[\"$ontos\",2]]]}"
+    },
+    {
+      "name": "map-tag-text-keys",
+      "group": "maps",
+      "note": "normalization text-keyed-map",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[\"b\",1],[\"a\",2]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b2262222c315d2c5b2261222c325d5d5d7d",
+      "value": ["map",[[["text","b"],["int","1"]],[["text","a"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400016101020003696e7400020002010201020009757466382d7465787400016201020003696e7400020001",
+      "output": "{\"a\":2,\"b\":1}"
+    },
+    {
+      "name": "map-tag-empty",
+      "group": "maps",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5d5d7d",
+      "value": ["map",[]],
+      "value_hex": "010100036d6170",
+      "output": "{}"
+    },
+    {
+      "name": "map-int-keys-codec-order",
+      "group": "maps",
+      "note": "ints sort by encoding, not by number: 1 < -1 < 256",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[256,\"c\"],[-1,\"b\"],[1,\"a\"]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b3235362c2263225d2c5b2d312c2262225d2c5b312c2261225d5d5d7d",
+      "value": ["map",[[["int","256"],["text","c"]],[["int","-1"],["text","b"]],[["int","1"],["text","a"]]]],
+      "value_hex": "010400036d6170010201020003696e740002000101020009757466382d74657874000161010201020003696e740002010101020009757466382d74657874000162010201020003696e74000300010001020009757466382d74657874000163",
+      "output": "{\"$ontos\":[\"map\",[[1,\"a\"],[-1,\"b\"],[256,\"c\"]]]}",
+      "origins": [[[],[],[0,47]],[[0],[],[0,47]],[[1],["$ontos",1,2],[37,44]],[[1,0],["$ontos",1,2,0],[38,39]],[[1,0,0],["$ontos",1,2,0],[38,39]],[[1,0,1],["$ontos",1,2,0],[38,39]],[[1,1],["$ontos",1,2,1],[40,43]],[[1,1,0],["$ontos",1,2,1],[40,43]],[[1,1,1],["$ontos",1,2,1],[40,43]],[[2],["$ontos",1,1],[28,36]],[[2,0],["$ontos",1,1,0],[29,31]],[[2,0,0],["$ontos",1,1,0],[29,31]],[[2,0,1],["$ontos",1,1,0],[29,31]],[[2,1],["$ontos",1,1,1],[32,35]],[[2,1,0],["$ontos",1,1,1],[32,35]],[[2,1,1],["$ontos",1,1,1],[32,35]],[[3],["$ontos",1,0],[18,27]],[[3,0],["$ontos",1,0,0],[19,22]],[[3,0,0],["$ontos",1,0,0],[19,22]],[[3,0,1],["$ontos",1,0,0],[19,22]],[[3,1],["$ontos",1,0,1],[23,26]],[[3,1,0],["$ontos",1,0,1],[23,26]],[[3,1,1],["$ontos",1,0,1],[23,26]]]
+    },
+    {
+      "name": "map-unnormalized-text-keys",
+      "group": "maps",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"map\",[[\"e\\u0301\",2],[\"\\u00e9\",1]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b22655c7530333031222c325d2c5b225c7530306539222c315d5d5d7d",
+      "value": ["map",[[["text","é"],["int","1"]],[["text","é"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d746578740002c3a901020003696e7400020001010201020009757466382d74657874000365cc8101020003696e7400020002",
+      "output": "{\"é\":1,\"é\":2}"
+    },
+    {
+      "name": "set",
+      "group": "sets",
+      "note": "normalization entry-order",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"set\",[256,-1,1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b3235362c2d312c315d5d7d",
+      "value": ["set",[["int","256"],["int","-1"],["int","1"]]],
+      "value_hex": "0104000373657401020003696e740002000101020003696e740002010101020003696e740003000100",
+      "output": "{\"$ontos\":[\"set\",[1,-1,256]]}",
+      "origins": [[[],[],[0,29]],[[0],[],[0,29]],[[1],["$ontos",1,2],[25,26]],[[1,0],["$ontos",1,2],[25,26]],[[1,1],["$ontos",1,2],[25,26]],[[2],["$ontos",1,1],[22,24]],[[2,0],["$ontos",1,1],[22,24]],[[2,1],["$ontos",1,1],[22,24]],[[3],["$ontos",1,0],[18,21]],[[3,0],["$ontos",1,0],[18,21]],[[3,1],["$ontos",1,0],[18,21]]]
+    },
+    {
+      "name": "set-empty",
+      "group": "sets",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"set\",[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b5d5d7d",
+      "value": ["set",[]],
+      "value_hex": "01010003736574",
+      "output": "{\"$ontos\":[\"set\",[]]}"
+    },
+    {
+      "name": "set-heterogeneous",
+      "group": "sets",
+      "note": "an atom (tag 00) first; then int before utf8-text, whose label lengths are 3 and 9",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"set\",[\"a\",{\"$ontos\":[\"bytes\",\"\"]},1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b2261222c7b22246f6e746f73223a5b226279746573222c22225d7d2c315d5d7d",
+      "value": ["set",[["text","a"],["atom",""],["int","1"]]],
+      "value_hex": "01040003736574000001020003696e740002000101020009757466382d74657874000161",
+      "output": "{\"$ontos\":[\"set\",[{\"$ontos\":[\"bytes\",\"\"]},1,\"a\"]]}"
+    },
+    {
+      "name": "compound",
+      "group": "compounds",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"ok\",[257]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226f6b222c5b3235375d5d7d",
+      "value": ["compound","ok",[["int","257"]]],
+      "value_hex": "010200026f6b01020003696e740003000101",
+      "output": "{\"$ontos\":[\"compound\",\"ok\",[257]]}"
+    },
+    {
+      "name": "compound-empty-label",
+      "group": "compounds",
+      "note": "Tuple(Atom(\"\"))",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"\",[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22222c5b5d5d7d",
+      "value": ["compound","",[]],
+      "value_hex": "01010000",
+      "output": "{\"$ontos\":[\"compound\",\"\",[]]}"
+    },
+    {
+      "name": "compound-namespaced-label",
+      "group": "compounds",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"acme.example/int\",[1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c2261636d652e6578616d706c652f696e74222c5b315d5d7d",
+      "value": ["compound","acme.example/int",[["int","1"]]],
+      "value_hex": "0102001061636d652e6578616d706c652f696e7401020003696e7400020001",
+      "output": "{\"$ontos\":[\"compound\",\"acme.example/int\",[1]]}"
+    },
+    {
+      "name": "compound-non-utf8-label",
+      "group": "compounds",
+      "note": "a label that is not UTF-8 is spelled as bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",[\"bytes\",\"/w==\"],[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c5b226279746573222c222f773d3d225d2c5b5d5d7d",
+      "value": ["tuple",[["atom","ff"]]],
+      "value_hex": "01010001ff",
+      "output": "{\"$ontos\":[\"compound\",[\"bytes\",\"/w==\"],[]]}"
+    },
+    {
+      "name": "compound-utf8-label-as-bytes",
+      "group": "compounds",
+      "note": "normalization utf8-label",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",[\"bytes\",\"b2s=\"],[1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c5b226279746573222c226232733d225d2c5b315d5d7d",
+      "value": ["compound","ok",[["int","1"]]],
+      "value_hex": "010200026f6b01020003696e7400020001",
+      "output": "{\"$ontos\":[\"compound\",\"ok\",[1]]}"
+    },
+    {
+      "name": "compound-label-text-is-label-bytes",
+      "group": "compounds",
+      "note": "a utf8-text-labelled tuple whose payload is not UTF-8 is no text: it is preserved as a compound",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"utf8-text\",[{\"$ontos\":[\"bytes\",\"/w==\"]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22757466382d74657874222c5b7b22246f6e746f73223a5b226279746573222c222f773d3d225d7d5d5d7d",
+      "value": ["tuple",[["utf8","utf8-text"],["atom","ff"]]],
+      "value_hex": "01020009757466382d746578740001ff",
+      "output": "{\"$ontos\":[\"compound\",\"utf8-text\",[{\"$ontos\":[\"bytes\",\"/w==\"]}]]}"
+    },
+    {
+      "name": "malformed-decimal-preserved",
+      "group": "compounds",
+      "note": "a non-canonical decimal-shaped tuple survives unrepaired",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"decimal\",[100,0]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22646563696d616c222c5b3130302c305d5d7d",
+      "value": ["compound","decimal",[["int","100"],["int","0"]]],
+      "value_hex": "01030007646563696d616c01020003696e740002006401020003696e74000100",
+      "output": "{\"$ontos\":[\"compound\",\"decimal\",[100,0]]}"
+    },
+    {
+      "name": "malformed-int-preserved",
+      "group": "compounds",
+      "note": "an int payload with a leading zero byte is no int",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"int\",[{\"$ontos\":[\"bytes\",\"AAAB\"]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22696e74222c5b7b22246f6e746f73223a5b226279746573222c2241414142225d7d5d5d7d",
+      "value": ["tuple",[["utf8","int"],["atom","000001"]]],
+      "value_hex": "01020003696e740003000001",
+      "output": "{\"$ontos\":[\"compound\",\"int\",[{\"$ontos\":[\"bytes\",\"AAAB\"]}]]}"
+    },
+    {
+      "name": "malformed-bool-preserved",
+      "group": "compounds",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"bool\",[{\"$ontos\":[\"bytes\",\"Ag==\"]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22626f6f6c222c5b7b22246f6e746f73223a5b226279746573222c2241673d3d225d7d5d5d7d",
+      "value": ["tuple",[["utf8","bool"],["atom","02"]]],
+      "value_hex": "01020004626f6f6c000102",
+      "output": "{\"$ontos\":[\"compound\",\"bool\",[{\"$ontos\":[\"bytes\",\"Ag==\"]}]]}"
+    },
+    {
+      "name": "malformed-null-preserved",
+      "group": "compounds",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"null\",[1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226e756c6c222c5b315d5d7d",
+      "value": ["compound","null",[["int","1"]]],
+      "value_hex": "010200046e756c6c01020003696e7400020001",
+      "output": "{\"$ontos\":[\"compound\",\"null\",[1]]}"
+    },
+    {
+      "name": "unsorted-set-preserved",
+      "group": "compounds",
+      "note": "sorting applies only to the set tag; a compound keeps its order",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"set\",[2,1]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22736574222c5b322c315d5d7d",
+      "value": ["compound","set",[["int","2"],["int","1"]]],
+      "value_hex": "0103000373657401020003696e740002000201020003696e7400020001",
+      "output": "{\"$ontos\":[\"compound\",\"set\",[2,1]]}"
+    },
+    {
+      "name": "compound-list-normalizes",
+      "group": "preferred",
+      "note": "normalization preferred-spelling",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"list\",[1,2]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226c697374222c5b312c325d5d7d",
+      "value": ["list",[["int","1"],["int","2"]]],
+      "value_hex": "010300046c69737401020003696e740002000101020003696e7400020002",
+      "output": "[1,2]"
+    },
+    {
+      "name": "compound-null-normalizes",
+      "group": "preferred",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"null\",[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226e756c6c222c5b5d5d7d",
+      "value": ["null"],
+      "value_hex": "010100046e756c6c",
+      "output": "null"
+    },
+    {
+      "name": "compound-int-normalizes",
+      "group": "preferred",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"int\",[{\"$ontos\":[\"bytes\",\"AAE=\"]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c22696e74222c5b7b22246f6e746f73223a5b226279746573222c224141453d225d7d5d5d7d",
+      "value": ["int","1"],
+      "value_hex": "01020003696e7400020001",
+      "output": "1"
+    },
+    {
+      "name": "raw-atom-normalizes",
+      "group": "preferred",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"atom\":\"00\"}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b2261746f6d223a223030227d5d7d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"$ontos\":[\"bytes\",\"AA==\"]}"
+    },
+    {
+      "name": "raw-compound-normalizes",
+      "group": "preferred",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"atom\":\"6f6b\"}]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b7b2261746f6d223a2236663662227d5d7d5d7d",
+      "value": ["compound","ok",[]],
+      "value_hex": "010100026f6b",
+      "output": "{\"$ontos\":[\"compound\",\"ok\",[]]}"
+    },
+    {
+      "name": "raw-text-normalizes",
+      "group": "preferred",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"atom\":\"757466382d74657874\"},{\"atom\":\"6869\"}]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b7b2261746f6d223a22373537343636333832643734363537383734227d2c7b2261746f6d223a2236383639227d5d7d5d7d",
+      "value": ["text","hi"],
+      "value_hex": "01020009757466382d7465787400026869",
+      "output": "\"hi\""
+    },
+    {
+      "name": "raw-empty-tuple",
+      "group": "raw",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b5d7d5d7d",
+      "value": ["tuple",[]],
+      "value_hex": "0100",
+      "output": "{\"$ontos\":[\"raw\",{\"tuple\":[]}]}"
+    },
+    {
+      "name": "raw-tuple-first",
+      "group": "raw",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"tuple\":[]},{\"atom\":\"00\"}]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b7b227475706c65223a5b5d7d2c7b2261746f6d223a223030227d5d7d5d7d",
+      "value": ["tuple",[["tuple",[]],["atom","00"]]],
+      "value_hex": "01020100000100",
+      "output": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"tuple\":[]},{\"atom\":\"00\"}]}]}"
+    },
+    {
+      "name": "raw-children-stay-total",
+      "group": "raw",
+      "note": "inside raw the whole subtree is total form, so the int 1 is spelled node for node",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"tuple\":[]},{\"tuple\":[{\"atom\":\"696e74\"},{\"atom\":\"0001\"}]}]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b7b227475706c65223a5b5d7d2c7b227475706c65223a5b7b2261746f6d223a22363936653734227d2c7b2261746f6d223a2230303031227d5d7d5d7d5d7d",
+      "value": ["tuple",[["tuple",[]],["int","1"]]],
+      "value_hex": "0102010001020003696e7400020001",
+      "output": "{\"$ontos\":[\"raw\",{\"tuple\":[{\"tuple\":[]},{\"tuple\":[{\"atom\":\"696e74\"},{\"atom\":\"0001\"}]}]}]}"
+    },
+    {
+      "name": "distinct-empties",
+      "group": "empties",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "[\"\",{\"$ontos\":[\"bytes\",\"\"]},[],{},{\"$ontos\":[\"set\",[]]},{\"$ontos\":[\"raw\",{\"tuple\":[]}]},null,{\"$ontos\":[\"compound\",\"\",[]]}]",
+      "input_hex": "5b22222c7b22246f6e746f73223a5b226279746573222c22225d7d2c5b5d2c7b7d2c7b22246f6e746f73223a5b22736574222c5b5d5d7d2c7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b5d7d5d7d2c6e756c6c2c7b22246f6e746f73223a5b22636f6d706f756e64222c22222c5b5d5d7d5d",
+      "value": ["list",[["text",""],["atom",""],["list",[]],["map",[]],["set",[]],["tuple",[]],["null"],["compound","",[]]]],
+      "value_hex": "010900046c69737401020009757466382d7465787400000000010100046c697374010100036d6170010100037365740100010100046e756c6c01010000",
+      "output": "[\"\",{\"$ontos\":[\"bytes\",\"\"]},[],{},{\"$ontos\":[\"set\",[]]},{\"$ontos\":[\"raw\",{\"tuple\":[]}]},null,{\"$ontos\":[\"compound\",\"\",[]]}]"
+    },
+    {
+      "name": "compound-raw-origins",
+      "group": "origins",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"compound\",\"f\",[{\"$ontos\":[\"raw\",{\"tuple\":[]}]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c2266222c5b7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b5d7d5d7d5d5d7d",
+      "value": ["compound","f",[["tuple",[]]]],
+      "value_hex": "01020001660100",
+      "output": "{\"$ontos\":[\"compound\",\"f\",[{\"$ontos\":[\"raw\",{\"tuple\":[]}]}]]}",
+      "origins": [[[],[],[0,61]],[[0],[],[0,61]],[[1],["$ontos",2,0,"$ontos",1],[44,56]]]
+    },
+    {
+      "name": "unsafe-2pow53",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "9007199254740992",
+      "input_hex": "39303037313939323534373430393932",
+      "refusal": {"code":"unsafe_integer_literal","path":[],"span":[0,16]}
+    },
+    {
+      "name": "unsafe-minus-2pow53",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "-9007199254740992",
+      "input_hex": "2d39303037313939323534373430393932",
+      "refusal": {"code":"unsafe_integer_literal","path":[],"span":[0,17]}
+    },
+    {
+      "name": "unsafe-in-object",
+      "group": "integers",
+      "note": "the advice's example",
+      "provenance": "hand-authored",
+      "input": "{\"threshold\":9007199254740993}",
+      "input_hex": "7b227468726573686f6c64223a393030373139393235343734303939337d",
+      "refusal": {"code":"unsafe_integer_literal","path":["threshold"],"span":[13,29]}
+    },
+    {
+      "name": "unsafe-beyond-i128",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "[340282366920938463463374607431768211456]",
+      "input_hex": "5b3334303238323336363932303933383436333436333337343630373433313736383231313435365d",
+      "refusal": {"code":"unsafe_integer_literal","path":[0],"span":[1,40]}
+    },
+    {
+      "name": "fraction",
+      "group": "numbers",
+      "provenance": "hand-authored",
+      "input": "1.0",
+      "input_hex": "312e30",
+      "refusal": {"code":"invalid_number","path":[],"span":[0,3]}
+    },
+    {
+      "name": "exponent",
+      "group": "numbers",
+      "provenance": "hand-authored",
+      "input": "1e0",
+      "input_hex": "316530",
+      "refusal": {"code":"invalid_number","path":[],"span":[0,3]}
+    },
+    {
+      "name": "exponent-signed",
+      "group": "numbers",
+      "provenance": "hand-authored",
+      "input": "[1E+2]",
+      "input_hex": "5b31452b325d",
+      "refusal": {"code":"invalid_number","path":[0],"span":[1,5]}
+    },
+    {
+      "name": "negative-zero-fraction",
+      "group": "numbers",
+      "provenance": "hand-authored",
+      "input": "-0.0",
+      "input_hex": "2d302e30",
+      "refusal": {"code":"invalid_number","path":[],"span":[0,4]}
+    },
+    {
+      "name": "int-tag-plus",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"+1\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222b31225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,21]}
+    },
+    {
+      "name": "int-tag-leading-zero",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"01\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c223031225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,21]}
+    },
+    {
+      "name": "int-tag-negative-zero",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"-0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222d30225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,21]}
+    },
+    {
+      "name": "int-tag-empty",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c22225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,19]}
+    },
+    {
+      "name": "int-tag-fraction",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"1.0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c22312e30225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,22]}
+    },
+    {
+      "name": "int-tag-space",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\" 1\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c222031225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,21]}
+    },
+    {
+      "name": "int-tag-number-payload",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",5]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c355d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[17,18]}
+    },
+    {
+      "name": "int-tag-arity",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"1\",\"2\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2231222c2232225d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos"],"span":[10,25]}
+    },
+    {
+      "name": "decimal-trailing-zero",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"100\",\"0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c22313030222c2230225d7d",
+      "refusal": {"code":"noncanonical_decimal","path":["$ontos",1],"span":[21,26]}
+    },
+    {
+      "name": "decimal-trailing-zero-ten",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"10\",\"-1\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c223130222c222d31225d7d",
+      "refusal": {"code":"noncanonical_decimal","path":["$ontos",1],"span":[21,25]}
+    },
+    {
+      "name": "decimal-zero-exponent",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"0\",\"5\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2230222c2235225d7d",
+      "refusal": {"code":"noncanonical_decimal","path":["$ontos",2],"span":[25,28]}
+    },
+    {
+      "name": "decimal-fraction-component",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"1.5\",\"0\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c22312e35222c2230225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[21,26]}
+    },
+    {
+      "name": "decimal-components-before-canonical",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"0\",\"x\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2230222c2278225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",2],"span":[25,28]}
+    },
+    {
+      "name": "decimal-arity",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"1\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2231225d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos"],"span":[10,25]}
+    },
+    {
+      "name": "decimal-number-components",
+      "group": "decimals",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",314,-2]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c3331342c2d325d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[21,24]}
+    },
+    {
+      "name": "base64-pad-bits",
+      "group": "base64",
+      "note": "AB== has non-zero pad bits; AA== is the byte 00",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AB==\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241423d3d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,25]}
+    },
+    {
+      "name": "base64-pad-bits-two",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AAB=\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c224141423d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,25]}
+    },
+    {
+      "name": "base64-unpadded",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AA\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c224141225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,23]}
+    },
+    {
+      "name": "base64-line-break",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AA==\\n\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241413d3d5c6e225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,27]}
+    },
+    {
+      "name": "base64-url-alphabet",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"-_8=\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c222d5f383d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,25]}
+    },
+    {
+      "name": "base64-too-much-padding",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"A===\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c22413d3d3d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,25]}
+    },
+    {
+      "name": "base64-space",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\" AA==\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c222041413d3d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,26]}
+    },
+    {
+      "name": "bytes-number-payload",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",0]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c305d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[19,20]}
+    },
+    {
+      "name": "envelope-extra-member-after",
+      "group": "envelope",
+      "note": "an object with $ontos is exactly the envelope; it never falls back to a map",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AA==\"],\"x\":1}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241413d3d225d2c2278223a317d",
+      "refusal": {"code":"invalid_envelope","path":[],"span":[0,33]}
+    },
+    {
+      "name": "envelope-extra-member-before",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"x\":1,\"$ontos\":[\"bytes\",\"AA==\"]}",
+      "input_hex": "7b2278223a312c22246f6e746f73223a5b226279746573222c2241413d3d225d7d",
+      "refusal": {"code":"invalid_envelope","path":[],"span":[0,33]}
+    },
+    {
+      "name": "envelope-number",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":5}",
+      "input_hex": "7b22246f6e746f73223a357d",
+      "refusal": {"code":"invalid_envelope","path":["$ontos"],"span":[10,11]}
+    },
+    {
+      "name": "envelope-empty-array",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[]}",
+      "input_hex": "7b22246f6e746f73223a5b5d7d",
+      "refusal": {"code":"invalid_envelope","path":["$ontos"],"span":[10,12]}
+    },
+    {
+      "name": "envelope-object",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":{}}",
+      "input_hex": "7b22246f6e746f73223a7b7d7d",
+      "refusal": {"code":"invalid_envelope","path":["$ontos"],"span":[10,12]}
+    },
+    {
+      "name": "envelope-tag-not-string",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[5]}",
+      "input_hex": "7b22246f6e746f73223a5b355d7d",
+      "refusal": {"code":"invalid_envelope","path":["$ontos",0],"span":[11,12]}
+    },
+    {
+      "name": "envelope-nested-escaped",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"a\":{\"\\u0024ontos\":1}}",
+      "input_hex": "7b2261223a7b225c75303032346f6e746f73223a317d7d",
+      "refusal": {"code":"invalid_envelope","path":["a","$ontos"],"span":[20,21]}
+    },
+    {
+      "name": "unknown-tag-case",
+      "group": "envelope",
+      "note": "tag names are case-sensitive",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"Bytes\",\"AA==\"]}",
+      "input_hex": "7b22246f6e746f73223a5b224279746573222c2241413d3d225d7d",
+      "refusal": {"code":"unknown_tag","path":["$ontos",0],"span":[11,18]}
+    },
+    {
+      "name": "unknown-tag-tuple",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"tuple\",[]]}",
+      "input_hex": "7b22246f6e746f73223a5b227475706c65222c5b5d5d7d",
+      "refusal": {"code":"unknown_tag","path":["$ontos",0],"span":[11,18]}
+    },
+    {
+      "name": "unknown-tag-undefined",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"undefined\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22756e646566696e6564225d7d",
+      "refusal": {"code":"unknown_tag","path":["$ontos",0],"span":[11,22]}
+    },
+    {
+      "name": "tag-arity-short",
+      "group": "envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573225d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos"],"span":[10,19]}
+    },
+    {
+      "name": "raw-bad-hex",
+      "group": "raw",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"raw\",{\"atom\":\"0G\"}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b2261746f6d223a223047227d5d7d",
+      "refusal": {"code":"invalid_hex","path":["$ontos",1,"atom"],"span":[25,29]}
+    },
+    {
+      "name": "raw-not-total-form",
+      "group": "raw",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"raw\",5]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c355d7d",
+      "refusal": {"code":"invalid_total_form","path":["$ontos",1],"span":[17,18]}
+    },
+    {
+      "name": "raw-readable-child",
+      "group": "raw",
+      "note": "the children of a raw tuple are total form, not readable spellings",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"raw\",{\"tuple\":[1]}]}",
+      "input_hex": "7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b315d7d5d7d",
+      "refusal": {"code":"invalid_total_form","path":["$ontos",1,"tuple",0],"span":[27,28]}
+    },
+    {
+      "name": "compound-label-number",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",5,[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c352c5b5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[22,23]}
+    },
+    {
+      "name": "compound-args-object",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",\"ok\",{}]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226f6b222c7b7d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",2],"span":[27,29]}
+    },
+    {
+      "name": "compound-label-array-short",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",[\"bytes\"],[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c5b226279746573225d2c5b5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[22,31]}
+    },
+    {
+      "name": "compound-label-array-name",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",[\"text\",\"b2s=\"],[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c5b2274657874222c226232733d225d2c5b5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1,0],"span":[23,29]}
+    },
+    {
+      "name": "compound-label-bad-base64",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",[\"bytes\",\"b2s\"],[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c5b226279746573222c22623273225d2c5b5d5d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1,1],"span":[31,36]}
+    },
+    {
+      "name": "compound-label-envelope",
+      "group": "compounds",
+      "note": "the label position takes a string or [\"bytes\", …], never an envelope",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",{\"$ontos\":[\"bytes\",\"b2s=\"]},[]]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c7b22246f6e746f73223a5b226279746573222c226232733d225d7d2c5b5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[22,49]}
+    },
+    {
+      "name": "compound-arity",
+      "group": "compounds",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"compound\",\"ok\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22636f6d706f756e64222c226f6b225d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos"],"span":[10,27]}
+    },
+    {
+      "name": "map-payload-object",
+      "group": "maps",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",{}]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c7b7d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[17,19]}
+    },
+    {
+      "name": "map-entry-short",
+      "group": "maps",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[1]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b315d5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1,0],"span":[18,21]}
+    },
+    {
+      "name": "map-entry-long",
+      "group": "maps",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[1,2,3]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b312c322c335d5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1,0],"span":[18,25]}
+    },
+    {
+      "name": "map-entry-object",
+      "group": "maps",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[{\"a\":1}]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b7b2261223a317d5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1,0],"span":[18,25]}
+    },
+    {
+      "name": "map-entries-before-keys",
+      "group": "maps",
+      "note": "every entry's shape is checked before any key is read",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[1.5,1],[1]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b312e352c315d2c5b315d5d5d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1,1],"span":[26,29]}
+    },
+    {
+      "name": "map-duplicate-int-spellings",
+      "group": "maps",
+      "note": "1 and the tagged 1 are one ground value",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[1,\"a\"],[{\"$ontos\":[\"int\",\"1\"]},\"b\"]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b312c2261225d2c5b7b22246f6e746f73223a5b22696e74222c2231225d7d2c2262225d5d5d7d",
+      "refusal": {"code":"duplicate_map_key","path":["$ontos",1,1,0],"span":[27,49]}
+    },
+    {
+      "name": "map-duplicate-text-spellings",
+      "group": "maps",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[\"a\",1],[{\"$ontos\":[\"raw\",{\"tuple\":[{\"atom\":\"757466382d74657874\"},{\"atom\":\"61\"}]}]},2]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b2261222c315d2c5b7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b7b2261746f6d223a22373537343636333832643734363537383734227d2c7b2261746f6d223a223631227d5d7d5d7d2c325d5d5d7d",
+      "refusal": {"code":"duplicate_map_key","path":["$ontos",1,1,0],"span":[27,101]}
+    },
+    {
+      "name": "map-duplicate-before-value",
+      "group": "maps",
+      "note": "the duplicate key is found before its value is read",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"map\",[[1,\"a\"],[1,1.5]]]}",
+      "input_hex": "7b22246f6e746f73223a5b226d6170222c5b5b312c2261225d2c5b312c312e355d5d5d7d",
+      "refusal": {"code":"duplicate_map_key","path":["$ontos",1,1,0],"span":[27,28]}
+    },
+    {
+      "name": "set-duplicate-int-spellings",
+      "group": "sets",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"set\",[1,{\"$ontos\":[\"int\",\"1\"]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b312c7b22246f6e746f73223a5b22696e74222c2231225d7d5d5d7d",
+      "refusal": {"code":"duplicate_set_element","path":["$ontos",1,1],"span":[20,42]}
+    },
+    {
+      "name": "set-duplicate-escaped-text",
+      "group": "sets",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"set\",[\"a\",\"\\u0061\"]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b2261222c225c7530303631225d5d7d",
+      "refusal": {"code":"duplicate_set_element","path":["$ontos",1,1],"span":[22,30]}
+    },
+    {
+      "name": "set-payload-string",
+      "group": "sets",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"set\",\"ab\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c226162225d7d",
+      "refusal": {"code":"invalid_tag","path":["$ontos",1],"span":[17,21]}
+    },
+    {
+      "name": "object-duplicate-escaped",
+      "group": "objects",
+      "provenance": "hand-authored",
+      "input": "{\"a\":1,\"\\u0061\":2}",
+      "input_hex": "7b2261223a312c225c7530303631223a327d",
+      "refusal": {"code":"duplicate_member","path":["a"],"span":[7,15]}
+    },
+    {
+      "name": "object-duplicate-before-number",
+      "group": "objects",
+      "note": "stage 3 refuses the repeated name before stage 4 reads 1.5",
+      "provenance": "hand-authored",
+      "input": "{\"a\":1.5,\"a\":2}",
+      "input_hex": "7b2261223a312e352c2261223a327d",
+      "refusal": {"code":"duplicate_member","path":["a"],"span":[9,12]}
+    },
+    {
+      "name": "truncated-before-number",
+      "group": "lexical",
+      "note": "the text must be JSON before it is interpreted",
+      "provenance": "hand-authored",
+      "input": "[1.5",
+      "input_hex": "5b312e35",
+      "refusal": {"code":"invalid_json","path":[],"span":[4,4]}
+    },
+    {
+      "name": "bom",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "﻿{\"a\":1}",
+      "input_hex": "efbbbf7b2261223a317d",
+      "refusal": {"code":"byte_order_mark","path":[],"span":[0,3]}
+    },
+    {
+      "name": "trailing-data",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "[1]]",
+      "input_hex": "5b315d5d",
+      "refusal": {"code":"trailing_data","path":[],"span":[3,4]}
+    },
+    {
+      "name": "utf8-in-member-name",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input_hex": "7b22ff223a317d",
+      "input_parts": [["text","{\""],["hex","ff"],["text","\":1}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[2,3]}
+    },
+    {
+      "name": "lone-surrogate",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "[\"\\ud800\"]",
+      "input_hex": "5b225c7564383030225d",
+      "refusal": {"code":"invalid_unicode_escape","path":[0],"span":[2,8]}
+    },
+    {
+      "name": "lists-1024-accepted",
+      "group": "depth",
+      "note": "1024 nested lists: the innermost list's label atom lies at value depth 1024",
+      "provenance": "derived-from-spec-algorithm",
+      "input": {"runs":[["[",1024],["]",1024]]},
+      "input_hex": {"runs":[["5b",1024],["5d",1024]]},
+      "value": ["deep",1023,"list",["list",[]]],
+      "value_hex": {"runs":[["010200046c697374",1023],["010100046c697374",1]]},
+      "output": {"runs":[["[",1024],["]",1024]]}
+    },
+    {
+      "name": "lists-1025-value-depth",
+      "group": "depth",
+      "note": "JSON depth 1025 passes stage 3; the innermost list's label would lie at value depth 1025",
+      "provenance": "hand-authored",
+      "input": {"runs":[["[",1025],["]",1025]]},
+      "input_hex": {"runs":[["5b",1025],["5d",1025]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[[0],1024]]},"span":[1024,1026],"kind":"decode_depth"}
+    },
+    {
+      "name": "compounds-1024-accepted",
+      "group": "depth",
+      "note": "1024 compounds around a raw empty tuple: value depth 1024 and JSON depth 3076 = 3·1024 + 4, both at the defaults",
+      "provenance": "derived-from-spec-algorithm",
+      "input": {"runs":[["{\"$ontos\":[\"compound\",\"f\",[",1024],["{\"$ontos\":[\"raw\",{\"tuple\":[]}]}",1],["]]}",1024]]},
+      "input_hex": {"runs":[["7b22246f6e746f73223a5b22636f6d706f756e64222c2266222c5b",1024],["7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b5d7d5d7d",1],["5d5d7d",1024]]},
+      "value": ["deep",1024,["compound","f"],["tuple",[]]],
+      "value_hex": {"runs":[["0102000166",1024],["0100",1]]},
+      "output": {"runs":[["{\"$ontos\":[\"compound\",\"f\",[",1024],["{\"$ontos\":[\"raw\",{\"tuple\":[]}]}",1],["]]}",1024]]}
+    },
+    {
+      "name": "compounds-1025-json-depth",
+      "group": "depth",
+      "note": "the raw envelope's array opens at JSON depth 3077",
+      "provenance": "hand-authored",
+      "input": {"runs":[["{\"$ontos\":[\"compound\",\"f\",[",1025],["{\"$ontos\":[\"raw\",{\"tuple\":[]}]}",1],["]]}",1025]]},
+      "input_hex": {"runs":[["7b22246f6e746f73223a5b22636f6d706f756e64222c2266222c5b",1025],["7b22246f6e746f73223a5b22726177222c7b227475706c65223a5b5d7d5d7d",1],["5d5d7d",1025]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[["$ontos",2,0],1025],[["$ontos"],1]]},"span":[27685,27686],"kind":"json_depth"}
+    },
+    {
+      "name": "arrays-3077-json-depth",
+      "group": "depth",
+      "provenance": "hand-authored",
+      "input": {"runs":[["[",3077]]},
+      "input_hex": {"runs":[["5b",3077]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[[0],3076]]},"span":[3076,3077],"kind":"json_depth"}
+    },
+    {
+      "name": "arrays-3076-then-value-depth",
+      "group": "depth",
+      "note": "3076 nested arrays pass stage 3; stage 4 stops at the 1025th list",
+      "provenance": "hand-authored",
+      "input": {"runs":[["[",3076],["]",3076]]},
+      "input_hex": {"runs":[["5b",3076],["5d",3076]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[[0],1024]]},"span":[1024,5128],"kind":"decode_depth"}
+    },
+    {
+      "name": "json-depth-not-value-depth",
+      "group": "depth",
+      "note": "value depth 2 is within bounds; the spelling needs JSON depth 6",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"set\",[{\"$ontos\":[\"set\",[]]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b7b22246f6e746f73223a5b22736574222c5b5d5d7d5d5d7d",
+      "limits": {"max_json_depth":5},
+      "refusal": {"code":"limit_exceeded","path":["$ontos",1,0,"$ontos",1],"span":[35,36],"kind":"json_depth"}
+    },
+    {
+      "name": "value-depth-not-json-depth",
+      "group": "depth",
+      "note": "JSON depth 3 is within bounds; the value is nested 3 deep",
+      "provenance": "hand-authored",
+      "input": "[[[]]]",
+      "input_hex": "5b5b5b5d5d5d",
+      "limits": {"max_value_depth":2},
+      "refusal": {"code":"limit_exceeded","path":[0,0],"span":[2,4],"kind":"decode_depth"}
+    },
+    {
+      "name": "integer-digits-tag",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"12345\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c223132333435225d7d",
+      "limits": {"max_integer_digits":4},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,26],"kind":"integer_digits"}
+    },
+    {
+      "name": "integer-digits-tag-at-bound",
+      "group": "limits",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"12345\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c223132333435225d7d",
+      "limits": {"max_integer_digits":5},
+      "value": ["int","12345"],
+      "value_hex": "01020003696e740003003039",
+      "output": "12345"
+    },
+    {
+      "name": "integer-digits-literal",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "12345",
+      "input_hex": "3132333435",
+      "limits": {"max_integer_digits":4},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,5],"kind":"integer_digits"}
+    },
+    {
+      "name": "integer-digits-decimal",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"decimal\",\"1\",\"-12345\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22646563696d616c222c2231222c222d3132333435225d7d",
+      "limits": {"max_integer_digits":4},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,35],"kind":"integer_digits"}
+    },
+    {
+      "name": "integer-digits-default-4300",
+      "group": "limits",
+      "note": "4300 digits, the default bound",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"$ontos\":[\"int\",\"1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2231303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030225d7d",
+      "value": ["int","1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"],
+      "value_hex": "01020003696e7400fb0d0001f512f2d102aa6dd849cd57b91bfe6944da6678d05acbfb0a7cc1b3515250745da6a67e1b85502757edf96d3f1bec8bf59fdcd0cedaa470d567a21bee0e39d6d24650864d8aefdb0883d08ad07cfd1ca5320e7f00d764e960399d71c3df01411f7c81840b578c10d5fa4fdf2c7194370407dad7ce76194c630650090b0592aef2b60abc2365ae8541043fcce4aa22f7492c2afc5171f30850b5333f2a485fc218ac928ea9ac455d046ac7979dd7d57a9d4491cd552258898b1f78d1a696ca82c56d753759a7db78bc9df58c63fb13c1a5c2a041455564125f509f4aea6779f1d6b9c00dfbdcda9681d9b94764b23763c1a79205e8500da474521c57d6da5f510a3ae070d8bbbbc442a24e2d678b485bd5fed67a539dba2e4090636e2f248f48afdd414ebeeda26c1bae16204d632e6bdaedb3bba86b3cf0ca5d19b61a66735df7b058cf7d381875b6878d50639b53c5d190b4db863456d579344eba923274d5fe44390ddde6028a224656494268fe2f57b593f16f3a8ca48cac94c62b3b554bf66d245960aa33281cc64c2439920804fa6b01ab30bea8c06147449f104bff0044142a689da02f84a948ff5e6b8989a1c407b9e0cdf4d4a28e7bd65696fe720e2920d9541d74d4a78aa67031554453fff35b2d29a7046b723675eba868936feffd469eb3fea18f5c81a8211b118b662ddb9efaafe3fc8217901d8f57eae65f7b48989f0cded09a10c8f714f92c2f660619841ee6b3c74c0120987d26f0a63ca9c71e2b809bac797d57a1d2eb4c2ae53bfe95124b60fb3c2c2ca2c7a1830f4a5e372e22072a25d4f7cfd9c6028a1a27fb77edd32e9cb87cfc16300af046d3c93b403cdde7f6ab9e71217b133b51b6d3379e0ffb701ff155ac7e42cfe740e7603a4567c2a09dc3fa8691bca5b22c5c72e5233cb9376d8d7e2fab1e8f2c4f5aaef70e37967efd192b5c483016efb6a81f83ac53e1491edb9f84f2a287aaa769cd414dfe3048531831b8d4bf46d71d6d551414b1d4a2dadd6c213d717d1923606cfc0a5ee4e0a90d0e5002bd7392f6251ed91ab2a7ce1c61d6bc0c8eff523b73f4be26b152e37ae2de8a148ef6ff0d209975ab37a1d5eed2da2122939365b38541c1572921dedd16f149634a044c8ca6176d9f6468600f5dbf83cdaebc41567c9551b19135052a9e5b7fbd475f8ac2f8fd696224244a1b3dc16672740138c52bbcb018f0e904d97b65aedcc059fc77a428b5492efdaecf40e6cbb7b55003bedc543d626c1cb08299896d210ca8c6960d268f0c1217856913fb51510a3b99490ca1cd6eca7c80a1a3991b9bc99f1390141fb6a10076f40a0e641fff2464e15f717ed1352c6928bdfccfe5b20e1ff332119a9f673e0923a2168a8ea4d77e940bf2ee7fcd0bc86ec61dd064791c9819eb308a71f3cc52e1d786b7a77e7b58cf53d880e5190c1898aa24c221c0bbce27baa9cc3a66704c32dda41dc703ed1e10b4bb9267a14883b868e540a4ee556662be611393fc24840de4aac409d67c2edeec042bfe4c93893c557bc5c1be42843a593a129656141364e96084860b179f3ebd702259e9f59f5e213c0b1e16e13c716481122cea49ac18e8ad566a89397b862cf8f39867bb1ef1be5fee78b15499a755bf480d4a6ae30aa14f50103346e2df464ae0d117a79fd5f7a2185ec2fc5cf76a8ab3ab14cb90218a2684d4ec1e90dce51d5270c0472ad64c1816cc0f4f72998953e69757a99fc0d446fb6d20daa575d423e8bee8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "output": "{\"$ontos\":[\"int\",\"1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"]}"
+    },
+    {
+      "name": "integer-digits-default-4301",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c223130303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030225d7d",
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,4322],"kind":"integer_digits"}
+    },
+    {
+      "name": "write-integer-digits-default",
+      "group": "write-limits",
+      "note": "under the defaults the writer will not spell a 4301-digit integer in decimal",
+      "provenance": "derived-from-spec-algorithm",
+      "value": ["int","10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"],
+      "value_hex": "01020003696e7400fb0d001392bd7c2a1aa84a72e2056d3b17f01cb08800b8238bf7ce68df91012d37248ba88280ed133521896f4bbe4477173d77983ea028148a6c68560c55174c8e426436bf253f076d5e8e5526256c24e1e31e73f490f60869f11dc2402671a6b60c8b3add0f28716b78a85bc71eb7bc6fca26284e8c6e109cfcfbde3f205a6e37bad57b1c6b5961f8d1348a2a7e00eea55da8dbb9addb2e737e5327140077a6d3bd94f6bdb992a0bab5a22c2bcbec2a6e56ca24adb2055357755f6f3ab83081e3e91bb6469429808e92b75e2b977be7cec590799a428cb555e8b7b92638ed280ac3726341808bd6a089e112813cc9eef629e5908bb43b1320886c8b351b6e6487b92a664cc468775555aa9a570dc60b70d3965bf460c7442945ce85a3e24dd76d98d6dea48d137548583914ccdd4305dfd0368d49055494306167e7a3011d080081abace3781ae430f499214b8523e41145ba2fa710933e0b6456bc0b1349b5f8905beeaa3a8aaafc196556bf5edc9819edd96d17c76e58497e6d7ebdcfbdb05154f7a0436b7dc6a5ff911fbef96a3fb45031c82e10afe7729783ccc8ae36a2f7f602a8c9a8162841db2e9cd9f9b0335f6051a84d42c80b904e5990d65f61e5f0748d9b487d4926904e8b6a8061ed54ab47ff818fc3a0862c3276209b349415c25f5fe4c23307f24f999d10914b0eaf71fdca9435cadee7dd14eba127996f2cffbad0d5f63680b42604a7d9a6d1bbb9d9fc3cff29350305c8f80b45f4e385667e5ea1c72db30614bcbee56c523d30f9acf457f1d2b6f1c9d059b9be5bcc4f1e98e7ae27cd5447a57a51ae1e81bc1965058fd2af4a3fd21f34e1d8dde06d62c445dc508260ab0fa2b4306b4ecec0513124402c2c9fd2613f6d58bcee9c1f088909c246b60d9a4629a7c941b15e78f5bb9c7cf3605f3c2a4786eddcaf3197bb198ad5a68e2be0f5e2fbb19ad1e0e55d22913b24bb46ccdb34943b317a594caa8a22048d0bede2d33ef1f1384f78c467264552c8cef24e5c8ca6394c666ee2fb61c441d867b4f0c69a828f201b6683bd9d73347b0afa8e0d1bd263587d95f93652878f6d82ed3ce2ccdcb164cd95a5f68345fe98b02c525b543c854b59c3c1f90334918d679b52b4a2e56cdde0e42afd7e7cea4839ec13c099a97b2608d35a8d60ddd530efac1233aa2f92fd64c9bb6b9db9e61dd5696ae510698e0078880c37b3b55ee0f9691a307ed1f8d49f8383dcac699714dbd5e8d4188903f52d152025749b4a65d8391ee519ff5e434a7e97c1dc83819678b4eb361ac7d12d2a6653fcda7e520653e8dd065063fb1415e036c3a0c93d224a04a588648fe93ff76bf0cdba6ef42c13bc1b976be01ef8f48d3f7ff4b00a3a086c5b6454e16992706af1c8777d50fe0275d453bd2a23ecbb1df1032fe5687385fb3cd26b432c8af0d17819467508f2fa78f5f6a56f955187560d8d4aa1fa480062f9fca86929c627432ca70f53b80c4cd5253418f486714f55ffdb6fcac3c7d96d288aeeaba86260d9d4b53829b7eefdc35c5b56d5b9916e992a477c44b9df5cc8c1f11dc52d3c6eec387366615783239839ad4c586f2ce4cc5c6ded0ab5c126e0b8f916c560295c3ed33dc1b983f40d4f35716fbf50b6ed4e00895978d084e82cde6a4d1920a200c4dcb8beecc82aec8c3e5bac54f3b39ddba1aa296b04aecff3a14f658130513931a8a0f325386782c7ac5ef8f0e3f8991a79ff5d4701e96ca03d884ac5d243488a769a4967177510000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "render_refusal": {"code":"limit_exceeded","kind":"integer_digits"}
+    },
+    {
+      "name": "atom-bytes-label",
+      "group": "limits",
+      "note": "label atoms count: utf8-text is 9 bytes",
+      "provenance": "hand-authored",
+      "input": "\"abc\"",
+      "input_hex": "2261626322",
+      "limits": {"max_atom_bytes":3},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,5],"kind":"atom_bytes"}
+    },
+    {
+      "name": "atom-bytes-payload",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AAAA\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241414141225d7d",
+      "limits": {"max_atom_bytes":2},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,27],"kind":"atom_bytes"}
+    },
+    {
+      "name": "limit-tuple-arity",
+      "group": "limits",
+      "note": "a list of three is a tuple of arity four",
+      "provenance": "hand-authored",
+      "input": "[1,2,3]",
+      "input_hex": "5b312c322c335d",
+      "limits": {"max_tuple_arity":3},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,7],"kind":"tuple_arity"}
+    },
+    {
+      "name": "limit-text-bytes",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "[1]",
+      "input_hex": "5b315d",
+      "limits": {"max_text_bytes":2},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[2,3],"kind":"text_bytes"}
+    },
+    {
+      "name": "write-json-depth",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_json_depth":5},
+      "value": ["set",[["set",[]]]],
+      "value_hex": "0102000373657401010003736574",
+      "render_refusal": {"code":"limit_exceeded","kind":"json_depth"}
+    },
+    {
+      "name": "write-text-bytes",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_text_bytes":3},
+      "value": ["text","hi"],
+      "value_hex": "01020009757466382d7465787400026869",
+      "render_refusal": {"code":"limit_exceeded","kind":"text_bytes"}
+    },
+    {
+      "name": "write-value-depth",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_value_depth":1},
+      "value": ["list",[["list",[]]]],
+      "value_hex": "010200046c697374010100046c697374",
+      "render_refusal": {"code":"limit_exceeded","kind":"decode_depth"}
+    },
+    {
+      "name": "write-mirror-object-first",
+      "group": "write-limits",
+      "note": "two bounds are exceeded; the object's contribution, its 20-byte key included, is checked before its first byte, so atom_bytes refuses before the nested list reaches depth 5",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_value_depth":4,"max_atom_bytes":15},
+      "value": ["map",[[["text","a"],["list",[["list",[["list",[]]]]]]],[["text","kkkkkkkkkkkkkkkkkkkk"],["int","1"]]]],
+      "value_hex": "010300036d6170010201020009757466382d74657874000161010200046c697374010200046c697374010100046c697374010201020009757466382d7465787400146b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b01020003696e7400020001",
+      "render_refusal": {"code":"limit_exceeded","kind":"atom_bytes"}
+    },
+    {
+      "name": "read-mirror-object-first",
+      "group": "limits",
+      "note": "the reader refuses the writer's text with the same kind",
+      "provenance": "hand-authored",
+      "input": "{\"a\":[[[]]],\"kkkkkkkkkkkkkkkkkkkk\":1}",
+      "input_hex": "7b2261223a5b5b5b5d5d5d2c226b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b223a317d",
+      "limits": {"max_value_depth":4,"max_atom_bytes":15},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,37],"kind":"atom_bytes"}
+    },
+    {
+      "name": "json-depth-derived",
+      "group": "limits",
+      "note": "max_json_depth unset is derived as 3·0 + 4 = 4",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"set\",[{\"$ontos\":[\"set\",[]]}]]}",
+      "input_hex": "7b22246f6e746f73223a5b22736574222c5b7b22246f6e746f73223a5b22736574222c5b5d5d7d5d5d7d",
+      "limits": {"max_value_depth":0},
+      "refusal": {"code":"limit_exceeded","path":["$ontos",1,0,"$ontos"],"span":[28,29],"kind":"json_depth"}
+    },
+    {
+      "name": "multibyte-before-span",
+      "group": "spans",
+      "note": "é is two bytes, so the span is [6, 9); UTF-16 code units would give [5, 8)",
+      "provenance": "hand-authored",
+      "input": "[\"é\",1.5]",
+      "input_hex": "5b22c3a9222c312e355d",
+      "refusal": {"code":"invalid_number","path":[1],"span":[6,9]}
+    },
+    {
+      "name": "multibyte-key-path",
+      "group": "spans",
+      "provenance": "hand-authored",
+      "input": "{\"é\":9007199254740992}",
+      "input_hex": "7b22c3a9223a393030373139393235343734303939327d",
+      "refusal": {"code":"unsafe_integer_literal","path":["é"],"span":[6,22]}
+    },
+    {
+      "name": "multibyte-key-origins",
+      "group": "origins",
+      "note": "a raw two-byte key: spans count bytes",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"é\":1,\"a\":2}",
+      "input_hex": "7b22c3a9223a312c2261223a327d",
+      "value": ["map",[[["text","é"],["int","1"]],[["text","a"],["int","2"]]]],
+      "value_hex": "010300036d6170010201020009757466382d7465787400016101020003696e7400020002010201020009757466382d746578740002c3a901020003696e7400020001",
+      "output": "{\"a\":2,\"é\":1}",
+      "origins": [[[],[],[0,14]],[[0],[],[0,14]],[[1],["a"],[8,13]],[[1,0],["a"],[8,11]],[[1,0,0],["a"],[8,11]],[[1,0,1],["a"],[8,11]],[[1,1],["a"],[12,13]],[[1,1,0],["a"],[12,13]],[[1,1,1],["a"],[12,13]],[[2],["é"],[1,7]],[[2,0],["é"],[1,5]],[[2,0,0],["é"],[1,5]],[[2,0,1],["é"],[1,5]],[[2,1],["é"],[6,7]],[[2,1,0],["é"],[6,7]],[[2,1,1],["é"],[6,7]]]
+    },
+    {
+      "name": "high-surrogate-then-bad-escape",
+      "group": "lexical",
+      "note": "the next six bytes are not an escape naming a low surrogate",
+      "provenance": "hand-authored",
+      "input": "\"\\ud800\\u00G0\"",
+      "input_hex": "225c75643830305c753030473022",
+      "refusal": {"code":"invalid_unicode_escape","path":[],"span":[1,7]}
+    },
+    {
+      "name": "high-surrogate-then-end",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "\"\\ud800\\",
+      "input_hex": "225c75643830305c",
+      "refusal": {"code":"invalid_unicode_escape","path":[],"span":[1,7]}
+    },
+    {
+      "name": "int-tag-non-ascii-digit",
+      "group": "integers",
+      "note": "U+0662 is a digit to some conversions (Python's int()), never to int-text",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"1٢\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c2231d9a2225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,22]}
+    },
+    {
+      "name": "int-tag-underscore",
+      "group": "integers",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"int\",\"1_000\"]}",
+      "input_hex": "7b22246f6e746f73223a5b22696e74222c22315f303030225d7d",
+      "refusal": {"code":"invalid_integer","path":["$ontos",1],"span":[17,24]}
+    },
+    {
+      "name": "base64-padding-inside",
+      "group": "base64",
+      "provenance": "hand-authored",
+      "input": "{\"$ontos\":[\"bytes\",\"AA==AA==\"]}",
+      "input_hex": "7b22246f6e746f73223a5b226279746573222c2241413d3d41413d3d225d7d",
+      "refusal": {"code":"invalid_base64","path":["$ontos",1],"span":[19,29]}
+    }
+  ]
+}

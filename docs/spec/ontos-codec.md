@@ -232,10 +232,13 @@ append-only: an identifier is never reassigned to a different meaning, but a kin
 not promised to stay reachable. A new kind may be added without changing the parent
 code, and adding one is a vocabulary change, reviewed separately from any change to
 which bound fires first. An absent or unrecognized kind carries no more than the generic
-`limit_exceeded`; a consumer handles it as that, not as malformed input. Only the kind
-is required. An implementation MAY also expose the observed value or the bound, but a
-consumer MUST NOT rely on those across implementations. Human-readable messages remain
-diagnostic.
+`limit_exceeded`; a consumer handles it as that, not as malformed input. The JSON
+projections reuse these kinds and add `text_bytes`, `json_depth` and `integer_digits` under
+the same rule ([ontos-total-json §9.1](ontos-total-json.md#91-the-bounds-and-their-kinds),
+[ontos-readable-json §9](ontos-readable-json.md#9-limits)), so those three identifiers are
+taken here too and never mean anything else. Only the kind is required. An implementation
+MAY also expose the observed value or the bound, but a consumer MUST NOT rely on those across
+implementations. Human-readable messages remain diagnostic.
 
 **The shipped depth default is exact.** Every core ships `max decode depth` = 1024
 (§4.1 invariant 1): with default limits, a value nested 1024 deep is accepted, and one

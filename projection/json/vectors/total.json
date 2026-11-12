@@ -1,0 +1,792 @@
+{
+  "profile": "ontos-total-json/1",
+  "codec": "ontos-codec-v1",
+  "spec": "docs/spec/ontos-total-json.md",
+  "note": "Conformance vectors for ontos-total-json/1. Hand-authored from the spec page; input_hex and value_hex are derived by tools/json-projection/gen.mjs and every case is checked by tools/json-projection/check.mjs. Format: README.md beside this file.",
+  "cases": [
+    {
+      "name": "atom-empty",
+      "group": "values",
+      "note": "Atom(\"\"), the empty atom",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"atom\":\"\"}",
+      "input_hex": "7b2261746f6d223a22227d",
+      "value": ["atom",""],
+      "value_hex": "0000",
+      "output": "{\"atom\":\"\"}"
+    },
+    {
+      "name": "atom-bytes",
+      "group": "values",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"atom\":\"00ff\"}",
+      "input_hex": "7b2261746f6d223a2230306666227d",
+      "value": ["atom","00ff"],
+      "value_hex": "000200ff",
+      "output": "{\"atom\":\"00ff\"}"
+    },
+    {
+      "name": "tuple-empty",
+      "group": "values",
+      "note": "Tuple(), distinct from Atom(\"\")",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"tuple\":[]}",
+      "input_hex": "7b227475706c65223a5b5d7d",
+      "value": ["tuple",[]],
+      "value_hex": "0100",
+      "output": "{\"tuple\":[]}"
+    },
+    {
+      "name": "tuple-nested",
+      "group": "values",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"tuple\":[{\"atom\":\"61\"},{\"tuple\":[]},{\"tuple\":[{\"atom\":\"\"}]}]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a223631227d2c7b227475706c65223a5b5d7d2c7b227475706c65223a5b7b2261746f6d223a22227d5d7d5d7d",
+      "value": ["tuple",[["atom","61"],["tuple",[]],["tuple",[["atom",""]]]]],
+      "value_hex": "0103000161010001010000",
+      "output": "{\"tuple\":[{\"atom\":\"61\"},{\"tuple\":[]},{\"tuple\":[{\"atom\":\"\"}]}]}"
+    },
+    {
+      "name": "int-shaped-tuple",
+      "group": "values",
+      "note": "the tuple that ontos/data reads as int 1; this profile says nothing about embeddings and spells it node for node",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"tuple\":[{\"atom\":\"696e74\"},{\"atom\":\"0001\"}]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a22363936653734227d2c7b2261746f6d223a2230303031227d5d7d",
+      "value": ["int","1"],
+      "value_hex": "01020003696e7400020001",
+      "output": "{\"tuple\":[{\"atom\":\"696e74\"},{\"atom\":\"0001\"}]}"
+    },
+    {
+      "name": "atom-200-bytes",
+      "group": "values",
+      "note": "an atom whose length needs a two-byte uvarint (c8 01)",
+      "provenance": "derived-from-spec-algorithm",
+      "input": {"runs":[["{\"atom\":\"",1],["ab",200],["\"}",1]]},
+      "input_hex": {"runs":[["7b2261746f6d223a22",1],["6162",200],["227d",1]]},
+      "value": ["atom","abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"],
+      "value_hex": "00c801abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+      "output": {"runs":[["{\"atom\":\"",1],["ab",200],["\"}",1]]}
+    },
+    {
+      "name": "json-whitespace",
+      "group": "normalization",
+      "note": "normalization json-whitespace: space, tab, CR and LF between tokens, and a trailing newline, are accepted and never written",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{ \"tuple\" : [ {\"atom\":\"00\"} ,\r\n\t{\"atom\" :\"01\"} ] }\n",
+      "input_hex": "7b20227475706c6522203a205b207b2261746f6d223a223030227d202c0d0a097b2261746f6d22203a223031227d205d207d0a",
+      "value": ["tuple",[["atom","00"],["atom","01"]]],
+      "value_hex": "0102000100000101",
+      "output": "{\"tuple\":[{\"atom\":\"00\"},{\"atom\":\"01\"}]}"
+    },
+    {
+      "name": "escaped-member-name",
+      "group": "normalization",
+      "note": "normalization string-escapes: the member name is compared after escape decoding",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"\\u0061tom\":\"00\"}",
+      "input_hex": "7b225c7530303631746f6d223a223030227d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"atom\":\"00\"}"
+    },
+    {
+      "name": "escaped-hex",
+      "group": "normalization",
+      "note": "normalization string-escapes: the hex string's decoded content is 00",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"atom\":\"\\u0030\\u0030\"}",
+      "input_hex": "7b2261746f6d223a225c75303033305c7530303330227d",
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"atom\":\"00\"}"
+    },
+    {
+      "name": "escaped-tuple-name",
+      "group": "normalization",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"tupl\\u0065\":[{\"\\u0061tom\":\"\"}]}",
+      "input_hex": "7b227475706c5c7530303635223a5b7b225c7530303631746f6d223a22227d5d7d",
+      "value": ["tuple",[["atom",""]]],
+      "value_hex": "01010000",
+      "output": "{\"tuple\":[{\"atom\":\"\"}]}"
+    },
+    {
+      "name": "trailing-bracket",
+      "group": "cli",
+      "note": "a trailing ] after the value (accepted by the Go command line before design 0010)",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}]",
+      "input_hex": "7b2261746f6d223a223030227d5d",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,14]}
+    },
+    {
+      "name": "trailing-brace",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}}",
+      "input_hex": "7b2261746f6d223a223030227d7d",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,14]}
+    },
+    {
+      "name": "trailing-value",
+      "group": "cli",
+      "note": "two values; the span runs to the end of the input",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"} {\"atom\":\"01\"}",
+      "input_hex": "7b2261746f6d223a223030227d207b2261746f6d223a223031227d",
+      "refusal": {"code":"trailing_data","path":[],"span":[14,27]}
+    },
+    {
+      "name": "trailing-comment",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}//x",
+      "input_hex": "7b2261746f6d223a223030227d2f2f78",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,16]}
+    },
+    {
+      "name": "trailing-form-feed",
+      "group": "cli",
+      "note": "a form feed is not JSON whitespace (the Go and Rust command lines trimmed it before design 0010)",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}\f",
+      "input_hex": "7b2261746f6d223a223030227d0c",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,14]}
+    },
+    {
+      "name": "trailing-nbsp",
+      "group": "cli",
+      "note": "U+00A0 is two bytes; the span covers both",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"} ",
+      "input_hex": "7b2261746f6d223a223030227dc2a0",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,15]}
+    },
+    {
+      "name": "leading-nbsp",
+      "group": "cli",
+      "note": "U+00A0 where a value must start",
+      "provenance": "hand-authored",
+      "input": " {\"atom\":\"00\"}",
+      "input_hex": "c2a07b2261746f6d223a223030227d",
+      "refusal": {"code":"invalid_json","path":[],"span":[0,2]}
+    },
+    {
+      "name": "line-separator-between-tokens",
+      "group": "cli",
+      "note": "U+2028 after a member value: the object's path, the character's three bytes",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\" }",
+      "input_hex": "7b2261746f6d223a22303022e280a87d",
+      "refusal": {"code":"invalid_json","path":[],"span":[12,15]}
+    },
+    {
+      "name": "vertical-tab-in-array",
+      "group": "cli",
+      "note": "after [ a value or ] must follow; the path names the element position 0",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[\u000b]}",
+      "input_hex": "7b227475706c65223a5b0b5d7d",
+      "refusal": {"code":"invalid_json","path":["tuple",0],"span":[10,11]}
+    },
+    {
+      "name": "bom",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "﻿{\"atom\":\"00\"}",
+      "input_hex": "efbbbf7b2261746f6d223a223030227d",
+      "refusal": {"code":"byte_order_mark","path":[],"span":[0,3]}
+    },
+    {
+      "name": "bom-only",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "﻿",
+      "input_hex": "efbbbf",
+      "refusal": {"code":"byte_order_mark","path":[],"span":[0,3]}
+    },
+    {
+      "name": "bom-after-value",
+      "group": "cli",
+      "note": "U+FEFF is not whitespace anywhere",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}﻿",
+      "input_hex": "7b2261746f6d223a223030227defbbbf",
+      "refusal": {"code":"trailing_data","path":[],"span":[13,16]}
+    },
+    {
+      "name": "duplicate-after-escape-decoding",
+      "group": "cli",
+      "note": "the second name decodes to atom; the span is its token (last-wins in all four command lines before design 0010)",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\",\"\\u0061tom\":\"01\"}",
+      "input_hex": "7b2261746f6d223a223030222c225c7530303631746f6d223a223031227d",
+      "refusal": {"code":"duplicate_member","path":["atom"],"span":[13,24]}
+    },
+    {
+      "name": "duplicate-tuple-member",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[],\"tuple\":[]}",
+      "input_hex": "7b227475706c65223a5b5d2c227475706c65223a5b5d7d",
+      "refusal": {"code":"duplicate_member","path":["tuple"],"span":[12,19]}
+    },
+    {
+      "name": "duplicate-nested",
+      "group": "cli",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"atom\":\"00\",\"atom\":\"00\"}]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a223030222c2261746f6d223a223030227d5d7d",
+      "refusal": {"code":"duplicate_member","path":["tuple",0,"atom"],"span":[23,29]}
+    },
+    {
+      "name": "duplicate-before-shape",
+      "group": "cli",
+      "note": "stage 3 refuses the repeated name before stage 4 could refuse the shape",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\",\"atom\":\"01\",\"x\":1}",
+      "input_hex": "7b2261746f6d223a223030222c2261746f6d223a223031222c2278223a317d",
+      "refusal": {"code":"duplicate_member","path":["atom"],"span":[13,19]}
+    },
+    {
+      "name": "depth-1024-accepted",
+      "group": "cli",
+      "note": "an empty tuple nested 1024 deep: value depth 1024 and JSON depth 2050, both exactly at the shipped defaults",
+      "provenance": "derived-from-spec-algorithm",
+      "input": {"runs":[["{\"tuple\":[",1024],["{\"tuple\":[]}",1],["]}",1024]]},
+      "input_hex": {"runs":[["7b227475706c65223a5b",1024],["7b227475706c65223a5b5d7d",1],["5d7d",1024]]},
+      "value": ["deep",1024,"tuple",["tuple",[]]],
+      "value_hex": {"runs":[["0101",1024],["0100",1]]},
+      "output": {"runs":[["{\"tuple\":[",1024],["{\"tuple\":[]}",1],["]}",1024]]}
+    },
+    {
+      "name": "depth-1025-refused",
+      "group": "cli",
+      "note": "an atom nested 1025 deep: its object opens at JSON depth 2051 > 2050, so stage 3 refuses before any value is built",
+      "provenance": "hand-authored",
+      "input": {"runs":[["{\"tuple\":[",1025],["{\"atom\":\"\"}",1],["]}",1025]]},
+      "input_hex": {"runs":[["7b227475706c65223a5b",1025],["7b2261746f6d223a22227d",1],["5d7d",1025]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[["tuple",0],1025]]},"span":[10250,10251],"kind":"json_depth"}
+    },
+    {
+      "name": "deep-array-json-depth-before-shape",
+      "group": "cli",
+      "note": "2051 open arrays are refused in stage 3, before stage 4 could say the text is not total form",
+      "provenance": "hand-authored",
+      "input": {"runs":[["[",2051]]},
+      "input_hex": {"runs":[["5b",2051]]},
+      "refusal": {"code":"limit_exceeded","path":{"runs":[[[0],2050]]},"span":[2050,2051],"kind":"json_depth"}
+    },
+    {
+      "name": "deep-array-at-cap-then-shape",
+      "group": "cli",
+      "note": "2050 nested arrays pass stage 3; stage 4 then refuses the root",
+      "provenance": "hand-authored",
+      "input": {"runs":[["[",2050],["]",2050]]},
+      "input_hex": {"runs":[["5b",2050],["5d",2050]]},
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,4100]}
+    },
+    {
+      "name": "empty-input",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "",
+      "input_hex": "",
+      "refusal": {"code":"invalid_json","path":[],"span":[0,0]}
+    },
+    {
+      "name": "whitespace-only",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "  ",
+      "input_hex": "2020",
+      "refusal": {"code":"invalid_json","path":[],"span":[2,2]}
+    },
+    {
+      "name": "truncated-object",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"",
+      "input_hex": "7b2261746f6d223a22303022",
+      "refusal": {"code":"invalid_json","path":[],"span":[12,12]}
+    },
+    {
+      "name": "truncated-string",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00",
+      "input_hex": "7b2261746f6d223a223030",
+      "refusal": {"code":"invalid_json","path":["atom"],"span":[11,11]}
+    },
+    {
+      "name": "unescaped-line-feed",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"0\n0\"}",
+      "input_hex": "7b2261746f6d223a22300a30227d",
+      "refusal": {"code":"invalid_json","path":["atom"],"span":[10,11]}
+    },
+    {
+      "name": "unknown-escape",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\x00\"}",
+      "input_hex": "7b2261746f6d223a225c783030227d",
+      "refusal": {"code":"invalid_json","path":["atom"],"span":[9,11]}
+    },
+    {
+      "name": "bad-unicode-escape-digit",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\u00G0\"}",
+      "input_hex": "7b2261746f6d223a225c7530304730227d",
+      "refusal": {"code":"invalid_json","path":["atom"],"span":[13,14]}
+    },
+    {
+      "name": "lone-high-surrogate",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\ud800\"}",
+      "input_hex": "7b2261746f6d223a225c7564383030227d",
+      "refusal": {"code":"invalid_unicode_escape","path":["atom"],"span":[9,15]}
+    },
+    {
+      "name": "lone-low-surrogate",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\udc00\"}",
+      "input_hex": "7b2261746f6d223a225c7564633030227d",
+      "refusal": {"code":"invalid_unicode_escape","path":["atom"],"span":[9,15]}
+    },
+    {
+      "name": "high-surrogate-then-non-low",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\ud800\\u0041\"}",
+      "input_hex": "7b2261746f6d223a225c75643830305c7530303431227d",
+      "refusal": {"code":"invalid_unicode_escape","path":["atom"],"span":[9,15]}
+    },
+    {
+      "name": "surrogates-reversed",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\udc00\\ud800\"}",
+      "input_hex": "7b2261746f6d223a225c75646330305c7564383030227d",
+      "refusal": {"code":"invalid_unicode_escape","path":["atom"],"span":[9,15]}
+    },
+    {
+      "name": "lone-surrogate-in-member-name",
+      "group": "lexical",
+      "note": "inside a member name the path is the object's: the name is not complete yet",
+      "provenance": "hand-authored",
+      "input": "{\"\\ud800\":1}",
+      "input_hex": "7b225c7564383030223a317d",
+      "refusal": {"code":"invalid_unicode_escape","path":[],"span":[2,8]}
+    },
+    {
+      "name": "single-quotes",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{'atom':'00'}",
+      "input_hex": "7b2761746f6d273a273030277d",
+      "refusal": {"code":"invalid_json","path":[],"span":[1,2]}
+    },
+    {
+      "name": "comment-inside",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{/*c*/\"atom\":\"00\"}",
+      "input_hex": "7b2f2a632a2f2261746f6d223a223030227d",
+      "refusal": {"code":"invalid_json","path":[],"span":[1,2]}
+    },
+    {
+      "name": "missing-colon",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\" \"00\"}",
+      "input_hex": "7b2261746f6d2220223030227d",
+      "refusal": {"code":"invalid_json","path":["atom"],"span":[8,9]}
+    },
+    {
+      "name": "trailing-comma-in-array",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"atom\":\"00\"},]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a223030227d2c5d7d",
+      "refusal": {"code":"invalid_json","path":["tuple",1],"span":[24,25]}
+    },
+    {
+      "name": "trailing-comma-in-object",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\",}",
+      "input_hex": "7b2261746f6d223a223030222c7d",
+      "refusal": {"code":"invalid_json","path":[],"span":[13,14]}
+    },
+    {
+      "name": "leading-zero-number",
+      "group": "lexical",
+      "note": "the number token is 0, and 1 is trailing data",
+      "provenance": "hand-authored",
+      "input": "01",
+      "input_hex": "3031",
+      "refusal": {"code":"trailing_data","path":[],"span":[1,2]}
+    },
+    {
+      "name": "lone-minus",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "-",
+      "input_hex": "2d",
+      "refusal": {"code":"invalid_json","path":[],"span":[1,1]}
+    },
+    {
+      "name": "truncated-literal",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "tru",
+      "input_hex": "747275",
+      "refusal": {"code":"invalid_json","path":[],"span":[3,3]}
+    },
+    {
+      "name": "bad-literal",
+      "group": "lexical",
+      "provenance": "hand-authored",
+      "input": "nul1",
+      "input_hex": "6e756c31",
+      "refusal": {"code":"invalid_json","path":[],"span":[3,4]}
+    },
+    {
+      "name": "utf8-lone-continuation",
+      "group": "utf8",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a2280227d",
+      "input_parts": [["text","{\"atom\":\""],["hex","80"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[9,10]}
+    },
+    {
+      "name": "utf8-overlong",
+      "group": "utf8",
+      "note": "C0 starts no well-formed sequence",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a22c0af227d",
+      "input_parts": [["text","{\"atom\":\""],["hex","c0af"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[9,10]}
+    },
+    {
+      "name": "utf8-encoded-surrogate",
+      "group": "utf8",
+      "note": "after ED only 80–9F may follow, so the maximal subpart is ED alone",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a22eda080227d",
+      "input_parts": [["text","{\"atom\":\""],["hex","eda080"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[9,10]}
+    },
+    {
+      "name": "utf8-truncated-sequence",
+      "group": "utf8",
+      "note": "E2 82 is a prefix of E2 82 AC; the quotation mark cannot continue it",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a22e282227d",
+      "input_parts": [["text","{\"atom\":\""],["hex","e282"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[9,11]}
+    },
+    {
+      "name": "utf8-above-max",
+      "group": "utf8",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a22f4908080227d",
+      "input_parts": [["text","{\"atom\":\""],["hex","f4908080"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[9,10]}
+    },
+    {
+      "name": "utf8-ff",
+      "group": "utf8",
+      "provenance": "hand-authored",
+      "input_hex": "ff",
+      "input_parts": [["hex","ff"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[0,1]}
+    },
+    {
+      "name": "utf8-truncated-at-end",
+      "group": "utf8",
+      "note": "stage 2 runs before stage 3, so this is not trailing_data",
+      "provenance": "hand-authored",
+      "input_hex": "7b2261746f6d223a223030227de282",
+      "input_parts": [["text","{\"atom\":\"00\"}"],["hex","e282"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[13,15]}
+    },
+    {
+      "name": "utf8-before-bom",
+      "group": "utf8",
+      "note": "stage 2 checks the whole input before stage 3 sees the byte order mark",
+      "provenance": "hand-authored",
+      "input_hex": "efbbbf7b2261746f6d223a22ff227d",
+      "input_parts": [["hex","efbbbf"],["text","{\"atom\":\""],["hex","ff"],["text","\"}"]],
+      "refusal": {"code":"invalid_utf8","path":[],"span":[12,13]}
+    },
+    {
+      "name": "not-an-object-array",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "[]",
+      "input_hex": "5b5d",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,2]}
+    },
+    {
+      "name": "not-an-object-string",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "\"00\"",
+      "input_hex": "22303022",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,4]}
+    },
+    {
+      "name": "not-an-object-number",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "257",
+      "input_hex": "323537",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,3]}
+    },
+    {
+      "name": "empty-object",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{}",
+      "input_hex": "7b7d",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,2]}
+    },
+    {
+      "name": "two-members",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\",\"tuple\":[]}",
+      "input_hex": "7b2261746f6d223a223030222c227475706c65223a5b5d7d",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,24]}
+    },
+    {
+      "name": "wrong-member-name",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"Atom\":\"00\"}",
+      "input_hex": "7b2241746f6d223a223030227d",
+      "refusal": {"code":"invalid_total_form","path":[],"span":[0,13]}
+    },
+    {
+      "name": "atom-not-string",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":0}",
+      "input_hex": "7b2261746f6d223a307d",
+      "refusal": {"code":"invalid_total_form","path":["atom"],"span":[8,9]}
+    },
+    {
+      "name": "atom-null",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":null}",
+      "input_hex": "7b2261746f6d223a6e756c6c7d",
+      "refusal": {"code":"invalid_total_form","path":["atom"],"span":[8,12]}
+    },
+    {
+      "name": "tuple-not-array",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":{}}",
+      "input_hex": "7b227475706c65223a7b7d7d",
+      "refusal": {"code":"invalid_total_form","path":["tuple"],"span":[9,11]}
+    },
+    {
+      "name": "tuple-element-number",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[1]}",
+      "input_hex": "7b227475706c65223a5b315d7d",
+      "refusal": {"code":"invalid_total_form","path":["tuple",0],"span":[10,11]}
+    },
+    {
+      "name": "tuple-element-array",
+      "group": "shape",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[[]]}",
+      "input_hex": "7b227475706c65223a5b5b5d5d7d",
+      "refusal": {"code":"invalid_total_form","path":["tuple",0],"span":[10,12]}
+    },
+    {
+      "name": "hex-odd-length",
+      "group": "hex",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"0\"}",
+      "input_hex": "7b2261746f6d223a2230227d",
+      "refusal": {"code":"invalid_hex","path":["atom"],"span":[8,11]}
+    },
+    {
+      "name": "hex-uppercase",
+      "group": "hex",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"0A\"}",
+      "input_hex": "7b2261746f6d223a223041227d",
+      "refusal": {"code":"invalid_hex","path":["atom"],"span":[8,12]}
+    },
+    {
+      "name": "hex-not-hex",
+      "group": "hex",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"zz\"}",
+      "input_hex": "7b2261746f6d223a227a7a227d",
+      "refusal": {"code":"invalid_hex","path":["atom"],"span":[8,12]}
+    },
+    {
+      "name": "hex-space",
+      "group": "hex",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\" 00\"}",
+      "input_hex": "7b2261746f6d223a22203030227d",
+      "refusal": {"code":"invalid_hex","path":["atom"],"span":[8,13]}
+    },
+    {
+      "name": "hex-escaped-uppercase",
+      "group": "hex",
+      "note": "the decoded content AB is uppercase",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"\\u0041\\u0042\"}",
+      "input_hex": "7b2261746f6d223a225c75303034315c7530303432227d",
+      "refusal": {"code":"invalid_hex","path":["atom"],"span":[8,22]}
+    },
+    {
+      "name": "hex-error-deep",
+      "group": "hex",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"tuple\":[{\"atom\":\"x\"}]}]}",
+      "input_hex": "7b227475706c65223a5b7b227475706c65223a5b7b2261746f6d223a2278227d5d7d5d7d",
+      "refusal": {"code":"invalid_hex","path":["tuple",0,"tuple",0,"atom"],"span":[28,31]}
+    },
+    {
+      "name": "value-depth-custom",
+      "group": "limits",
+      "note": "with max_json_depth set above its derived value, the value depth bound refuses in stage 4",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"tuple\":[]}]}",
+      "input_hex": "7b227475706c65223a5b7b227475706c65223a5b5d7d5d7d",
+      "limits": {"max_value_depth":0,"max_json_depth":10},
+      "refusal": {"code":"limit_exceeded","path":["tuple",0],"span":[10,22],"kind":"decode_depth"}
+    },
+    {
+      "name": "json-depth-derived",
+      "group": "limits",
+      "note": "max_json_depth unset is derived as 2·1 + 2 = 4, so an atom at value depth 2 is refused in stage 3",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"tuple\":[{\"atom\":\"\"}]}]}",
+      "input_hex": "7b227475706c65223a5b7b227475706c65223a5b7b2261746f6d223a22227d5d7d5d7d",
+      "limits": {"max_value_depth":1},
+      "refusal": {"code":"limit_exceeded","path":["tuple",0,"tuple",0],"span":[20,21],"kind":"json_depth"}
+    },
+    {
+      "name": "value-depth-custom-at-bound",
+      "group": "limits",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"tuple\":[{\"tuple\":[]}]}",
+      "input_hex": "7b227475706c65223a5b7b227475706c65223a5b5d7d5d7d",
+      "limits": {"max_value_depth":1},
+      "value": ["tuple",[["tuple",[]]]],
+      "value_hex": "01010100",
+      "output": "{\"tuple\":[{\"tuple\":[]}]}"
+    },
+    {
+      "name": "json-depth-custom",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"tuple\":[]}]}",
+      "input_hex": "7b227475706c65223a5b7b227475706c65223a5b5d7d5d7d",
+      "limits": {"max_json_depth":3},
+      "refusal": {"code":"limit_exceeded","path":["tuple",0,"tuple"],"span":[19,20],"kind":"json_depth"}
+    },
+    {
+      "name": "limit-atom-bytes",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"0001\"}",
+      "input_hex": "7b2261746f6d223a2230303031227d",
+      "limits": {"max_atom_bytes":1},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,15],"kind":"atom_bytes"}
+    },
+    {
+      "name": "limit-tuple-arity",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"atom\":\"\"},{\"atom\":\"\"}]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a22227d2c7b2261746f6d223a22227d5d7d",
+      "limits": {"max_tuple_arity":1},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,35],"kind":"tuple_arity"}
+    },
+    {
+      "name": "limit-text-bytes",
+      "group": "limits",
+      "provenance": "hand-authored",
+      "input": "{\"atom\":\"00\"}",
+      "input_hex": "7b2261746f6d223a223030227d",
+      "limits": {"max_text_bytes":12},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[12,13],"kind":"text_bytes"}
+    },
+    {
+      "name": "limit-text-bytes-at-bound",
+      "group": "limits",
+      "provenance": "derived-from-spec-algorithm",
+      "input": "{\"atom\":\"00\"}",
+      "input_hex": "7b2261746f6d223a223030227d",
+      "limits": {"max_text_bytes":13},
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "output": "{\"atom\":\"00\"}"
+    },
+    {
+      "name": "limit-after-shape",
+      "group": "limits",
+      "note": "a node's limits are checked before its children, so the arity refuses before element 1's shape",
+      "provenance": "hand-authored",
+      "input": "{\"tuple\":[{\"atom\":\"00\"},1]}",
+      "input_hex": "7b227475706c65223a5b7b2261746f6d223a223030227d2c315d7d",
+      "limits": {"max_tuple_arity":1},
+      "refusal": {"code":"limit_exceeded","path":[],"span":[0,27],"kind":"tuple_arity"}
+    },
+    {
+      "name": "write-value-depth",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_value_depth":1},
+      "value": ["tuple",[["tuple",[["tuple",[]]]]]],
+      "value_hex": "010101010100",
+      "render_refusal": {"code":"limit_exceeded","kind":"decode_depth"}
+    },
+    {
+      "name": "write-atom-bytes",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_atom_bytes":1},
+      "value": ["atom","0001"],
+      "value_hex": "00020001",
+      "render_refusal": {"code":"limit_exceeded","kind":"atom_bytes"}
+    },
+    {
+      "name": "write-text-bytes",
+      "group": "write-limits",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_text_bytes":12},
+      "value": ["atom","00"],
+      "value_hex": "000100",
+      "render_refusal": {"code":"limit_exceeded","kind":"text_bytes"}
+    },
+    {
+      "name": "write-json-depth",
+      "group": "write-limits",
+      "note": "Tuple(Tuple()) needs JSON depth 4",
+      "provenance": "derived-from-spec-algorithm",
+      "limits": {"max_json_depth":3},
+      "value": ["tuple",[["tuple",[]]]],
+      "value_hex": "01010100",
+      "render_refusal": {"code":"limit_exceeded","kind":"json_depth"}
+    }
+  ]
+}

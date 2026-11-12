@@ -8,8 +8,9 @@
 #                (.github/workflows/ci.yml)
 #   fuzz         go native FuzzDecode + FuzzData + the 4-CLI differential bout + the
 #                limit-policy tests over a fresh-seed corpus (.github/workflows/ci.yml)
-#   vectors      regenerate the map/set vectors and the limit-policy corpus, assert no
-#                drift (.github/workflows/ci.yml)
+#   vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON
+#                projection vectors' derived fields, assert no drift, and check every JSON
+#                projection vector independently (.github/workflows/ci.yml)
 #   all          lint + test + vectors + conformance (NOT fuzz — run that separately)
 #
 # `conformance` rebuilds every CLI before running the differential harness, so a stale
@@ -70,7 +71,7 @@ usage: scripts/check.ps1 {test|lint|conformance|producer|fuzz|vectors|all}
   conformance  build the CLIs fresh, run the conformance harness over all 4 impls (all 4 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
   fuzz         go native FuzzDecode + FuzzData (`$env:FUZZTIME, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
-  vectors      regenerate the map/set vectors and the limit-policy corpus and assert no drift
+  vectors      regenerate the map/set vectors, the limit-policy corpus and the JSON projection vectors, assert no drift, check the JSON projection vectors
   all          lint + test + vectors + conformance + producer (fuzz is separate — it is generative)
 "@
   exit 2
@@ -305,6 +306,20 @@ function Invoke-Vectors {
 
   Step "lint: a case NAME asserting a relation must belong to a kind that carries it (ontos-internal#288)"
   Invoke-Checked { node tools/vector/lint-relations.mjs }
+
+  # The JSON projection vectors (docs/spec/ontos-total-json.md, docs/spec/ontos-readable-json.md,
+  # design record 0010). gen.mjs derives input_hex and value_hex, the latter with the frozen
+  # @bitspark/ontos-data encoders, so a clean regeneration leaves the files unchanged. check.mjs
+  # then checks every case with its own reader, writer and encoders, importing nothing.
+  # Mirrors do_vectors in scripts/check.sh; keep the two in sync.
+  Step "regenerate the JSON projection vectors' derived fields + assert no drift (tools/json-projection/gen.mjs)"
+  Invoke-Checked { node tools/json-projection/gen.mjs }
+  & { $ErrorActionPreference = 'Continue'; git diff --exit-code projection/json/vectors/ }
+  if ($LASTEXITCODE -ne 0) {
+    throw "projection/json/vectors drifted — re-run scripts/check.ps1 vectors and commit"
+  }
+  Step "check every JSON projection vector with an independent reader and writer (tools/json-projection/check.mjs)"
+  Invoke-Checked { node tools/json-projection/check.mjs }
 }
 
 

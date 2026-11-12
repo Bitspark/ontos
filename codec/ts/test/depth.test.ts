@@ -58,3 +58,13 @@ test("ontos-internal#343: the default limit still refuses a deep value by name, 
     (e: unknown) => e instanceof DecodeError && e.code === "limit_exceeded",
   );
 });
+
+test("a decoded value at the default depth and one 100,000 deep render without a RangeError", () => {
+  // Logging what decode accepted must not crash: ontos-core's Tuple#toString walks with an
+  // explicit stack. NEGATIVE WITNESS: its recursive form threw RangeError on the 100,000-level
+  // value.
+  for (const [depth, limits] of [[1024, {}], [DEEP, { maxDepth: DEEP + 1 }]] as const) {
+    const v = decode(expectedBytes(depth), limits);
+    assert.equal(String(v), "Tuple(".repeat(depth) + "Atom(0x61)" + ")".repeat(depth), `depth ${depth}`);
+  }
+});

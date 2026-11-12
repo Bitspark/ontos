@@ -204,14 +204,63 @@ export class Tuple {
     return true;
   }
 
+  /**
+   * One level of the JSON shape; JSON.stringify calls each child's toJSON as it reaches it.
+   * V8's serializer recurses natively, one frame per nesting level, so JSON.stringify throws
+   * a RangeError on a deep value, as it does on a plain object of the same shape. On Node 24,
+   * from a fresh stack, a tuple serializes up to about 1,500 levels (a plain object of the
+   * same shape up to about 2,200), and less when JSON.stringify is called from deeper in a
+   * stack. That limit is the engine's, and toJSON leaves the shape as it is.
+   */
   toJSON(): { readonly tuple: readonly Value[] } {
     return { tuple: this.#items };
   }
 
+  /**
+   * Walks with an explicit stack of open tuples, never one native frame per nesting level,
+   * so a value nested deeper than the call stack still renders: the recursive form threw a
+   * RangeError from about 5,000 levels. The text grows by concatenation, linear in its
+   * length, and no array method is called.
+   *
+   * The output is exactly the recursive form's: a child tuple whose toString is this method
+   * is expanded in place, and any other child (an Atom, or one whose toString is overridden)
+   * renders through its own toString, written as Array.prototype.join wrote it.
+   */
   toString(): string {
-    return `Tuple(${this.#items.map((item) => item.toString()).join(", ")})`;
+    let text = "Tuple(";
+    // The open tuples' children, innermost last, and the index of each one's next child.
+    const lists: (readonly Value[])[] = [this.#items];
+    const next: number[] = [0];
+    let depth = 1;
+    while (depth > 0) {
+      const items = lists[depth - 1]!;
+      const index = next[depth - 1]!;
+      if (index === items.length) {
+        text += ")";
+        depth -= 1;
+        continue;
+      }
+      next[depth - 1] = index + 1;
+      if (index !== 0) text += ", ";
+      const item = items[index]!;
+      if (#items in item && item.toString === tupleToString) {
+        text += "Tuple(";
+        lists[depth] = item.#items;
+        next[depth] = 0;
+        depth += 1;
+      } else {
+        const rendered: unknown = item.toString();
+        // join, which the recursive form called, writes null and undefined as "".
+        text += rendered === null || rendered === undefined ? "" : `${rendered}`;
+      }
+    }
+    return text;
   }
 }
+
+// Tuple's toString as defined above. A child whose toString is anything else, a
+// replacement assigned later included, is called like an override.
+const tupleToString = Tuple.prototype.toString;
 
 export function atom(bytes: BytesLike = new Uint8ArrayIntrinsic()): Atom {
   return new Atom(bytes);

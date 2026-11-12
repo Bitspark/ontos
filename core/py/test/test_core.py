@@ -164,5 +164,87 @@ class ApiTests(unittest.TestCase):
         self.assertIsInstance(tuple_(), Value)
 
 
+def _nested(depth):
+    """``depth`` one-element tuples around Atom(0x61), built without recursion."""
+    v = atom(b"\x61")
+    for _ in range(depth):
+        v = tuple_([v])
+    return v
+
+
+def _nested_text(depth):
+    return "Tuple(" * depth + "Atom(0x61)" + ")" * depth
+
+
+def _recursive_str(value):
+    """The rendering as it was before it became iterative: the oracle for byte identity."""
+    if isinstance(value, Tuple):
+        return "Tuple(" + ", ".join(_recursive_str(item) for item in value.items()) + ")"
+    return f"Atom(0x{value.bytes().hex()})"
+
+
+class DeepRenderingTests(unittest.TestCase):
+    """str() and repr() walk with an explicit stack, so depth is never bounded by Python's
+    recursion limit (1000). The codec's default decoder accepts a 1024-deep value, and a
+    caller that logs one must not crash; codec/py's test_codec covers the decoded path.
+
+    NEGATIVE WITNESS: the recursive form raised RecursionError from 900 levels, so both
+    depths below failed on str() and on repr()."""
+
+    def test_the_default_decode_depth_renders(self):
+        v = _nested(1024)
+        self.assertEqual(str(v), _nested_text(1024))
+        self.assertEqual(repr(v), _nested_text(1024))
+        self.assertEqual(f"{v}", _nested_text(1024))
+
+    def test_a_100000_deep_value_renders(self):
+        v = _nested(100_000)
+        self.assertEqual(str(v), _nested_text(100_000))
+        self.assertEqual(repr(v), _nested_text(100_000))
+
+    def test_a_deep_child_among_siblings_renders(self):
+        # Separators and closers stay right when the walk returns from a deep child.
+        v = tuple_([atom(b"\x01"), _nested(5_000), tuple_(), atom(b"\x02")])
+        self.assertEqual(
+            str(v), "Tuple(Atom(0x01), " + _nested_text(5_000) + ", Tuple(), Atom(0x02))"
+        )
+
+    def test_output_is_the_recursive_forms_byte_for_byte(self):
+        import random
+
+        rng = random.Random(0x62)  # deterministic: a property sweep, not fuzzing
+
+        def gen(depth):
+            if depth >= 6 or rng.random() < 0.4:
+                return atom(bytes(rng.randrange(256) for _ in range(rng.randrange(0, 4))))
+            return tuple_([gen(depth + 1) for _ in range(rng.randrange(0, 5))])
+
+        for trial in range(500):
+            v = gen(0)
+            self.assertEqual(str(v), _recursive_str(v), f"trial {trial}")
+            self.assertEqual(repr(v), _recursive_str(v), f"trial {trial}")
+
+    def test_a_child_that_overrides_str_still_renders_through_it(self):
+        # The recursive form called str() on every child, so a subclass's own rendering
+        # showed inside its parent. The walk keeps that.
+        class Point(Tuple):
+            def __str__(self):
+                return "Point"
+
+        class Label(Atom):
+            def __str__(self):
+                return "Label"
+
+        v = tuple_([Point([atom(b"\x01")]), tuple_([Label(b"\x02")]), atom(b"\x03")])
+        self.assertEqual(str(v), "Tuple(Point, Tuple(Label), Atom(0x03))")
+        self.assertEqual(repr(v), "Tuple(Point, Tuple(Label), Atom(0x03))")
+
+        # A subclass that keeps Tuple's rendering is walked like a Tuple.
+        class Plain(Tuple):
+            pass
+
+        self.assertEqual(str(tuple_([Plain([atom(b"\x04")])])), "Tuple(Tuple(Atom(0x04)))")
+
+
 if __name__ == "__main__":
     unittest.main()

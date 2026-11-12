@@ -201,6 +201,16 @@ class DepthTests(unittest.TestCase):
         self.assertEqual(_levels(v), 100_000)
         self.assertEqual(encode(v), raw)
 
+    def test_a_decoded_deep_value_renders(self):
+        # Logging what decode accepted must not crash: ontos_core renders with an explicit
+        # stack. NEGATIVE WITNESS: its recursive str() and repr() raised RecursionError on
+        # both values here.
+        for depth, limits in ((1024, {}), (100_000, {"max_depth": 100_000})):
+            v = decode(_nested_bytes(depth), **limits)
+            text = "Tuple(" * depth + "Atom(0x61)" + ")" * depth
+            self.assertEqual(str(v), text, f"str at {depth}")
+            self.assertEqual(repr(v), text, f"repr at {depth}")
+
 
 class PropertyTests(unittest.TestCase):
     """Deterministic fixed-iteration property sweeps (the non-Go fuzz ceiling):

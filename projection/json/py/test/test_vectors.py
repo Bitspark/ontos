@@ -11,10 +11,15 @@ projection/json/vectors/README.md, "How a face replays a case", says:
 
 Every case must exercise at least one of these, and the per-file counts are printed.
 
+``ONTOS_JSON_PROJECTION_VECTORS`` names another directory of ``total.json`` and ``readable.json``
+in the same format, which is how ``scripts/check.sh fuzz`` replays a fresh generated corpus
+(tools/json-projection/README.md).
+
 Run: ``python3 projection/json/py/test/test_vectors.py``
 """
 
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -26,7 +31,7 @@ for _lane in ("core/py", "codec/py", "data/py", "projection/json/py"):
 from ontos_codec import decode, encode  # noqa: E402
 from ontos_json import ProjectionError, readable, total  # noqa: E402
 
-_VECTORS = _REPO_ROOT / "projection" / "json" / "vectors"
+_VECTORS = Path(os.environ.get("ONTOS_JSON_PROJECTION_VECTORS") or _REPO_ROOT / "projection" / "json" / "vectors")
 
 # The README's limit names, which are exactly the Limits fields.
 _LIMIT_NAMES = {
@@ -194,7 +199,7 @@ class _Replay:
                     failed.append(case["name"])
                     raise
                 passed += 1
-        print(f"\n{self.file}: {passed}/{len(cases)} cases passed", file=sys.stderr)
+        print(f"\n{_VECTORS / self.file}: {passed}/{len(cases)} cases passed", file=sys.stderr)
         self.assertEqual(failed, [])
         self.assertEqual(passed, len(cases))
 

@@ -34,9 +34,9 @@ tuple's `i`-th child, must come from the same code in every face.
 
 ```jsonc
 "dependencies": {
-  "@bitspark/ontos-core":  "^0.17.0",
-  "@bitspark/ontos-codec": "^0.17.0",
-  "@bitspark/ontos-data":  "^0.17.0"
+  "@bitspark/ontos-core":  "^0.17.1",
+  "@bitspark/ontos-codec": "^0.17.1",
+  "@bitspark/ontos-data":  "^0.17.1"
 }
 ```
 ```ts
@@ -70,7 +70,7 @@ reconcile the former bitwire mirror with public ontos classes.
 **Go:**
 
 ```sh
-go get github.com/bitspark/ontos@v0.17.0
+go get github.com/bitspark/ontos@v0.17.1
 ```
 ```go
 import (

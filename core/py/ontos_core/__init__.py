@@ -224,8 +224,8 @@ class Tuple(Value):
         return self.__str__()
 
 
-# Tuple.__str__ as defined above, kept so a later reassignment of the class attribute
-# is a different renderer to the walk, called like any override.
+# Tuple.__str__ as defined above. A child whose __str__ is anything else, a replacement
+# assigned to the class later included, is called like an override.
 _TUPLE_STR = Tuple.__str__
 # Marks an exhausted child iterator in Tuple.__str__; never a value.
 _END = object()

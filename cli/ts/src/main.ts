@@ -136,15 +136,15 @@ class JsonTooDeep extends Error {}
  * (ontos-cli.md "Value input"):
  *   1. readJson reads the text as RFC 8259 JSON, left to right and without
  *      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
- *      escapes decoded, lone-surrogate escapes refused, and at most
- *      JSON_NESTING_CAP open arrays and objects. The first fault ends the reading:
- *      a 2051st level is JsonTooDeep, anything else AuthoringError.
+ *      escapes decoded, lone-surrogate escapes and repeated member names refused,
+ *      and at most JSON_NESTING_CAP open arrays and objects. The first fault ends the
+ *      reading: a 2051st level is JsonTooDeep, anything else AuthoringError.
  *   2. authoringValue checks the JSON value against the authoring shape and builds
- *      the core Value, again without recursion. Repeated member names keep their
- *      last value.
+ *      the core Value, again without recursion.
  * Node decodes argv and the utf8 stdin read with U+FFFD for each sequence that is
  * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of a
- * member name.
+ * member name, so such text is always refused. This reader is interim: a later task
+ * moves the CLIs onto a library reader.
  */
 
 /**
@@ -159,7 +159,7 @@ const JSON_NESTING_CAP = 2 * 1024 + 2;
 /**
  * A value of the generic JSON tree stage 1 builds. Numbers, true, false and null
  * are only ever refused by the shape check, so they share one kind. An object keeps
- * one value per distinct name: a repeated name keeps its last value.
+ * one value per member name (a name occurs once).
  */
 type JsonNode =
   | { kind: "scalar" }
@@ -356,7 +356,11 @@ function readJson(text: string): JsonNode {
       const d = peek();
       if (d === 0x2c) {
         pos += 1;
-        if (top.kind === "object") top.key = memberName();
+        if (top.kind === "object") {
+          const name = memberName();
+          if (top.node.members.has(name)) fault(`member name ${JSON.stringify(name)} repeated`);
+          top.key = name;
+        }
         ws();
         break;
       }
@@ -375,7 +379,7 @@ function readJson(text: string): JsonNode {
  * Stage 2: check a JSON value against the authoring notation — the exact inverse of
  * toAuthoring (and of the `--format json` value rendering) — and build the core
  * Value, walking the tree with an explicit stack. A value is a JSON object with
- * EXACTLY ONE member (after repeated names keep their last value): "atom" (even-length
+ * EXACTLY ONE member (stage 1 has already refused a repeated name): "atom" (even-length
  * lowercase hex, "" = empty atom) or "tuple" (a JSON array of values). Anything else
  * throws AuthoringError → `invalid_json`.
  */

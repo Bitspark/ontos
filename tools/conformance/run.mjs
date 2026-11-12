@@ -40,10 +40,14 @@
  * `--format human` USED to carry "no determinism guarantee" (ontos-cli.md); ontos-internal#46
  * makes the recognized-line rendering canonical and tri-core-enforced, and this mode is
  * what enforces it — turning human output into a checked parity property, not a hope.
- * (stderr is still not compared.) Pass --decode-roundtrip, --from-json-roundtrip, and/or
- * --human-roundtrip to select modes; with no mode flag the default decode mode runs
- * (back-compatible). The passes are independent and any divergence in any of them fails
- * the run.
+ * (stderr is still not compared.) A fourth, opt-in READING mode (--from-json-reading)
+ * judges how each impl READS a --from-json text (ontos-cli.md "Value input"): it runs a
+ * file of texts — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with the
+ * outcome the contract gives it, through argv and through stdin, and asserts every
+ * impl's stdout + exit code equal that outcome. Pass --decode-roundtrip,
+ * --from-json-roundtrip, --human-roundtrip and/or --from-json-reading to select modes;
+ * with no mode flag the default decode mode runs (back-compatible). The passes are
+ * independent and any divergence in any of them fails the run.
  *
  * THE CORPUS. By default the hexes are the `.hex` field of every element in the
  * "encode" array of BOTH vectors/codec.json and vectors/data.json (override/extend
@@ -56,7 +60,8 @@
  *   node tools/conformance/run.mjs \
  *     --impl <name>=<command> [--impl <name>=<command> ...] \
  *     [--vectors <path> ...] [--commands "<csv>"] \
- *     [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip]
+ *     [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \
+ *     [--from-json-reading [--reading-cases <path>] [--verbose]]
  *
  *   --impl NAME=COMMAND   (repeatable, >=1 required) An implementation to drive.
  *                         COMMAND is whitespace-split into an argv array, e.g.
@@ -89,6 +94,17 @@
  *                         human rendering (ontos-internal#46) — purely differential, no oracle
  *                         (human output is a tri-core identity property, not pinned in the
  *                         vectors).
+ *   --from-json-reading   Run the READING check mode over the cases file (default
+ *                         tools/conformance/from-json-reading.json). Each case is a
+ *                         --from-json text and its expected outcome: canonical hex, or an
+ *                         error code. For each case, each impl runs `canon --emit --format
+ *                         json --from-json <text>` through argv (when the text fits) and
+ *                         `--from-json -` through stdin; stdout and the exit code must
+ *                         equal the expected line and the contract's exit code. For an
+ *                         accepted case, `decode` (json and human) of the text must also
+ *                         equal `decode` of the expected hex, in each impl and across impls.
+ *   --reading-cases PATH  Read the READING cases from PATH instead.
+ *   --verbose             With --from-json-reading: print each case's per-impl outcome.
  *
  * ASSUMPTION — NO SPACES IN PATHS. Because both --impl COMMAND and each --commands
  * entry are tokenized by splitting on whitespace, neither an implementation's argv
@@ -100,7 +116,8 @@
  * EXIT CODES:
  *   0  every check passed — in decode/human mode every (hex × command) is byte-identical
  *      across all impls; in author->bytes mode every case is byte-identical across all
- *      impls AND every emitted hex equals the vector's pinned hex.
+ *      impls AND every emitted hex equals the vector's pinned hex; in reading mode every
+ *      impl gave every case its expected outcome.
  *   1  at least one divergence (the tool ran; the answer is "they disagree" — a
  *      differential mismatch, or an emitted hex that does not equal the pinned hex).
  *   2  usage error — no --impl, an unreadable/ill-formed vectors file, or an
@@ -112,7 +129,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -125,6 +142,8 @@ const DEFAULT_VECTORS = [
 ];
 
 const DEFAULT_COMMANDS = ["decode", "inspect", "read --all", "canon --check", "canon --emit"];
+
+const DEFAULT_READING_CASES = join(HERE, "from-json-reading.json");
 
 // The registered embedding labels, in the contract's fixed order (ontos-data.md §5).
 // The HUMAN mode additionally drives `read --kind <label>` for each so the per-kind
@@ -148,6 +167,9 @@ function parseArgs(argv) {
   let decodeRoundtrip = false;
   let fromJsonRoundtrip = false;
   let humanRoundtrip = false;
+  let fromJsonReading = false;
+  let readingCases = null;
+  let verbose = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -181,6 +203,12 @@ function parseArgs(argv) {
       fromJsonRoundtrip = true;
     } else if (arg === "--human-roundtrip") {
       humanRoundtrip = true;
+    } else if (arg === "--from-json-reading") {
+      fromJsonReading = true;
+    } else if (arg === "--reading-cases") {
+      readingCases = takeValue("--reading-cases");
+    } else if (arg === "--verbose") {
+      verbose = true;
     } else if (arg === "-h" || arg === "--help") {
       printUsage();
       process.exit(0);
@@ -194,7 +222,7 @@ function parseArgs(argv) {
   // Modes: each may be selected independently. With NO mode flag the default decode
   // mode runs (back-compatible). Naming --decode-roundtrip lets it run alongside the
   // other modes in one invocation.
-  const noModeFlag = !decodeRoundtrip && !fromJsonRoundtrip && !humanRoundtrip;
+  const noModeFlag = !decodeRoundtrip && !fromJsonRoundtrip && !humanRoundtrip && !fromJsonReading;
 
   return {
     impls,
@@ -203,6 +231,9 @@ function parseArgs(argv) {
     decodeRoundtrip: decodeRoundtrip || noModeFlag,
     fromJsonRoundtrip,
     humanRoundtrip,
+    fromJsonReading,
+    readingCases: readingCases ?? DEFAULT_READING_CASES,
+    verbose,
   };
 }
 
@@ -211,7 +242,8 @@ function printUsage() {
     "usage: node tools/conformance/run.mjs \\\n" +
       "         --impl <name>=<command> [--impl <name>=<command> ...] \\\n" +
       "         [--vectors <path> ...] [--commands \"<csv>\"] \\\n" +
-      "         [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip]\n",
+      "         [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \\\n" +
+      "         [--from-json-reading [--reading-cases <path>] [--verbose]]\n",
   );
 }
 
@@ -434,8 +466,203 @@ function runFromJsonMode(impls, cases) {
   return { divergences, summary };
 }
 
+
+// --- reading mode: how each impl reads a --from-json text -------------------
+// The cases file (DEFAULT_READING_CASES) holds texts the authoring-value modes above
+// cannot express — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with
+// the outcome ontos-cli.md "Value input" gives it. The judgment is an ORACLE: every
+// impl must give exactly the expected stdout line and the contract's exit code, so a
+// fault shared by all four impls still fails the run.
+
+// The contract's exit code for each outcome (ontos-cli.md "Exit codes"): success 0;
+// limit_exceeded 1, as for a decode limit; invalid_json 2, the usage class.
+const READING_EXIT = { ok: 0, limit_exceeded: 1, invalid_json: 2 };
+
+// A text longer than this (UTF-8 bytes) runs through stdin only. Windows caps a whole
+// command line at 32767 characters, and its quoting escapes every '"' in a JSON text.
+const ARGV_MAX = 16384;
+
+// Expand a piece list: a string, or an array of strings and [string, count] pairs.
+function expandPieces(spec, where) {
+  if (typeof spec === "string") return spec;
+  if (!Array.isArray(spec)) throw new UsageError(`${where}: expected a string or a list of pieces`);
+  return spec
+    .map((p) => {
+      if (typeof p === "string") return p;
+      if (Array.isArray(p) && p.length === 2 && typeof p[0] === "string" && Number.isInteger(p[1]) && p[1] >= 0) {
+        return p[0].repeat(p[1]);
+      }
+      throw new UsageError(`${where}: a piece must be a string or a [string, count] pair`);
+    })
+    .join("");
+}
+
+function collectReadingCases(path) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    throw new UsageError(`cannot read reading cases ${path}: ${err.message}`);
+  }
+  if (!parsed || !Array.isArray(parsed.cases) || parsed.cases.length === 0) {
+    throw new UsageError(`reading cases ${path} has no "cases" array`);
+  }
+  return parsed.cases.map((c, i) => {
+    const where = `${path}: cases[${i}]`;
+    if (typeof c.name !== "string") throw new UsageError(`${where} has no string "name"`);
+    if ((c.text === undefined) === (c.bytes === undefined)) {
+      throw new UsageError(`${where} needs exactly one of "text" or "bytes"`);
+    }
+    let input;
+    let argv = null;
+    if (c.text !== undefined) {
+      const text = expandPieces(c.text, `${where}.text`);
+      input = Buffer.from(text, "utf8");
+      // A text with NUL cannot be an argument; a long one would not fit a command line.
+      if (!text.includes("\0") && input.length <= ARGV_MAX) argv = text;
+    } else {
+      if (typeof c.bytes !== "string" || !/^([0-9a-f]{2})*$/.test(c.bytes)) {
+        throw new UsageError(`${where}.bytes must be lowercase hex`);
+      }
+      // Not UTF-8, so stdin only: Node can pass only strings as arguments.
+      input = Buffer.from(c.bytes, "hex");
+    }
+    const e = c.expect ?? {};
+    let expect;
+    if (e.hex !== undefined && e.error === undefined) {
+      expect = { hex: expandPieces(e.hex, `${where}.expect.hex`) };
+    } else if (e.error !== undefined && e.hex === undefined && e.error in READING_EXIT && e.error !== "ok") {
+      expect = { error: e.error };
+    } else {
+      throw new UsageError(`${where}.expect must be {"hex": …} or {"error": "invalid_json"|"limit_exceeded"}`);
+    }
+    return { name: c.name, input, argv, expect };
+  });
+}
+
+// Long output is cut down for a divergence report.
+const shorten = (s) => (s.length > 200 ? `${s.slice(0, 200)}… (${s.length} chars)` : s);
+
+// Run one impl with `args` after its prefix, `input` on stdin; never through a shell.
+function runAsync(impl, args, input) {
+  const [program, ...rest] = impl.argv;
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(program, [...rest, ...args], { stdio: ["pipe", "pipe", "ignore"] });
+    const out = [];
+    child.stdout.on("data", (d) => out.push(d));
+    child.on("error", (err) =>
+      rejectRun(new UsageError(`cannot spawn impl ${JSON.stringify(impl.name)} (${program}): ${err.message}`)),
+    );
+    child.on("close", (status, signal) =>
+      resolveRun({ stdout: Buffer.concat(out).toString("utf8"), status: status ?? `signal ${signal}` }),
+    );
+    child.stdin.on("error", () => {}); // an impl may exit before reading all of it
+    child.stdin.end(input);
+  });
+}
+
+// One case: canon --emit through each source (oracle), then, for an accepted case,
+// decode through --from-json against decode of the expected hex.
+async function runReadingCase(impls, c) {
+  const divergences = [];
+  const report = [];
+  const expectedLine = c.expect.hex !== undefined
+    ? `{"ok":true,"command":"canon","hex":"${c.expect.hex}"}\n`
+    : `{"ok":false,"command":"canon","error":"${c.expect.error}"}\n`;
+  const expectedExit = READING_EXIT[c.expect.hex !== undefined ? "ok" : c.expect.error];
+  const sources = [];
+  if (c.argv !== null) sources.push({ via: "argv", arg: c.argv, input: Buffer.alloc(0) });
+  sources.push({ via: "stdin", arg: "-", input: c.input });
+
+  for (const src of sources) {
+    const args = ["canon", "--emit", "--format", "json", "--from-json", src.arg];
+    const perImpl = await Promise.all(impls.map(async (impl) => ({ impl, ...(await runAsync(impl, args, src.input)) })));
+    report.push({ via: src.via, perImpl });
+    if (!perImpl.every((r) => r.stdout === expectedLine && r.status === expectedExit)) {
+      divergences.push({
+        mode: `from-json reading (${src.via})`,
+        label: c.name,
+        oracle: { expected: `${shorten(expectedLine.replace(/\n$/, ""))} with exit ${expectedExit}`, got: "see below" },
+        perImpl: perImpl.map((r) => ({ name: r.impl.name, stdout: shorten(r.stdout), status: r.status })),
+      });
+    }
+  }
+
+  if (c.expect.hex !== undefined) {
+    // The value read from the text is the value its canonical bytes decode to, in
+    // each impl (so no impl accepts a value its own default decoder refuses), and
+    // the impls render it identically.
+    for (const format of ["json", "human"]) {
+      const perImpl = await Promise.all(
+        impls.map(async (impl) => {
+          const viaJson = await runAsync(impl, ["decode", "--format", format, "--from-json", "-"], c.input);
+          const viaHex = await runAsync(impl, ["decode", "--format", format], Buffer.from(c.expect.hex));
+          return { impl, viaJson, viaHex };
+        }),
+      );
+      const ref = perImpl[0].viaJson;
+      const agree = perImpl.every(
+        (r) => r.viaJson.status === 0 && r.viaHex.status === 0 && r.viaJson.stdout === r.viaHex.stdout &&
+          r.viaJson.stdout === ref.stdout,
+      );
+      if (!agree) {
+        const short = (s) => shorten(s.replace(/\n$/, ""));
+        divergences.push({
+          mode: `from-json reading (decode --format ${format})`,
+          label: c.name,
+          perImpl: perImpl.map((r) => ({
+            name: r.impl.name,
+            stdout: `--from-json: ${short(r.viaJson.stdout)} | hex (exit ${r.viaHex.status}): ${short(r.viaHex.stdout)}`,
+            status: r.viaJson.status,
+          })),
+        });
+      }
+    }
+  }
+  return { divergences, report };
+}
+
+async function runReadingMode(impls, cases, verbose) {
+  const divergences = [];
+  // A few cases at a time; results are reported in file order.
+  const results = new Array(cases.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < cases.length) {
+      const i = next;
+      next += 1;
+      results[i] = await runReadingCase(impls, cases[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  results.forEach((r, i) => {
+    divergences.push(...r.divergences);
+    if (verbose) {
+      for (const { via, perImpl } of r.report) {
+        const outcome = (x) => {
+          try {
+            const o = JSON.parse(x.stdout);
+            return o.ok ? `hex ${o.hex.length > 12 ? `${o.hex.slice(0, 12)}…` : o.hex}` : o.error;
+          } catch {
+            return x.stdout === "" ? "(no output)" : "(not a JSON line)";
+          }
+        };
+        process.stdout.write(
+          `reading: ${cases[i].name} [${via}] — ` +
+            perImpl.map((x) => `${x.impl.name}: exit ${x.status} ${outcome(x)}`).join(" | ") + "\n",
+        );
+      }
+    }
+  });
+  const viaArgv = cases.filter((c) => c.argv !== null).length;
+  const summary =
+    `from-json reading: ${cases.length} texts (${viaArgv} through argv and stdin, ` +
+    `${cases.length - viaArgv} through stdin) x ${impls.length} impls (outcome oracle)`;
+  return { divergences, summary };
+}
+
 // --- main --------------------------------------------------------------------
-function main() {
+async function main() {
   let config;
   try {
     config = parseArgs(process.argv.slice(2));
@@ -448,7 +675,7 @@ function main() {
     throw err;
   }
 
-  const { impls, commands, decodeRoundtrip, fromJsonRoundtrip, humanRoundtrip } = config;
+  const { impls, commands, decodeRoundtrip, fromJsonRoundtrip, humanRoundtrip, fromJsonReading } = config;
   const resolvedVectors = config.vectors.map((p) => resolve(p));
 
   const divergences = [];
@@ -489,10 +716,23 @@ function main() {
     summaries.push(r.summary);
   }
 
+  if (fromJsonReading) {
+    let r;
+    try {
+      r = await runReadingMode(impls, collectReadingCases(resolve(config.readingCases)), config.verbose);
+    } catch (err) {
+      abortOnUsage(err);
+    }
+    divergences.push(...r.divergences);
+    summaries.push(r.summary);
+  }
+
   // --- report ----------------------------------------------------------------
   for (const d of divergences) {
     process.stdout.write(`DIVERGENCE [${d.mode}: ${d.label}]\n`);
-    if (d.oracle) {
+    if (d.oracle && d.oracle.got === "see below") {
+      process.stdout.write(`  expected ${d.oracle.expected}\n`);
+    } else if (d.oracle) {
       process.stdout.write(`  emit != pinned hex: expected ${d.oracle.expected}, got ${d.oracle.got}\n`);
     }
     for (const r of d.perImpl) {
@@ -516,9 +756,13 @@ function main() {
   process.stdout.write(
     `ontos-conformance: checked ${scope} (${implNames}) — all byte-identical` +
       (fromJsonRoundtrip ? " and every emit == pinned hex" : "") +
+      (fromJsonReading ? " and every --from-json text read as the contract says" : "") +
       "\n",
   );
   process.exit(0);
 }
 
-main();
+main().catch((err) => {
+  process.stderr.write(`ontos-conformance: ${err.stack ?? err}\n`);
+  process.exit(2);
+});

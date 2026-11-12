@@ -687,7 +687,8 @@ fn read_stdin() -> Result<String, String> {
 fn resolve_json_text(src: String) -> Result<String, String> {
     if src == "-" {
         // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
-        // U+FFFD is never hex and never part of a member name.
+        // U+FFFD is never hex and never part of a member name, so such text is
+        // always refused.
         let mut buf = Vec::new();
         io::stdin()
             .read_to_end(&mut buf)
@@ -739,13 +740,14 @@ fn decode_error(command: &str, error: &str, format: Format, code: u8) -> ExitCod
 // all four CLIs (docs/spec/ontos-cli.md "Value input"):
 //   (1) `read_json`: the text as RFC 8259 JSON, left to right and without
 //       recursion — only space/tab/LF/CR as whitespace, nothing after the value,
-//       escapes decoded, lone-surrogate escapes refused, and at most
-//       `JSON_NESTING_CAP` open arrays and objects. The first fault ends the reading:
-//       a 2051st level is `limit_exceeded`, anything else `invalid_json`.
+//       escapes decoded, lone-surrogate escapes and repeated member names refused,
+//       and at most `JSON_NESTING_CAP` open arrays and objects. The first fault ends
+//       the reading: a 2051st level is `limit_exceeded`, anything else `invalid_json`.
 //   (2) `authoring_value`: the JSON value checked against the authoring shape
 //       (`{atom}` | `{tuple}`) and built into a core `Value`, again without
-//       recursion. Repeated member names keep their last value.
-// Dependency-free, like the hand-rolled JSON *output* here (no serde).
+//       recursion.
+// Dependency-free, like the hand-rolled JSON *output* here (no serde). This reader
+// is interim: a later task moves the CLIs onto a library reader.
 
 /// The most arrays and objects the text may have open at once: 2·1024 + 2. The
 /// deepest value the codec's default decoder accepts is nested 1024 deep (root at
@@ -765,7 +767,7 @@ enum JsonFault {
 
 /// A generic JSON value, the output of stage (1). Numbers, `true`, `false` and
 /// `null` are only ever refused by stage (2), so they share one variant. An
-/// object keeps one value per distinct name: a repeated name keeps its last value.
+/// object maps each member name (which occurs once) to its value.
 enum JsonValue {
     Scalar,
     String(String),
@@ -876,9 +878,13 @@ fn read_json(text: &str) -> Result<JsonValue, JsonFault> {
                     r.ws();
                     break;
                 }
-                (Some(b','), Open::Object(_, key)) => {
+                (Some(b','), Open::Object(members, key)) => {
                     r.pos += 1;
-                    *key = r.member_name()?;
+                    let name = r.member_name()?;
+                    if members.contains_key(&name) {
+                        return Err(JsonFault::Malformed); // a repeated member name
+                    }
+                    *key = name;
                     r.ws();
                     break;
                 }
@@ -908,7 +914,8 @@ impl JsonReader<'_> {
         }
     }
 
-    /// Read `"name" :` (with whitespace around) and return the name.
+    /// Read `"name" :` (with whitespace around) and return the name. The caller
+    /// refuses a name its object already has, compared after escapes are decoded.
     fn member_name(&mut self) -> Result<String, JsonFault> {
         self.ws();
         if self.peek() != Some(b'"') {
@@ -1069,8 +1076,8 @@ enum Authoring<'a> {
 /// Stage (2): check a JSON value against the authoring notation and build the core
 /// `Value`, walking the tree with an explicit stack. `None` for any other shape.
 ///
-/// A value is a JSON object with EXACTLY ONE member (after repeated names keep
-/// their last value), `atom` or `tuple`. `atom` is an even-length lowercase-hex
+/// A value is a JSON object with EXACTLY ONE member, `atom` or `tuple` (stage (1)
+/// has already refused a repeated name). `atom` is an even-length lowercase-hex
 /// string; `tuple` is an array of values.
 fn authoring_value(root: &JsonValue) -> Option<Value> {
     let children = match authoring_node(root)? {

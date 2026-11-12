@@ -223,12 +223,13 @@ class _JsonTooDeep(Exception):
 # (ontos-cli.md "Value input"):
 #   1. _read_json reads the text as RFC 8259 JSON, left to right and without
 #      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
-#      escapes decoded, lone-surrogate escapes refused, and at most
-#      _JSON_NESTING_CAP open arrays and objects. The first fault ends the
-#      reading: a 2051st level is _JsonTooDeep, anything else _AuthoringError.
+#      escapes decoded, lone-surrogate escapes and repeated member names
+#      refused, and at most _JSON_NESTING_CAP open arrays and objects. The first
+#      fault ends the reading: a 2051st level is _JsonTooDeep, anything else
+#      _AuthoringError.
 #   2. _authoring_value checks the JSON value against the authoring shape and
-#      builds the core Value, again without recursion. Repeated member names
-#      keep their last value.
+#      builds the core Value, again without recursion.
+# This reader is interim: a later task moves the CLIs onto a library reader.
 # Python's json module is not used: it accepts NaN/Infinity, refuses integers
 # over 4300 digits, and recurses once per nesting level.
 
@@ -246,7 +247,7 @@ _HEX4 = re.compile(r"[0-9a-fA-F]{4}")
 _ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
 # Generic JSON nodes: a str is a JSON string, a list an array, a dict an object
-# (a repeated name keeps its last value), and _SCALAR stands for every number,
+# (each member name occurs once), and _SCALAR stands for every number,
 # true, false and null, which the shape check only ever refuses.
 _SCALAR = object()
 
@@ -388,7 +389,10 @@ def _read_json(text: str) -> object:
             if d == ",":
                 pos += 1
                 if isinstance(container, dict):
-                    top[1] = member_name()
+                    name = member_name()
+                    if name in container:
+                        raise fault(f"member name {name!r} repeated")
+                    top[1] = name
                 ws()
                 break
             if (d == "]" and isinstance(container, list)) or (d == "}" and isinstance(container, dict)):
@@ -420,8 +424,8 @@ def _authoring_value(root: object) -> Value:
     """Stage 2: check a JSON value against the authoring notation — the exact
     inverse of _to_authoring_json (and of the --format json value rendering) —
     and build the core Value, walking the tree with an explicit stack. A value is
-    a JSON object with EXACTLY ONE member (after repeated names keep their last
-    value): "atom" (even-length lowercase hex, "" = empty atom) or "tuple" (a
+    a JSON object with EXACTLY ONE member (stage 1 has already refused a
+    repeated name): "atom" (even-length lowercase hex, "" = empty atom) or "tuple" (a
     JSON array of values). Anything else raises _AuthoringError -> the stable
     `invalid_json` code.
     """
@@ -467,8 +471,9 @@ def _value_from_json_source(source: str) -> Value:
 
     Bytes that are not UTF-8 are read as U+FFFD, from stdin and from argv alike
     (Node reads argv that way before ts sees it; ontos-cli.md "Value input").
-    U+FFFD is never hex and never part of a member name. os.fsencode recovers an
-    argument's bytes from the surrogateescape decoding Python applied to it.
+    U+FFFD is never hex and never part of a member name, so such text is always
+    refused. os.fsencode recovers an argument's bytes from the surrogateescape
+    decoding Python applied to it.
     """
     if source == "-":
         text = sys.stdin.buffer.read().decode("utf-8", "replace")

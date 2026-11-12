@@ -5,15 +5,16 @@ package main
 //
 //  1. readJSON reads the text as RFC 8259 JSON, left to right, without recursion:
 //     only space/tab/LF/CR as whitespace, nothing after the value, escapes decoded,
-//     lone-surrogate escapes refused, and at most jsonNestingCap open arrays and
-//     objects. The first fault ends the reading: a 2051st level is limit_exceeded,
-//     anything else invalid_json.
+//     lone-surrogate escapes and repeated member names refused, and at most
+//     jsonNestingCap open arrays and objects. The first fault ends the reading: a
+//     2051st level is limit_exceeded, anything else invalid_json.
 //  2. authoringValue checks the JSON value against the authoring notation and builds
-//     the core.Value, again without recursion. Duplicate member names keep their
-//     last value.
+//     the core.Value, again without recursion.
 //
 // Text that is not UTF-8 is read with U+FFFD in place of each bad sequence
 // (readJSONText), as Node does with argv before ts sees it.
+//
+// This reader is interim: a later task moves the CLIs onto a library reader.
 
 import (
 	"encoding/hex"
@@ -51,12 +52,11 @@ type jsonNode struct {
 	kind    jsonKind
 	str     string               // jsonString: the decoded text
 	items   []*jsonNode          // jsonArray
-	members map[string]*jsonNode // jsonObject: a repeated name keeps its last value
+	members map[string]*jsonNode // jsonObject: one value per name (a name occurs once)
 }
 
 // readJSONText decodes the --from-json text: invalid UTF-8 becomes U+FFFD. U+FFFD
-// is never hex and never part of a member name, so such text can only be accepted
-// when the replacement lands inside an overwritten member.
+// is never hex and never part of a member name, so such text is always refused.
 func readJSONText(raw []byte) string {
 	return strings.ToValidUTF8(string(raw), "�")
 }
@@ -192,6 +192,9 @@ func readJSON(s string) (*jsonNode, error) {
 					if err != nil {
 						return nil, err
 					}
+					if _, seen := top.node.members[k]; seen {
+						return nil, r.errMalformed(fmt.Sprintf("member name %q repeated", k))
+					}
 					top.key = k
 				}
 				r.ws()
@@ -208,7 +211,8 @@ func readJSON(s string) (*jsonNode, error) {
 	}
 }
 
-// memberName reads `"name" :` (with whitespace around) and returns the name.
+// memberName reads `"name" :` (with whitespace around) and returns the name. The
+// caller refuses a name its object already has, compared after escapes are decoded.
 func (r *jsonReader) memberName() (string, error) {
 	r.ws()
 	if r.peek() != '"' {
@@ -385,8 +389,8 @@ func (r *jsonReader) hex4() (rune, error) {
 //	value ::= { "atom":  "<lowercase-hex>" }   // even-length; "" = empty atom
 //	        | { "tuple": [ value, … ] }         // [] = empty tuple
 //
-// Every object must have exactly one member (after repeated names keep their last
-// value), "atom" or "tuple". Any other shape is an error, which the caller reports
+// Every object must have exactly one member, "atom" or "tuple" (stage 1 has already
+// refused a repeated name). Any other shape is an error, which the caller reports
 // as invalid_json. It walks the tree with an explicit stack.
 func authoringValue(root *jsonNode) (core.Value, error) {
 	v, items, err := authoringNode(root)

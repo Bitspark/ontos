@@ -31,7 +31,8 @@ it may travel, but the value is recovered from it before any identity operation 
 ## 2. The advice, row by row
 
 The research owner checked each recommendation against ontos at `87a03b6`. All 23 are
-accepted. Rows 2, 7, 16 and 18 are accepted with the adaptation stated.
+accepted. Rows 2, 7, 16 and 18 are accepted with the adaptation stated. Rows 12 and 14 were
+adapted on 12 November 2026, at the review of the profile pages (§5, step 1).
 
 | row | recommendation | ruling |
 |---|---|---|
@@ -46,9 +47,9 @@ accepted. Rows 2, 7, 16 and 18 are accepted with the adaptation stated.
 | 9 | Maps and sets: an object when every key is canonical text and none is `$ontos`, else the map tag; any input order; output in codec order; duplicates refused by ground-value equality | Accepted. Codec order puts `"b"` before `"aa"`, which surprises a reader, but it is the only total order ontos defines over arbitrary keys. A second order would need its own definition. |
 | 10 | Compounds: a generic `compound` arm, a fixed recognition order, the recognition table frozen per `/1` | Accepted. |
 | 11 | The laws: `R(W(v)) = v`; `W(R(j)) = j` on the writer's image; normalization `N = W∘R` idempotent | Accepted. |
-| 12 | Deterministic emission: UTF-8 without BOM, no insignificant whitespace, fixed escaping, codec order | Accepted. |
+| 12 | Deterministic emission: UTF-8 without BOM, no insignificant whitespace, fixed escaping, codec order | Adapted: strings are escaped as ECMAScript's `JSON.stringify` and RFC 8785 escape them (`\b`, `\t`, `\n`, `\f`, `\r`, lowercase `\u00xx` for the other controls, everything else literal), not with `\u00xx` for every control as the advice proposed, because bindings emit through `JSON.stringify`. Ruled at the review of step 1. |
 | 13 | A named normalization table: JSON whitespace accepted; other whitespace, BOM, comments, trailing data and duplicate members (after escape decoding) refused | Accepted, for the total form too. The CLI fix in progress already applies it to `--from-json` (§4). |
-| 14 | Refusals as stable lowercase codes with a typed path and a UTF-8 byte span; the message is not normative | Accepted. |
+| 14 | Refusals as stable lowercase codes with a typed path and a UTF-8 byte span; the message is not normative | Adapted: a duplicate refusal names the second occurrence, by its path and span; the first may appear in the message, which is not normative. Ruled at the review of step 1. |
 | 15 | An optional reader result that maps value paths back to source spans | Accepted. It lands with the readable profile. |
 | 16 | Separate semantic totality from capacity | Adapted: the projection reuses and extends the codec's limit-kind and measure vocabulary (`ontos-codec.md` §4.2, §10) and defines JSON depth and value depth separately. |
 | 17 | A separate projection module; nothing in `core/`; `data/` doesn't depend on it | Accepted; layout in §4. |

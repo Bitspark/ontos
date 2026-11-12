@@ -294,7 +294,7 @@ here. Every other distinction is refused. Nothing is collapsed silently.
 | a member name or hex string spelled with escapes (`"\u0061tom"`, `"\u0030\u0030"`) | accepted, emitted without escapes | normalization `string-escapes` |
 | uppercase or odd-length hex | refused | `invalid_hex` |
 | a repeated member name, compared after escape decoding | refused | `duplicate_member` |
-| comments, a second value, or anything after the value | refused | `trailing_data` (after a complete value) or `invalid_json` |
+| comments, a second value, or anything after the value | refused | `invalid_json`, or `trailing_data` after the value |
 | ill-formed UTF-8 anywhere in the input | refused | `invalid_utf8` |
 | an escape naming a lone surrogate | refused | `invalid_unicode_escape` |
 
@@ -415,25 +415,33 @@ JSON depth of any accepted text  ∈  { 2·h + 1 , 2·h + 2 },  h = value depth 
 
 ### 9.2 The shipped defaults
 
+Each profile has its own defaults. This profile's:
+
 | bound | default |
 |---|---|
 | `max_text_bytes` | unbounded |
-| `max_json_depth` | **2050** |
+| `max_json_depth` | **derived**: `2 · max_value_depth + 2`, so **2050** under the defaults |
 | `max_value_depth` | **1024** |
 | `max_atom_bytes` | unbounded |
 | `max_tuple_arity` | unbounded |
 
-Every face ships exactly these defaults, so the vectors can pin depth at and past them.
+The limits record also carries the readable profile's `max_integer_digits`. This profile never
+checks it, and its defaults leave it unbounded. Every face ships exactly these defaults, so
+the vectors can pin depth at and past them.
 
 - `max_value_depth = 1024` is the codec decoder's shipped depth
   ([ontos-codec §4.1](ontos-codec.md#41-the-per-implementation-resource-limits-documented-non-divergent-on-valid-input)).
   A value read under the defaults decodes under the decoder's defaults once encoded.
-- `max_json_depth = 2050 = 2·1024 + 2` is the deepest spelling of a value within that depth,
-  an empty tuple at depth 1024. By §9.1, a text exceeds 2050 exactly when its value is nested
-  deeper than 1024. Under the defaults, a value at depth 1024 is accepted, and one at depth
-  1025 is refused in stage 3 with kind `json_depth`. A deeper value is therefore never built.
-  The command line's interim cap of 2050 levels on `--from-json` is this bound
-  ([ontos-cli](ontos-cli.md#value-input)).
+- **`max_json_depth` is derived from `max_value_depth` unless the caller sets it.** The derived
+  bound, `2v + 2` for a value depth bound `v`, is the deepest spelling of a value within `v`:
+  an empty tuple at depth `v`. By §9.1, a text exceeds it exactly when its value is nested
+  deeper than `v`, so lowering `max_value_depth` lowers the JSON bound with it, and a value too
+  deep is refused in stage 3 with kind `json_depth`, before it is built. Under the defaults, a
+  value at depth 1024 is accepted and one at depth 1025 is refused. The command line's cap of
+  2050 levels on `--from-json` is this bound ([ontos-cli](ontos-cli.md#reading-the-text)).
+  A caller may set `max_json_depth` explicitly: lower, to bound nesting on its own, or higher,
+  which only moves the refusal of a value too deep from stage 3 (`json_depth`) to stage 4
+  (`decode_depth`). An unbounded `max_value_depth` derives an unbounded `max_json_depth`.
 - The other bounds are unbounded, as in the codec. The caller already holds the input, and
   every count is bounded by its length. A service sets `max_text_bytes` to its own request
   limit.
@@ -446,13 +454,17 @@ the command lines' readers keep an explicit stack for the same reason.
 
 - **Reader.** `max_text_bytes` is checked first (stage 1), `max_json_depth` when an array or
   object opens (stage 3), and the value-side bounds at each node in stage 4 (§4.4).
-- **Writer.** The writer checks the same bounds against the value it writes and the text it
-  would emit. Walking the value in output order, it checks each node's depth, arity and atom
-  length before writing the node, checks `max_json_depth` when it opens an array or object,
-  and checks `max_text_bytes` when the output would first exceed it. The first bound reached
-  is the refusal, with its kind. A writer refusal has no span, because there is no input
-  text. Its path is informative: a face SHOULD give the value path of the node being written
-  (readable §10), and vectors do not pin it.
+- **Writer.** The writer checks the same bounds as the reader, as its mirror, in the order of
+  the bytes it emits. The output is a tree of JSON nodes, the tree the reader would build from
+  it. Before the first byte of each node, the writer checks that node's contribution, exactly
+  as the reader checks it (§4.4; for the readable profile, readable §4.9): `decode_depth`,
+  `tuple_arity`, `integer_digits` and `atom_bytes`, in that order. At each opening bracket it
+  checks `max_json_depth`, and the first byte beyond `max_text_bytes` refuses with
+  `text_bytes`. At a byte that starts a node, the contribution is checked first, then the
+  bracket's depth, then the byte's count. The first check that fails is the refusal, so the
+  writer's kind is determined by the value and the limits, and the vectors pin it. A writer
+  refusal has no span, because there is no input text. Its path is informative: a face SHOULD
+  give the path, in the output, of the node being written, and vectors do not pin it.
 - **Operational round trip.** If `W` writes `v` under limits `L`, then `R` reads `W(v)` under
   the same `L` and returns `v`. In particular, everything a writer emits under the defaults is
   readable under the defaults. A service that exports values for re-import therefore writes
@@ -482,14 +494,30 @@ profiles, with `readable` depending on `total`.
   therefore refused with `invalid_utf8`, path `[]`, and the one-byte span at the UTF-8 length
   of the characters before it. A string reader cannot know whether the string was decoded
   lossily before it arrived, which is why the byte reader is the normative one. Rust's `&str`
-  and Go's `string` cannot hold a lone surrogate, so Rust's `parse_str(input: &str, limits)`
-  and Go's `ParseUTF8([]byte(s), …)` need no check. TypeScript also offers
-  `renderString(value, limits?)`, the UTF-8 decoding of `renderUtf8`.
-- **Limits.** One record with the fields of §9.1, shared by both profiles: Go `Limits` with
-  `DefaultLimits()`, Rust `Limits` whose `Default` is §9.2, TypeScript `Limits` with
-  `DEFAULT_LIMITS` and partial overrides, and Python a frozen `Limits` with `DEFAULT_LIMITS`.
-  Every face represents "unbounded" and every bound it can hold exactly. A bound it cannot
-  represent is a caller error, not a refusal.
+  is well-formed UTF-8 by construction, so Rust's `parse_str(input: &str, limits)` needs no
+  check. A Go `string` is a byte string and may hold any bytes, `ED A0 80` included. Go reads
+  one with `ParseUTF8([]byte(s), …)`, whose stage 2 refuses ill-formed bytes as it does in any
+  input. TypeScript also offers `renderString(value, limits?)`, the UTF-8 decoding of
+  `renderUtf8`.
+- **Limits.** One record type, shared by both profiles, with the six bounds of §9.1 and
+  readable §9. Each profile has its own defaults (§9.2, readable §9):
+
+  | face | type | fields | this profile's defaults | readable's defaults |
+  |---|---|---|---|---|
+  | Go | `Limits` | `MaxTextBytes`, `MaxJSONDepth`, `MaxValueDepth`, `MaxAtomBytes`, `MaxTupleArity`, `MaxIntegerDigits`, all `int` | `total.DefaultLimits()` | `readable.DefaultLimits()` |
+  | Rust | `Limits` | the same in snake case, `u64`, with `max_json_depth: Option<u64>` | `total::DEFAULT_LIMITS` | `readable::DEFAULT_LIMITS` |
+  | TypeScript | `Limits` | the same in camel case, `number` | `DEFAULT_LIMITS` from `./total` | `DEFAULT_LIMITS` from `./readable` |
+  | Python | a frozen `Limits` | the same in snake case, `int` or `None` | `ontos_json.total.DEFAULT_LIMITS` | `ontos_json.readable.DEFAULT_LIMITS` |
+
+  "Unbounded" is the largest value of the type in Go and Rust (`math.MaxInt`, `u64::MAX`, as
+  in the codec), `Infinity` in TypeScript and `None` in Python. `max_json_depth` has a further
+  setting, **derived** (§9.2): `DeriveJSONDepth` (a negative constant) in Go, `None` in Rust
+  and Python, and a missing field in TypeScript. Each profile's defaults set it to derived. A
+  TypeScript `Partial<Limits>` overrides exactly the fields it gives, on that profile's
+  `DEFAULT_LIMITS`; every field it leaves out keeps its default, and `maxJsonDepth`, when left
+  out, is derived from the effective `maxValueDepth`. So `parseUtf8(text, { maxValueDepth: 10 })`
+  bounds JSON depth at 22 here and at 34 under the readable profile. A face represents every
+  bound it accepts exactly. A bound it cannot represent is a caller error, not a refusal.
 - **Errors.** One error type, shared by both profiles, exposes `profile`, `code`, `path` (the
   typed segments of §8.2), `span` (`start` and `end`), `kind` (for `limit_exceeded`) and a
   message: Go `*Error`, returned as `error`; Rust `Error`; TypeScript `ProjectionError`,

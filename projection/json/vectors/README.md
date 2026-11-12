@@ -22,9 +22,11 @@ catch that.
 | `name` | unique within the file |
 | `group` | what the case is about (see *Coverage* below) |
 | `note` | optional; why the case is there |
+| `provenance` | `hand-authored` or `derived-from-spec-algorithm`, as below |
 | `input` | the input text, for reading, when it is well-formed UTF-8. Informative: `input_hex` is normative |
 | `input_hex` | the **exact bytes** of the input, as lowercase hex, so that ill-formed UTF-8 can be expressed. A case with ill-formed input has no `input` |
-| `limits` | bounds that differ from the profile's shipped defaults, by their names in spec §9: `max_text_bytes`, `max_json_depth`, `max_value_depth`, `max_atom_bytes`, `max_tuple_arity`, `max_integer_digits` |
+| `input_parts` | for an input that has no `input`: the same bytes again, as pieces `["text", …]` (its UTF-8) and `["hex", …]`, written by hand separately from `input_hex`. Informative |
+| `limits` | bounds that differ from the profile's shipped defaults, by their names in spec §9: `max_text_bytes`, `max_json_depth`, `max_value_depth`, `max_atom_bytes`, `max_tuple_arity`, `max_integer_digits`. When `max_json_depth` is not given, it is derived from the effective `max_value_depth` (`2v + 2` for total, `3v + 4` for readable), as the spec's defaults are |
 | `value` | the value, in the datum notation below. Informative: `value_hex` is normative |
 | `value_hex` | the `ontos-codec-v1` bytes of the value, as hex |
 | `output` | the preferred output text: what the writer emits for the value |
@@ -78,29 +80,31 @@ for the text and hex fields, and an array of path segments for `path`. For examp
 | `["decimal", "<m>", "<e>"]` | `decimal(int m, int e)`; the pair must be canonical |
 | `["deep", n, wrapper, d]` | `d` wrapped `n` times, where `wrapper` is `"tuple"` (a one-child tuple), `"list"` (a one-element list) or `["compound", "<label>"]` (a one-argument compound). Only at the top of `value` |
 
-A case whose value is easier to give as bytes has `value_hex` and no `value`.
 
 ## Provenance
 
-The cases are **hand-authored from the two spec pages** (Class A in the sense of
-[`docs/conformance-vector-provenance.md`](../../../docs/conformance-vector-provenance.md)).
-The judgments are written by hand: which inputs are accepted, the value each denotes, the
-preferred output, and each refusal's code, path, span and kind. So are the origins. Two
-fields are derived mechanically, by
-[`tools/json-projection/gen.mjs`](../../../tools/json-projection/gen.mjs):
+The cases are hand-authored from the two spec pages, and each carries its class under
+[`docs/conformance-vector-provenance.md`](../../../docs/conformance-vector-provenance.md):
 
-- `input_hex`, as the UTF-8 bytes of `input`;
-- `value_hex`, from `value` with the frozen encoders of `@bitspark/ontos-data` and
-  `@bitspark/ontos-codec`. [`vectors/data.json`](../../../vectors/data.json) pins those to all
-  four faces, and they share no code with the projection.
+- **`hand-authored`**: a refusal case. Its input, any limits, and the refusal's code, path,
+  span and kind are written by hand. An input that is not UTF-8 has its `input_hex` written by
+  hand, and its `input_parts` too, separately. The checker requires the two to agree.
+- **`derived-from-spec-algorithm`**: a case with a value. The author writes the input, the value
+  as a datum, the preferred output or the write refusal, and any origins.
+  [`tools/json-projection/gen.mjs`](../../../tools/json-projection/gen.mjs) derives `value_hex`
+  from the datum with an encoder of its own, written from ontos-codec §2 and ontos-data §5, which
+  builds encodings directly as bytes. It imports no face's package.
+
+`gen.mjs` also writes `input_hex` as the UTF-8 of `input`, sets `provenance`, and puts every
+case's fields in one order.
 
 [`tools/json-projection/check.mjs`](../../../tools/json-projection/check.mjs) then checks every
 case. It has its own strict reader, its own interpreters and writers for both profiles, its own
 codec and its own `ontos/data` encoders, written from the spec pages, and it imports nothing. It
-also rebuilds each `value` with its own encoders, which cross-checks `value_hex` against the
-frozen packages. `scripts/check.sh vectors` runs the generator, fails if the files change, and
-runs the checker. A face that disagrees with a case has found a defect in the face, the case or
-the checker. The spec page decides which, and the fix goes to the case and the checker together.
+builds each datum again with those encoders, which cross-checks `value_hex` against the
+generator's. `scripts/check.sh vectors` runs the generator, fails if the files change, and runs
+the checker. A face that disagrees with a case has found a defect in the face, the case or the
+checker. The spec page decides which, and the fix goes to the case and the checker together.
 
 ## Coverage
 
@@ -120,7 +124,8 @@ record), the cases the command lines need, and both profiles' refusal codes and 
 | `compounds`, `preferred`, `raw` | unknown, empty, namespaced and non-UTF-8 labels, malformed registered-label tuples preserved, preferred-spelling normalizations, raw subtrees in total form |
 | `envelope` | the reservation of `$ontos` after escape decoding, extra members, malformed envelopes, unknown tags, arities |
 | `empties`, `origins` | all distinct empty values, and origins across sorting and through `raw` |
-| `depth`, `limits`, `write-limits` | JSON depth against value depth (each refusing where the other does not), the defaults at and past their bounds, every limit kind for reading and for writing |
+| `depth`, `limits`, `write-limits` | JSON depth against value depth (each refusing where the other does not), the derived JSON depth, the defaults at and past their bounds, every limit kind for reading and for writing, and a write refusal where two bounds are exceeded |
+| `spans` | spans and paths after multi-byte UTF-8 text, where byte offsets and UTF-16 offsets differ |
 
 A real binding round trip (input, domain conversion, service result, export, re-import) is the
 bindings' to test.
@@ -128,10 +133,11 @@ bindings' to test.
 ## Adding a case
 
 Write the case with `input`, `value`, `output` or `refusal` (and `limits`, `note`,
-`origins` as needed), leave out `input_hex` and `value_hex`, then run:
+`origins` as needed). Leave out `input_hex`, `value_hex` and `provenance`, unless the input is
+not UTF-8: then write `input_hex` and `input_parts` by hand. Then run:
 
 ```sh
-node tools/json-projection/gen.mjs     # after the ts build (scripts/check.sh vectors builds it)
+node tools/json-projection/gen.mjs
 node tools/json-projection/check.mjs
 ```
 

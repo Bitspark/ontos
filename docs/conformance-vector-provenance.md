@@ -120,6 +120,29 @@ reporting ([ontos-codec §4.2](spec/ontos-codec.md), Testing), so it carries no
   its own acceptance.
 - No implementation's output is pasted into it.
 
+### The JSON projection vectors
+
+[`projection/json/vectors/`](../projection/json/vectors/) pins the two JSON profiles
+([`ontos-total-json/1`](spec/ontos-total-json.md),
+[`ontos-readable-json/1`](spec/ontos-readable-json.md)). Every case carries its class in a
+`provenance` field:
+
+- **`hand-authored`**: a refusal case. Its input, the refusal's code, path, span and kind, and
+  any limits are written by hand from the spec pages. An input that is not UTF-8 has its
+  `input_hex` written by hand beside `input_parts`, the same bytes written as text and hex
+  pieces, and the two are checked against each other.
+- **`derived-from-spec-algorithm`**: a case with a value. The author writes the input, the
+  preferred output, any origins and the value in a datum notation. The value's codec bytes,
+  `value_hex`, are derived from the datum by
+  [`tools/json-projection/gen.mjs`](../tools/json-projection/gen.mjs), with an encoder of its own
+  written from the codec and data pages. It imports no face's package, so no implementation's
+  output becomes the oracle.
+
+The cross-check is [`tools/json-projection/check.mjs`](../tools/json-projection/check.mjs). It
+builds every datum again with a second, independent encoder, and checks every case with its own
+reader and writer. `scripts/check.sh vectors` runs both and fails if the generator changes a
+file.
+
 ## File layout
 
 ```text

@@ -342,6 +342,16 @@ only to `max_integer_digits` (§9). In particular Rust MUST NOT route an integer
 An integer with more digits than that bound is a `limit_exceeded` refusal with kind
 `integer_digits`, in every face alike. It is never written another way.
 
+**Conversion depends on nothing but the text.** A face checks `int-text` on the text itself,
+over the ASCII digits `0`–`9` only, before it converts. It MUST NOT let a host conversion
+decide what an integer is, and the result MUST NOT depend on the locale, on Unicode digit
+properties or on interpreter settings. Python's `int()`, for one, accepts `"1_000"`, `" 1"` and
+`"1٢"` (with the Arabic-Indic digit U+0662), all refused here with `invalid_integer`. And
+CPython limits `int`/`str` conversion to a number of digits that is set per process
+(`sys.set_int_max_str_digits`, or the environment variable `PYTHONINTMAXSTRDIGITS`, as low as
+640). So a Python face converts by its own means in both directions, for example in chunks of
+at most 639 digits, which no setting can refuse.
+
 ### 4.6 Decimals
 
 `{"$ontos":["decimal","m","e"]}` carries the two components of `decimal(int m, int e)` (the
@@ -476,8 +486,8 @@ here. Every other distinction is refused. Nothing is collapsed silently.
 | a repeated key in a `map` tag or element in a `set` tag, by ground-value equality | refused | `duplicate_map_key`, `duplicate_set_element` |
 | an object that has `$ontos` and anything else, or a malformed envelope | refused | `invalid_envelope` |
 | a tag name outside the seven | refused | `unknown_tag` |
-| a tag with the wrong arity or a payload of the wrong JSON kind | refused | `invalid_tag` |
-| comments, a second value, anything after the value | refused | `trailing_data` or `invalid_json` |
+| a tag with the wrong arity, a payload of the wrong JSON kind, or a malformed label | refused | `invalid_tag` |
+| comments, a second value, anything after the value | refused | `invalid_json`, or `trailing_data` after the value |
 | ill-formed UTF-8, an escape naming a lone surrogate | refused | `invalid_utf8`, `invalid_unicode_escape` |
 
 ## 7. Laws
@@ -501,7 +511,7 @@ every face reports the same code, path, span and kind. Stages 1 to 3 use the sha
 | `unsafe_integer_literal` | a bare integer literal lies outside ±(2⁵³ − 1) |
 | `invalid_envelope` | an object with a member named `$ontos` has another member, or the member's value is not a non-empty array that starts with a string |
 | `unknown_tag` | the tag name is not one of the seven |
-| `invalid_tag` | a tag has the wrong arity, or a payload element or label is of the wrong JSON kind |
+| `invalid_tag` | a tag has the wrong arity, a payload element is of the wrong JSON kind, or a compound label is neither a string nor exactly `["bytes", string]` (a label array `["text", …]` included) |
 | `invalid_integer` | an integer string is not canonical decimal text |
 | `noncanonical_decimal` | decimal components are canonical integers but not the canonical pair |
 | `invalid_base64` | a base64 string is not canonical padded standard base64 |
@@ -534,31 +544,36 @@ Unlike the total form, a deep value can have a shallow spelling: 1025 nested lis
 depth 1025. So both bounds can refuse under the defaults, `json_depth` in stage 3 and
 `decode_depth` in stage 4.
 
-**The shipped defaults**, exact and the same in every face:
+**The shipped defaults** of this profile, exact and the same in every face:
 
 | bound | default |
 |---|---|
 | `max_text_bytes` | unbounded |
-| `max_json_depth` | **3076** = 3·1024 + 4 |
+| `max_json_depth` | **derived**: `3 · max_value_depth + 4`, so **3076** under the defaults |
 | `max_value_depth` | **1024** |
 | `max_atom_bytes` | unbounded |
 | `max_tuple_arity` | unbounded |
 | `max_integer_digits` | **4300** |
 
-- `max_json_depth = 3076` is the deepest spelling of a value within depth 1024. Under the
-  defaults, `json_depth` never refuses a text whose value is within `max_value_depth`, and it
-  stops any deeper chain of envelopes before stage 4.
+- **`max_json_depth` is derived from `max_value_depth` unless the caller sets it**, as in the
+  total profile (total §9.2), with this profile's bound: `3v + 4` is the deepest spelling of a
+  value within value depth `v`. Under the defaults, `json_depth` never refuses a text whose value
+  is within `max_value_depth`, and it stops any deeper chain of envelopes before stage 4.
 - `max_integer_digits = 4300` bounds the work of converting between decimal and binary, which
   is quadratic in the digit count for the simple algorithms some faces need (Rust has no
   standard big integer). With this bound, the work for a whole input stays proportional to its
-  length times the bound. 4300 is the limit CPython has applied to `int`/`str` conversion since
-  3.11 (CVE-2020-10735), so the Python face reads within it with the standard conversions. It
-  covers every magnitude below 10⁴³⁰⁰, about 14,000 bits. A writer refuses to spell a larger
-  integer in decimal under the defaults, with kind `integer_digits`. The caller may raise the
-  bound, or use the total profile, which spells integers' bytes in hexadecimal.
+  length times the bound. The number is CPython's default limit on `int`/`str` conversion since
+  3.11 (CVE-2020-10735), but the bound is this profile's own: every face applies it itself and
+  never through an interpreter setting (§4.5). It covers every magnitude below 10⁴³⁰⁰, about
+  14,000 bits. A writer refuses to spell a larger integer in decimal under the defaults, with
+  kind `integer_digits`. The caller may raise the bound, or use the total profile, which spells
+  integers' bytes in hexadecimal.
 
-The writer checks the same bounds, and the operational round trip of total §9.3 holds: what a
-writer emits under limits `L` is read back under `L`.
+**The writer** is the mirror of §4.9, as total §9.3 states: before the first byte of each JSON
+node it emits, it checks that node's contribution as the reader would; it checks
+`max_json_depth` at each opening bracket, and `max_text_bytes` at the first byte beyond it. The
+operational round trip of total §9.3 holds: what a writer emits under limits `L` is read back
+under `L`.
 
 ## 10. API in each face
 
@@ -567,9 +582,20 @@ writer emits under limits `L` is read back under `L`.
 The API is [ontos-total-json §10](ontos-total-json.md#10-api-in-each-face)'s, with the same
 names, in the readable module: Go package `github.com/bitspark/ontos/projection/json/go/readable`,
 Rust `ontos_json::readable`, TypeScript `@bitspark/ontos-json/readable`, and Python
-`ontos_json.readable`. The `Limits` record carries `max_integer_digits` for both profiles, and
-the total profile never reports it. The host-string readers check surrogates as the total
-profile's do.
+`ontos_json.readable`. The `Limits` record is the total profile's. This profile's defaults
+are `readable.DefaultLimits()` in Go, `readable::DEFAULT_LIMITS` in Rust, and `DEFAULT_LIMITS`
+exported from the readable entry point or module in TypeScript and Python. The host-string
+readers check surrogates as the total profile's do.
+
+**Readable input is read from its source bytes.** A channel that has already replaced
+ill-formed bytes, such as Node's `process.argv`, which decodes arguments with U+FFFD in place of
+bad sequences, cannot carry readable input. A replaced byte inside a string would read as
+U+FFFD: a different value, accepted without complaint. The total profile is safe on such a
+channel, because a U+FFFD never forms hex or a member name it accepts
+([ontos-cli](ontos-cli.md#reading-the-text)), but the readable profile reads every string as
+text. So a face reads readable input with the byte reader, or with the host-string reader only
+from a string that never passed through a lossy decoding. The command line's profile selector
+(design 0010 §5, step 3) follows this rule.
 
 ### 10.2 Origins
 
@@ -642,7 +668,9 @@ From the arms, two statements follow:
    `list`s, and maps whose keys are text other than `$ontos`.
 
 A consumer still names the profile it reads. The table shows why no reader can detect it:
-`{"atom":"00"}` has a different reading under each of the three.
+`{"atom":"00"}` is an atom under the total profile and a map under the other two, and
+`{"$ontos":["bytes","AA=="]}` is an atom under this profile and a map under
+`ontos-data-json/1`.
 
 ## 12. Conformance vectors
 

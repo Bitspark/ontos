@@ -359,6 +359,72 @@ fn an_objects_keys_lie_two_and_three_levels_down() {
 }
 
 #[test]
+fn member_values_lie_two_levels_down() {
+    // Readable §4.2: an object's member values are interpreted at d + 2. A bytes envelope's
+    // atom lies at its own depth, so here the keys (d + 3) are the deepest contribution...
+    let limits = |v| Limits {
+        max_value_depth: v,
+        ..readable::DEFAULT_LIMITS
+    };
+    let shallow = br#"{"a":{"$ontos":["bytes",""]}}"#;
+    assert!(readable::parse_utf8(shallow, &limits(3)).is_ok());
+    assert_eq!(
+        refusal(readable::parse_utf8(shallow, &limits(2))),
+        (
+            Code::LimitExceeded,
+            vec![],
+            Some((0, shallow.len())),
+            Some(LimitKind::DecodeDepth)
+        )
+    );
+    let value = encode_map(&[(encode_text("a"), Value::atom([]))]).unwrap();
+    assert_eq!(readable::render_utf8(&value, &limits(3)).unwrap(), shallow);
+    assert_eq!(
+        readable::render_utf8(&value, &limits(2))
+            .unwrap_err()
+            .kind(),
+        Some(LimitKind::DecodeDepth)
+    );
+    // ...and here the member value is: [[]] at d + 2 puts its inner list's label at d + 4.
+    let deep = br#"{"a":[[]]}"#;
+    assert!(readable::parse_utf8(deep, &limits(4)).is_ok());
+    assert_eq!(
+        refusal(readable::parse_utf8(deep, &limits(3))),
+        (
+            Code::LimitExceeded,
+            vec![Segment::Name("a".into()), Segment::Index(0)],
+            Some((6, 8)),
+            Some(LimitKind::DecodeDepth)
+        )
+    );
+}
+
+#[test]
+fn a_map_tags_own_contribution_lies_one_level_down() {
+    // The map tuple at d, its label and entry tuples at d + 1: refused at the envelope
+    // itself, before any key, when d + 1 is too deep.
+    let limits = |v| Limits {
+        max_value_depth: v,
+        ..readable::DEFAULT_LIMITS
+    };
+    for text in [
+        &br#"{"$ontos":["map",[]]}"#[..],
+        br#"{"$ontos":["map",[[1,2]]]}"#,
+    ] {
+        assert_eq!(
+            refusal(readable::parse_utf8(text, &limits(0))),
+            (
+                Code::LimitExceeded,
+                vec![],
+                Some((0, text.len())),
+                Some(LimitKind::DecodeDepth)
+            )
+        );
+    }
+    assert!(readable::parse_utf8(br#"{"$ontos":["map",[]]}"#, &limits(1)).is_ok());
+}
+
+#[test]
 fn contributions_by_node() {
     // One case per arm of readable §4.9 at the edge of max_value_depth: accepted at the
     // depth the arm's deepest node needs, refused one below it.

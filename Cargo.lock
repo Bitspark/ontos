@@ -68,6 +68,7 @@ dependencies = [
  "bitspark-ontos-codec",
  "bitspark-ontos-core",
  "bitspark-ontos-data",
+ "bitspark-ontos-json",
 ]
 
 [[package]]

@@ -61,8 +61,10 @@ ontos <command> [options] [<hex>]
 ```
 
 - **Input** is canonical `ontos-codec-v1` bytes, given as a positional **hex
-  string**, or read from **stdin** when the argument is `-` or omitted (hex,
-  surrounding whitespace ignored).
+  string**, or read from **stdin** when the argument is `-` or omitted. Space, tab, LF
+  and CR around the hex are ignored, and nothing else is: a form feed, NBSP, a
+  byte-order mark or any other character makes the input `invalid_hex` (see
+  [Value input](#value-input)).
 - **`--from-json <json|->`** supplies the input value as the **authoring notation**
   instead of hex (see [Value input](#value-input)) — the CLI's
   only text→bytes path. Mutually exclusive with a positional `<hex>`.
@@ -89,7 +91,11 @@ A decoded `Value` is rendered two ways:
 Every command operates on one `Value`, obtained from exactly one source:
 
 - **canonical bytes** (default) — the positional `<hex>` or stdin, decoded via
-  `ontos-codec-v1`. A decode failure is the command's negative/error result.
+  `ontos-codec-v1`. A decode failure is the command's negative/error result. The hex
+  may have space, tab, LF and CR around it (RFC 8259's whitespace, as `--from-json`
+  allows), and no other character; whitespace inside it is not stripped. Bytes that
+  are not UTF-8 are read as U+FFFD, as for `--from-json` (below), so they fail as
+  `invalid_hex`.
 - **`--from-json <json|->`** — the value is **parsed** from the authoring notation
   (`{"atom":"<hex>"}` | `{"tuple":[ … ]}`), the exact inverse of the `--format json`
   value rendering. `-` reads the JSON from stdin. No bytes are decoded; the value is

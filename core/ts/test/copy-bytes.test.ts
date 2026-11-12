@@ -209,8 +209,8 @@ for (const [name, read] of entries) {
 }
 
 test("a Proxy claiming length 2^32 - 1 and refused deep in is held to memory in proportion to what it read", () => {
-  // Past several doublings of the result (64 KiB -> 128 KiB -> 256 KiB -> 512 KiB).
-  const refusedAt = 300_000;
+  // Past two growths of the result (64 KiB -> 512 KiB -> 4 MiB).
+  const refusedAt = 600_000;
   let reads = 0;
   let total = Number.NaN;
   const source = new Proxy([], {
@@ -227,13 +227,13 @@ test("a Proxy claiming length 2^32 - 1 and refused deep in is held to memory in 
   const before = arrayBufferBytes();
   assert.throws(() => copyBytes(asBytes(source)), elementOutOfRange("-1"));
   assert.equal(reads, refusedAt + 1);
-  // The live result is at most twice the bytes read, and the results it outgrew may not
-  // be collected yet: under 4 bytes per byte read in all, plus the bound.
-  assertHeld(total, total - before, 4 * refusedAt + ALLOWED_BYTES, `index ${refusedAt}`);
+  // The live result is at most 8 bytes per byte read, and the results it outgrew (at most
+  // one more per byte read) may not be collected yet; plus the bound.
+  assertHeld(total, total - before, 9 * refusedAt + ALLOWED_BYTES, `index ${refusedAt}`);
 });
 
 test("a number[] longer than 64 KiB is copied exactly, each index read once, into a buffer of its exact length", () => {
-  for (const length of [0xffff, 0x10000, 0x10001, 0x20000, 0x20001, 300_001]) {
+  for (const length of [0xffff, 0x10000, 0x10001, 0x80000, 0x80001, 600_001]) {
     const bytes = Array.from({ length }, (_, i) => (i * 7 + 3) & 0xff);
     let reads = 0;
     const counted = new Proxy(bytes, {

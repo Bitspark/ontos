@@ -327,17 +327,25 @@ function copyRange(buffer: ArrayBufferLike, byteOffset: number, byteLength: numb
  * while holding nothing. So the claim alone sizes an allocation only up to this bound.
  * - An array up to the bound, which covers any atom built from a literal, still gets
  *   its exact result in one allocation, as before.
- * - A longer one starts at the bound, and the result doubles only after the element
- *   that needs the room has passed, capped at `length`. It ends at exactly `length`
- *   bytes with no final copy, and the doublings re-copy fewer than 2 * `length` bytes
- *   in all, which is cheap beside the per-element check.
- * - An array refused at index i holds a result of at most max(64 KiB, 2i) bytes.
+ * - A longer one starts at the bound. The result grows GROWTH-fold only after the
+ *   element that needs the room has passed, capped at `length`, so it ends at exactly
+ *   `length` bytes with no final copy.
+ * - An array refused at index i holds a result of at most max(64 KiB, 8i) bytes.
  *
- * A dense number[] of length n already occupies at least 4n bytes of heap in V8, so
- * allocating its n bytes up front is never an amplification. 64 KiB is small next to
- * that, yet it is a single cheap allocation.
+ * Why these numbers:
+ * - A dense number[] of length n already occupies at least 4n bytes of heap in V8 (8n in
+ *   Node), so allocating its n bytes up front is never an amplification. 64 KiB is small
+ *   next to that, yet a single cheap allocation.
+ * - A larger factor means fewer growth steps. Each step allocates, zeroes and faults in
+ *   fresh pages, and re-copies what came before. Copying 300,001 elements, after 15
+ *   processes each (Node 24), the median time over main's single allocation was +51% for
+ *   doubling, +25% for 4 and +5% for 8.
+ * - Even at 8, a refused array holds no more result than its valid elements occupy in
+ *   Node. A Proxy, which holds nothing, has to answer one valid element for every 8
+ *   bytes it makes the copy hold.
  */
 const PREALLOCATED_BYTES = 0x10000;
+const GROWTH = 8;
 
 function copyByteArray(source: readonly unknown[]): Uint8Array {
   const length: unknown = source.length;
@@ -348,22 +356,35 @@ function copyByteArray(source: readonly unknown[]): Uint8Array {
   }
   let capacity = length <= PREALLOCATED_BYTES ? length : PREALLOCATED_BYTES;
   let bytes = new Uint8ArrayIntrinsic(capacity);
-  for (let index = 0; index < length; index += 1) {
+  let index = 0;
+  // Each pass fills the result up to its capacity. The inner loop writes into one array
+  // held in a const and checks inline: the shape V8 compiles as tightly as one exact
+  // allocation (a helper or a reassigned array in the loop ran up to twice as slow).
+  for (;;) {
+    const filling = bytes;
+    for (; index < capacity; index += 1) {
+      const byte: unknown = source[index];
+      // A number keeps its value through `& 0xff` exactly when it is an integer 0..255
+      // (-0 included, stored as 0).
+      if (typeof byte !== "number" || (byte & 0xff) !== byte) {
+        throw new RangeErrorIntrinsic(`byte array element out of range: ${describe(byte)}`);
+      }
+      filling[index] = byte;
+    }
+    if (index === length) {
+      return filling;
+    }
+    // The element that needs the room passes before the room is made.
     const byte: unknown = source[index];
-    // A number keeps its value through `& 0xff` exactly when it is an integer 0..255
-    // (-0 included, stored as 0).
     if (typeof byte !== "number" || (byte & 0xff) !== byte) {
       throw new RangeErrorIntrinsic(`byte array element out of range: ${describe(byte)}`);
     }
-    if (index === capacity) {
-      capacity = capacity < length - capacity ? capacity * 2 : length;
-      const grown = new Uint8ArrayIntrinsic(capacity);
-      typedArraySet(grown, bytes);
-      bytes = grown;
-    }
+    capacity = capacity < length / GROWTH ? capacity * GROWTH : length;
+    bytes = new Uint8ArrayIntrinsic(capacity);
+    typedArraySet(bytes, filling);
     bytes[index] = byte;
+    index += 1;
   }
-  return bytes;
 }
 
 /**

@@ -72,9 +72,12 @@ FUZZ_SEED=0x2a FUZZ_JSON_COUNT=500 scripts/check.sh fuzz
 
 The generator also prints the corpus's outcomes: read refusals by code and limit kind,
 accepted reads, values written, write refusals by kind, and how many cases carry origins and
-limits. At 1000 cases per profile or more, it fails if a refusal code of the profile, a limit
-kind (read or write), an accepted read, a value to write, or (readable) origins are left
-unexercised.
+limits. From 1000 cases per profile on, every refusal code of the profile, every limit kind
+(read and write), an accepted read, a value to write and (readable) origins must be
+exercised. If the count leaves one out, the generator draws further cases (`count`,
+`count + 1`, …) until it is covered, up to twice the count, and fails only if something is
+still missing. So an unlucky seed costs a few cases, never a red run. Over 64 seeds at the
+default count, the rarest outcome had a mean of 12 cases and never fewer than 5.
 
 ## What it generates
 
@@ -96,8 +99,12 @@ Each case comes from one family, named in its `group` (`fuzz:<family>`) and desc
 **Limits.** About half the cases set limits: one bound or several, each at the case's need,
 one below, one above, 0, or a random or very large value. The need comes from the input (its
 length and JSON depth) and from its value (depth, longest atom, widest tuple, most digits) or,
-for a value to write, from the value and its output. Every bound is at most 2³¹ − 1, which
-every face's bound type holds, Go's `int` on 386 included.
+for a value to write, from the value and its output. One mode in eight lowers two or more of
+the value-side bounds below their needs together, so that one node exceeds several and the
+order of the checks decides the kind (total §9.3, readable §4.9). A lowered `max_value_depth`
+often comes with an explicit `max_json_depth` past the text's depth, so that stage 4 refuses
+with `decode_depth` where the derived bound would refuse in stage 3 with `json_depth`. Every
+bound is at most 2³¹ − 1, which every face's bound type holds, Go's `int` on 386 included.
 
 **Expectations.** For an input, the oracle reads it under the case's limits. A refusal gives
 `refusal`. An accepted input gives `value_hex` and, for the readable profile, `origins`. The
@@ -123,7 +130,7 @@ checks keep the generator and the oracle honest:
   `ontos/data` builders, not `check.mjs`'s. A `spelled` input without limits must read back,
   through the oracle, to exactly the value the generator spelled, or stop at a shipped default.
   Anything else stops the run.
-- **Coverage.** The run fails if an outcome is left unexercised (above).
+- **Coverage.** Every code and kind is exercised in every run of 1000 cases or more (above).
 
 A face that disagrees with a generated case has found a defect in the face or the oracle, and
 the spec page decides which. When all four faces disagree with the oracle, suspect the oracle
@@ -132,9 +139,28 @@ fix to the oracle comes with a committed vector that pins the case.
 
 ## It is verified to fail
 
-Before this landed, a corpus with three expectations corrupted per profile (a refusal's span,
-a write-only output, an accepted read's value) failed in every face: Go 6 failing cases, Rust
-and TypeScript 8 failures, Python 8 failing subtests.
+Before this landed, two checks showed that the faces judge the generated corpus and that the
+generator finds what the committed vectors miss:
 
-A local sweep of 10 seeds × 10,000 cases per profile (100,000 per profile, 200,000 per face)
-found no divergence between any face and the oracle.
+- **A corrupted corpus.** Three expectations corrupted per profile (a refusal's span, a
+  write-only output, an accepted read's value) failed in every face: Go 6 failing cases, Rust
+  and TypeScript 8 failures, Python 8 failing subtests.
+- **A defect in each face.** Each of these was put into one face. Each passed every committed
+  vector, and the fuzz caught each on all of 8 seeds at the default 2000 cases per profile. The
+  restored faces passed the same 8 corpora.
+
+  | face | defect | failing cases per seed |
+  | --- | --- | --- |
+  | Go | the readable reader checks `atom_bytes` before `integer_digits` (readable §4.9) | 1 to 4 |
+  | Rust | a `set` tag refuses a repeated element only right after its first occurrence | 2 to 6 |
+  | TypeScript | the UTF-8 scan accepts the overlong `E0 80`–`E0 9F` (Table 3-7) | 21 to 30 |
+  | Python | the maximal subpart after `F0` takes `80`–`8F` as a continuation, so the span is too long | 16 to 29 |
+
+The Go defect needs one node to exceed two bounds at once. The limit mode that lowers several
+value-side bounds together exists for it: before that mode, the fuzz caught it on 1 seed of 3.
+
+**Local sweeps** found no divergence between any face and the oracle. On the final generator,
+10 seeds (501 to 510) at 10,000 cases per profile were replayed in all four faces, Go at both
+widths: 200,000 cases per face, 100,000 per profile. An earlier version of the generator ran
+9 seeds of the same size first (180,000 cases per face). That run also found the generator
+crash fixed before landing: no face was involved.

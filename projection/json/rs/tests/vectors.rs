@@ -4,6 +4,11 @@
 //!
 //! The vector files are read with the small JSON reader below, not with this crate, so a
 //! defect in the crate's reader cannot hide in how its own vectors are loaded.
+//!
+//! `ONTOS_JSON_PROJECTION_VECTORS` names another directory of `total.json` and `readable.json`
+//! in the same format, which is how `scripts/check.sh fuzz` replays a fresh generated corpus
+//! (tools/json-projection/README.md). The floors on the case counts below are the committed
+//! files'. (wasmtime passes no environment, so the wasm32 leg replays the committed files.)
 
 use ontos_codec::{decode, encode};
 use ontos_core::Value;
@@ -482,8 +487,15 @@ fn replay(face: Face, case: &Json, tally: &mut Tally) -> Vec<String> {
     problems
 }
 
-fn replay_file(face: Face) -> Tally {
-    let path = format!("{}/../vectors/{}", env!("CARGO_MANIFEST_DIR"), face.file());
+/// Replays the face's file; also says whether it was the committed one.
+fn replay_file(face: Face) -> (Tally, bool) {
+    let generated = std::env::var("ONTOS_JSON_PROJECTION_VECTORS")
+        .ok()
+        .filter(|dir| !dir.is_empty());
+    let path = match &generated {
+        Some(dir) => format!("{dir}/{}", face.file()),
+        None => format!("{}/../vectors/{}", env!("CARGO_MANIFEST_DIR"), face.file()),
+    };
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let doc = Reader {
         b: text.as_bytes(),
@@ -501,34 +513,34 @@ fn replay_file(face: Face) -> Tally {
             failures.push(format!("{} {name}: {problem}", face.file()));
         }
     }
-    println!("{}: {tally:?}", face.file());
+    println!("{path}: {tally:?}");
     assert!(
         failures.is_empty(),
         "{} failure(s):\n{}",
         failures.len(),
         failures.join("\n")
     );
-    tally
+    (tally, generated.is_none())
 }
 
 #[test]
 fn total_vectors() {
-    let tally = replay_file(Face::Total);
+    let (tally, committed) = replay_file(Face::Total);
     // Every case is accounted for: a refusal, or a value written (or refused in writing).
     assert_eq!(
         tally.cases,
         tally.refusals + tally.writes + tally.write_refusals
     );
-    assert!(tally.cases >= 89, "{tally:?}");
+    assert!(!committed || tally.cases >= 89, "{tally:?}");
 }
 
 #[test]
 fn readable_vectors() {
-    let tally = replay_file(Face::Readable);
+    let (tally, committed) = replay_file(Face::Readable);
     assert_eq!(
         tally.cases,
         tally.refusals + tally.writes + tally.write_refusals
     );
-    assert!(tally.cases >= 186, "{tally:?}");
-    assert!(tally.origins >= 5, "{tally:?}");
+    assert!(!committed || tally.cases >= 186, "{tally:?}");
+    assert!(!committed || tally.origins >= 5, "{tally:?}");
 }

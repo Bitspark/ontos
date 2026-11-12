@@ -52,6 +52,13 @@ With the case's limits (the defaults, overridden by `limits`):
 A case with `output` but no input exists only for writing. Every case with an accepted input
 also has an output.
 
+**Generated corpora.** The differential fuzz ([`tools/json-projection/README.md`](../../../tools/json-projection/README.md))
+writes fresh cases in this format, every expectation computed by the independent checker, and
+each face replays them as above: its replay reads the directory that
+`ONTOS_JSON_PROJECTION_VECTORS` names instead of this one. A generated case carries no
+`provenance` and no `value`. An accepted input there may have `render_refusal` instead of
+`output`, when its value does not write under the case's limits.
+
 ## Runs
 
 A deep or long case would be tens of kilobytes. So `input`, `input_hex`, `value_hex`, `output`

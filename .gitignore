@@ -22,11 +22,13 @@ __pycache__/
 /cli/go/cmd/ontos/ontos
 /cli/go/cmd/ontos/ontos.exe
 
-# The differential fuzz bout's corpus (tools/fuzz/gen.mjs) and the fresh-seed limit-policy
-# corpus (tools/limit-policy/gen.mjs). Each is generated, consumed and discarded on each
+# The differential fuzz bout's corpus (tools/fuzz/gen.mjs), the fresh-seed limit-policy
+# corpus (tools/limit-policy/gen.mjs) and the JSON projection fuzz corpus
+# (tools/json-projection/fuzz.mjs). Each is generated, consumed and discarded on each
 # `check.sh fuzz` run; the seed is what reproduces it, not the file.
 /fuzz-corpus.json
 /limit-policy-corpus.json
+/json-projection-corpus/
 
 # Per-checkout local state.
 *.log

@@ -10,12 +10,13 @@ import (
 )
 
 // TestVectors replays every case of projection/json/vectors/readable.json (spec §12),
-// origins included.
+// origins included, or of the generated corpus that ONTOS_JSON_PROJECTION_VECTORS names
+// (vectors.Path).
 func TestVectors(t *testing.T) {
 	limits := func(overrides map[string]int) readable.Limits {
 		return vectors.WithLimits(readable.DefaultLimits(), overrides)
 	}
-	counts := vectors.Replay(t, "../../vectors/readable.json", vectors.Face{
+	counts := vectors.Replay(t, vectors.Path("readable.json"), vectors.Face{
 		Profile: readable.Profile,
 		Parse: func(input []byte, overrides map[string]int) ([]byte, *vectors.Got) {
 			v, err := readable.ParseUTF8(input, limits(overrides))
@@ -47,5 +48,5 @@ func TestVectors(t *testing.T) {
 			return out, nil
 		},
 	})
-	t.Logf("readable.json: %s", counts)
+	t.Logf("%s: %s", vectors.Path("readable.json"), counts)
 }

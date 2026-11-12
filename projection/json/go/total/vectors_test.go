@@ -9,9 +9,10 @@ import (
 	"github.com/bitspark/ontos/projection/json/go/total"
 )
 
-// TestVectors replays every case of projection/json/vectors/total.json (spec §11).
+// TestVectors replays every case of projection/json/vectors/total.json (spec §11), or of the
+// generated corpus that ONTOS_JSON_PROJECTION_VECTORS names (vectors.Path).
 func TestVectors(t *testing.T) {
-	counts := vectors.Replay(t, "../../vectors/total.json", vectors.Face{
+	counts := vectors.Replay(t, vectors.Path("total.json"), vectors.Face{
 		Profile: total.Profile,
 		Parse: func(input []byte, limits map[string]int) ([]byte, *vectors.Got) {
 			v, err := total.ParseUTF8(input, vectors.WithLimits(total.DefaultLimits(), limits))
@@ -32,5 +33,5 @@ func TestVectors(t *testing.T) {
 			return out, nil
 		},
 	})
-	t.Logf("total.json: %s", counts)
+	t.Logf("%s: %s", vectors.Path("total.json"), counts)
 }

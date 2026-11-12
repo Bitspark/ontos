@@ -22,9 +22,15 @@
  *
  * Deep cases nest about 3000 levels, so the work runs in a worker with a large stack.
  * Run: node tools/json-projection/check.mjs [vectors-dir]   (scripts/check.sh vectors runs it)
+ *
+ * The reader (parse), the writer (render), the limits (limitsFor), origins, the codec and the
+ * recognizer are exported. tools/json-projection/oracle.mjs imports them as the oracle of the
+ * differential fuzz (README there), which is why they live here and nowhere else: the oracle
+ * is this checker, not a copy of it. Importing the file runs nothing. A caller that reads deep
+ * inputs gives its thread a large stack, as main() below does.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -33,7 +39,7 @@ import { Worker, isMainThread, parentPort, workerData } from "node:worker_thread
 
 const te = new TextEncoder();
 
-function hexToBytes(h) {
+export function hexToBytes(h) {
   if (typeof h !== "string" || h.length % 2 !== 0 || !/^[0-9a-f]*$/.test(h)) {
     throw new Error(`not even-length lowercase hex: ${String(h).slice(0, 40)}`);
   }
@@ -42,7 +48,7 @@ function hexToBytes(h) {
   return out;
 }
 
-function bytesToHex(b) {
+export function bytesToHex(b) {
   let s = "";
   for (const x of b) s += x.toString(16).padStart(2, "0");
   return s;
@@ -77,9 +83,9 @@ function expandRuns(field) {
 
 // --- L0 values and the codec (ontos-codec.md §2) --------------------------------------
 
-const atom = (bytes) => ({ a: bytes });
-const tuple = (items) => ({ t: items });
-const isAtom = (v) => v.a !== undefined;
+export const atom = (bytes) => ({ a: bytes });
+export const tuple = (items) => ({ t: items });
+export const isAtom = (v) => v.a !== undefined;
 
 function uvarint(n, out) {
   while (n >= 128) {
@@ -101,13 +107,13 @@ function encodeInto(v, out) {
   }
 }
 
-function encode(v) {
+export function encode(v) {
   const out = [];
   encodeInto(v, out);
   return Uint8Array.from(out);
 }
 
-function decode(b) {
+export function decode(b) {
   let p = 0;
   const uv = () => {
     let n = 0;
@@ -202,7 +208,7 @@ function isCanonInt(v) {
 }
 
 /** Recognize v as one of the eight kinds (readable §2.3 step 1), or return null. */
-function recognize(v) {
+export function recognize(v) {
   const kind = labelString(v);
   if (!kind) return null;
   const c = v.t;
@@ -290,7 +296,7 @@ function buildDatum(d) {
 
 // --- refusals, paths ----------------------------------------------------------------
 
-class Refusal extends Error {
+export class Refusal extends Error {
   constructor(code, path, span, kind) {
     super(`${code}${kind ? `/${kind}` : ""} at ${JSON.stringify(path)} ${JSON.stringify(span)}`);
     this.code = code;
@@ -318,7 +324,7 @@ function limit(kind, path, span) {
 // --- stage 2: UTF-8 (total §4.2) -------------------------------------------------------
 
 /** The span [s, e) of the first maximal ill-formed subpart, or null when well-formed. */
-function utf8Fault(b) {
+export function utf8Fault(b) {
   const n = b.length;
   let i = 0;
   while (i < n) {
@@ -551,7 +557,7 @@ function lex(b, maxJsonDepth) {
 
 // --- limits (total §9, readable §9) --------------------------------------------------
 
-const LIMIT_KEYS = [
+export const LIMIT_KEYS = [
   "max_text_bytes",
   "max_json_depth",
   "max_value_depth",
@@ -565,7 +571,7 @@ const LIMIT_KEYS = [
  * the case's overrides. max_json_depth, unless set explicitly, is derived from the effective
  * max_value_depth: 2v + 2 for total, 3v + 4 for readable.
  */
-function limitsFor(profile, overrides = {}) {
+export function limitsFor(profile, overrides = {}) {
   const L = {
     max_text_bytes: Infinity,
     max_value_depth: 1024,
@@ -736,7 +742,7 @@ function b64Decode(s) {
 }
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-function b64Encode(b) {
+export function b64Encode(b) {
   let s = "";
   for (let i = 0; i < b.length; i += 3) {
     const n = (b[i] << 16) | ((b[i + 1] ?? 0) << 8) | (b[i + 2] ?? 0);
@@ -867,7 +873,7 @@ function envelope(x, d, path, L) {
   throw new Error("unreachable");
 }
 
-function parse(profile, b, L) {
+export function parse(profile, b, L) {
   if (b.length > L.max_text_bytes) limit("text_bytes", null, [L.max_text_bytes, b.length]);
   const fault = utf8Fault(b);
   if (fault) refuse("invalid_utf8", null, fault);
@@ -875,7 +881,7 @@ function parse(profile, b, L) {
   return profile === "total" ? interpTotal(tree, 0, null, L) : interpReadable(tree, 0, null, L);
 }
 
-function flattenOrigins(v, o, vpath = [], out = []) {
+export function flattenOrigins(v, o, vpath = [], out = []) {
   out.push([vpath, o.at[0], o.at[1]]);
   if (!isAtom(v)) v.t.forEach((c, i) => flattenOrigins(c, o.kids[i], [...vpath, i], out));
   return out;
@@ -883,7 +889,7 @@ function flattenOrigins(v, o, vpath = [], out = []) {
 
 // --- writers (total §5, readable §5) ----------------------------------------------------
 
-class RenderRefusal extends Error {
+export class RenderRefusal extends Error {
   constructor(kind) {
     super(`render limit_exceeded/${kind}`);
     this.code = "limit_exceeded";
@@ -1090,7 +1096,7 @@ function writeReadable(v, d, o) {
   envelopeClose(o);
 }
 
-function render(profile, v, L) {
+export function render(profile, v, L) {
   const o = new Out(L);
   (profile === "total" ? writeTotal : writeReadable)(v, 0, o);
   return o.parts.join("");
@@ -1098,7 +1104,7 @@ function render(profile, v, L) {
 
 // --- the runner -------------------------------------------------------------------------
 
-const CODES = {
+export const CODES = {
   shared: [
     "limit_exceeded",
     "invalid_utf8",
@@ -1123,7 +1129,7 @@ const CODES = {
     "duplicate_set_element",
   ],
 };
-const KINDS = {
+export const KINDS = {
   total: ["text_bytes", "json_depth", "decode_depth", "atom_bytes", "tuple_arity"],
   readable: ["text_bytes", "json_depth", "decode_depth", "atom_bytes", "tuple_arity", "integer_digits"],
 };
@@ -1299,8 +1305,11 @@ function main(argv) {
   return 0;
 }
 
-// Run last, once every declaration above is initialized.
-if (isMainThread) {
+// Run last, once every declaration above is initialized, and only as a program. Imported (by
+// oracle.mjs, for the differential fuzz), the file only exports: process.argv[1] then names
+// the importing program, in its own threads too.
+const asProgram = process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+if (asProgram && isMainThread) {
   const worker = new Worker(fileURLToPath(import.meta.url), {
     workerData: { argv: process.argv.slice(2) },
     resourceLimits: { stackSizeMb: 256 },
@@ -1312,6 +1321,6 @@ if (isMainThread) {
     console.error(e);
     process.exitCode = 1;
   });
-} else {
+} else if (asProgram) {
   parentPort.postMessage(main(workerData.argv));
 }

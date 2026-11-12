@@ -9,8 +9,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// Path is the path of the vector file name (total.json or readable.json) for a test in
+// projection/json/go/{total,readable}: the committed file, or the one in the directory that
+// ONTOS_JSON_PROJECTION_VECTORS names, which is how scripts/check.sh fuzz replays a fresh
+// generated corpus (tools/json-projection/README.md).
+func Path(name string) string {
+	if dir := os.Getenv("ONTOS_JSON_PROJECTION_VECTORS"); dir != "" {
+		return filepath.Join(dir, name)
+	}
+	return filepath.Join("..", "..", "vectors", name)
+}
 
 // File is one vector file.
 type File struct {

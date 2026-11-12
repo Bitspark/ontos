@@ -10,6 +10,9 @@
  *
  * Every case with a UTF-8 `input` is also read through the host-string reader, which must
  * agree with the byte reader exactly. Each case's fields are checked independently.
+ *
+ * ONTOS_JSON_PROJECTION_VECTORS names another directory of total.json and readable.json in the
+ * same format, which is how scripts/check.sh fuzz replays a fresh generated corpus.
  */
 
 import test from "node:test";
@@ -22,8 +25,10 @@ import { decode, encode } from "@bitspark/ontos-codec";
 import type { Value } from "@bitspark/ontos-core";
 
 const here = dirname(fileURLToPath(import.meta.url));
-// projection/json/ts/test -> projection/json/vectors.
-const vectorsDir = join(here, "..", "..", "vectors");
+// projection/json/ts/test -> projection/json/vectors, or the directory that
+// ONTOS_JSON_PROJECTION_VECTORS names: how scripts/check.sh fuzz replays a generated corpus
+// (tools/json-projection/README.md).
+const vectorsDir = process.env.ONTOS_JSON_PROJECTION_VECTORS || join(here, "..", "..", "vectors");
 
 type Runs<T> = T | { runs: [T extends string ? string : unknown[], number][] };
 
@@ -232,7 +237,7 @@ export function replay(file: "total" | "readable", module: ProfileModule): void 
   }
 
   test(`${file}.json: every case passed`, (t) => {
-    t.diagnostic(`${file}.json: ${counts.cases}/${vectors.cases.length} cases passed ` + JSON.stringify(counts));
+    t.diagnostic(`${join(vectorsDir, `${file}.json`)}: ${counts.cases}/${vectors.cases.length} cases passed ` + JSON.stringify(counts));
     assert.equal(new Set(vectors.cases.map((c) => c.name)).size, vectors.cases.length, "case names are unique");
     assert.equal(passed.size, vectors.cases.length);
   });

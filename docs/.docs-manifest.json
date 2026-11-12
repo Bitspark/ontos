@@ -124,6 +124,15 @@
       "4-why-not-the-alternatives",
       "5-evidence-at-landing"
     ],
+    "docs/design/0010-json-projections.md": [
+      "json-projections-of-ground-values-a-total-profile-and-a-readable-profile",
+      "1-the-decision",
+      "2-the-advice-row-by-row",
+      "3-what-changes-in-existing-text",
+      "4-placement-and-packaging",
+      "5-delivery",
+      "6-what-this-does-not-decide"
+    ],
     "docs/design/convergence-panel/README.md": [
       "ontos-convergence-panel",
       "the-experiment",

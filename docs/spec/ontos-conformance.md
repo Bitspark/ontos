@@ -189,7 +189,11 @@ each with the outcome [`ontos-cli.md`](ontos-cli.md) "Reading the text" gives it
 through argv and through stdin. Its judgment is an **oracle**: every implementation
 must give exactly the expected line and exit code, so a fault all four shared would
 still fail. An accepted text must also decode to what its canonical bytes decode to,
-in each implementation.
+in each implementation. The same pass runs
+[`tools/conformance/input-reading-readable.json`](../../tools/conformance/input-reading-readable.json)
+under `--json-profile readable` ([`ontos-cli.md`](ontos-cli.md) "JSON profiles"): its texts
+are read from stdin only, a readable text given as an argument must be a `usage_error`,
+and each accepted case also pins the readable rendering of its value.
 
 ## Austerity
 

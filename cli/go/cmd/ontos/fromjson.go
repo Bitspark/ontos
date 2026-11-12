@@ -58,7 +58,7 @@ type jsonNode struct {
 // readJSONText decodes the --from-json text: invalid UTF-8 becomes U+FFFD. U+FFFD
 // is never hex and never part of a member name, so such text is always refused.
 func readJSONText(raw []byte) string {
-	return strings.ToValidUTF8(string(raw), "�")
+	return strings.ToValidUTF8(string(raw), "\uFFFD")
 }
 
 // jsonReader is stage 1's cursor over the text.

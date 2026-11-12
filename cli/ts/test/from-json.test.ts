@@ -203,7 +203,7 @@ test("reading refuses what RFC 8259 and the total form refuse (ontos-cli.md 'Rea
     '{"atom":"00"}]', // something after the value
     '{"atom":"00"}}',
     '{"atom":"00"}\f', // whitespace other than space/tab/LF/CR
-    ' {"atom":"00"}',
+    '\u00a0{"atom":"00"}',
     '{"atom":"\\ud800"}', // a lone surrogate escape
     "[NaN]",
   ]) {

@@ -25,7 +25,7 @@ import re
 from collections.abc import Mapping
 from typing import Iterator, List, NamedTuple, Optional, Sequence, Tuple as PyTuple
 
-from ontos_codec import encode
+from ontos_codec import encode, encode_uvarint
 from ontos_core import Atom, Tuple, Value
 from ontos_data import (
     DataError,
@@ -119,6 +119,16 @@ _EMPTY_SET = Tuple((_LABEL_SET,))
 
 def _text(data: bytes) -> Value:
     return Tuple((_LABEL_TEXT, Atom(data)))
+
+
+# The ontos-codec-v1 encoding of utf8-text(s) up to its payload length: Tuple of arity 2, then
+# Atom("utf8-text"), then the payload atom's tag. An object key's encoding is this prefix,
+# uvarint(len), and the UTF-8 bytes; it must equal encode(_text(data)), which a test pins.
+_TEXT_PREFIX = b"\x01\x02\x00\x09utf8-text\x00"
+
+
+def _text_encoding(data: bytes) -> bytes:
+    return _TEXT_PREFIX + encode_uvarint(len(data)) + data
 
 
 # --- integers (§4.5) ---------------------------------------------------------------------------
@@ -427,7 +437,7 @@ def _interpret(root: Node, limits: Limits, origins: bool):
                     key = _text(name)
                     mlink = (link, member[0])
                     info.append(
-                        (key, encode(key), (mlink, member[1], member[2]), (mlink, member[1], member[3].end))
+                        (key, _text_encoding(name), (mlink, member[1], member[2]), (mlink, member[1], member[3].end))
                     )
                     tasks.append((member[3], d + 2, mlink))
                 frame = _Frame(_MEMBERS, tasks, origin, origins, info)

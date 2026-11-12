@@ -897,15 +897,15 @@ function soup(rng, pieces) {
 }
 
 function deep(profile, rng) {
-  const L = profile === "total";
+  const total = profile === "total";
   const target = rng.weighted([
     [3, () => rng.between(1021, 1027)],
-    [2, () => (L ? rng.between(1023, 1027) : rng.between(1022, 1028))],
+    [2, () => (total ? rng.between(1023, 1027) : rng.between(1022, 1028))],
     [5, () => rng.between(1, 80)],
   ])();
   const parts = [];
   const close = [];
-  const wrappers = L
+  const wrappers = total
     ? [['{"tuple":[', "]}"], ['{"tuple":[{"atom":"00"},', "]}"]]
     : [
         ["[", "]"],
@@ -922,7 +922,7 @@ function deep(profile, rng) {
     close.push(c);
   }
   let raw = false;
-  if (!L && rng.chance(0.2)) {
+  if (!total && rng.chance(0.2)) {
     raw = true;
     parts.push('{"$ontos":["raw",');
     close.push("]}");
@@ -931,7 +931,7 @@ function deep(profile, rng) {
       close.push("]}");
     }
   }
-  const leaves = L || raw
+  const leaves = total || raw
     ? ['{"atom":""}', '{"tuple":[]}', '{"atom":"0"}', "[]", '{"atom":"00"}']
     : ["null", "1", '"x"', "[]", "{}", '{"$ontos":["raw",{"tuple":[]}]}', "1.5", '"\\ud800"', '{"$ontos":[]}', "nul"];
   parts.push(rng.pick(leaves));
@@ -968,11 +968,7 @@ function family(profile) {
       const done = [];
       for (let k = rng.weighted([[4, 1], [1, 2]]); k > 0; k--) {
         const all = slots(holder);
-        const [, name, apply] = (() => {
-          const list = DEVIATIONS[profile];
-          const choice = rng.weighted(list.map((d) => [d[0], d]));
-          return choice;
-        })();
+        const [, name, apply] = rng.weighted(DEVIATIONS[profile].map((d) => [d[0], d]));
         apply(rng, rng.pick(all), all);
         done.push(name);
       }
@@ -1068,7 +1064,7 @@ function family(profile) {
       );
       return { input: te.encode(ctx), note: "repeated names, keys or elements" };
     }],
-    [L(profile) ? 5 : 2, "hex", (rng) => {
+    [R ? 2 : 5, "hex", (rng) => {
       const h = rng.chance(0.5) ? rng.pick(BAD_HEX) : hexOf(rng.bytes(rng.between(0, 6))).replace(/[a-f]/, (c) => (rng.chance(0.5) ? c.toUpperCase() : c));
       const total = rng.pick([`{"atom":"${h}"}`, `{"tuple":[{"atom":"${h}"}]}`]);
       return { input: te.encode(R ? `{"$ontos":["raw",${total}]}` : total), note: `hex ${JSON.stringify(h)}` };
@@ -1083,7 +1079,7 @@ function family(profile) {
   ].filter(([w]) => w > 0);
 }
 
-const L = (profile) => profile === "total";
+const FAMILIES = { total: family("total"), readable: family("readable") };
 
 // --- limits around a case's needs ---------------------------------------------------------
 
@@ -1151,10 +1147,7 @@ function needsOfValue(m) {
 
 function makeCase(profile, index, seed, pool) {
   const rng = new Rng(caseSeed(seed, profile, index));
-  const [, fam, make] = (() => {
-    const list = family(profile);
-    return rng.weighted(list.map((f) => [f[0], f]));
-  })();
+  const [, fam, make] = rng.weighted(FAMILIES[profile].map((f) => [f[0], f]));
   const made = make(rng, pool);
   const name = `${profile}-${String(index).padStart(6, "0")}-${fam.replace(/ /g, "-")}`;
   const c = { name, group: `fuzz:${fam}`, note: made.note };

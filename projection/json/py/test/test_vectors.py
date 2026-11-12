@@ -31,7 +31,9 @@ for _lane in ("core/py", "codec/py", "data/py", "projection/json/py"):
 from ontos_codec import decode, encode  # noqa: E402
 from ontos_json import ProjectionError, readable, total  # noqa: E402
 
-_VECTORS = Path(os.environ.get("ONTOS_JSON_PROJECTION_VECTORS") or _REPO_ROOT / "projection" / "json" / "vectors")
+_VECTORS = Path(
+    os.environ.get("ONTOS_JSON_PROJECTION_VECTORS") or _REPO_ROOT / "projection" / "json" / "vectors"
+)
 
 # The README's limit names, which are exactly the Limits fields.
 _LIMIT_NAMES = {

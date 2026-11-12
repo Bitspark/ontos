@@ -49,10 +49,16 @@ notation** `vectors/` already use (`{"atom":"<hex>"}` / `{"tuple":[ … ]}`) as 
 so a human can hand a value to the tool and get its canonical bytes. That is a
 deliberately **austere** answer to ontos-internal#17: it reuses the verbose `{atom}/{tuple}`
 JSON rather than inventing a *pleasant* text form, precisely because a pleasant
-notation risks becoming a second, exchangeable value surface. The discipline holds —
-only the **canonical bytes** are the value: never sign, hash, or exchange the JSON
-text; hash the emitted bytes. `canon --emit` prints them as hex, so decode the hex before
-hashing: `canon --emit --from-json … | xxd -r -p | sha256sum`.
+notation risks becoming a second, exchangeable value surface. That notation is now the
+named profile [`ontos-total-json/1`](ontos-total-json.md), and it stays the command line's
+JSON form. The readable profile [`ontos-readable-json/1`](ontos-readable-json.md) is a
+separate presentation, which the command line reads or writes only when told to
+([design record 0010](../design/0010-json-projections.md) §4). A JSON profile is a
+presentation: it may travel, but the value is recovered from it before any identity
+operation. Identity, hashing and signing use the codec bytes of the recovered value, and
+ontos's APIs for them take bytes or values, never JSON text. The form of record is the
+codec bytes. `canon --emit` prints them as hex, so decode the hex before hashing:
+`canon --emit --from-json … | xxd -r -p | sha256sum`.
 
 ## Synopsis
 
@@ -122,8 +128,10 @@ ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'
 `--from-json` works with every command (it is simply the other input source):
 `inspect`/`read` recognize the embeddings of an authored value, and
 `canon --check --from-json` is **always** canonical (the value was built, not
-decoded). It is **authoring/debugging only** — the JSON text is not a value to
-store, sign, or exchange; only the emitted bytes are.
+decoded). A JSON profile is a presentation: it may travel, but the value is recovered
+from it before any identity operation. Identity, hashing and signing use the codec bytes of
+the recovered value, and ontos's APIs for them take bytes or values, never JSON text. The
+form of record is the codec bytes.
 
 ### Reading the text
 

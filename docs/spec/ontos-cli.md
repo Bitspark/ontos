@@ -51,9 +51,10 @@ deliberately **austere** answer to ontos-internal#17: it reuses the verbose `{at
 JSON rather than inventing a *pleasant* text form, precisely because a pleasant
 notation risks becoming a second, exchangeable value surface. That notation is now the
 named profile [`ontos-total-json/1`](ontos-total-json.md), and it stays the command line's
-JSON form. The readable profile [`ontos-readable-json/1`](ontos-readable-json.md) is a
-separate presentation, which the command line reads or writes only when told to
-([design record 0010](../design/0010-json-projections.md) §4). A JSON profile is a
+default JSON form. The readable profile [`ontos-readable-json/1`](ontos-readable-json.md) is a
+separate presentation, which the command line reads or writes only when told to, with
+`--json-profile readable` ([JSON profiles](#json-profiles);
+[design record 0010](../design/0010-json-projections.md) §4). A JSON profile is a
 presentation: it may travel, but the value is recovered from it before any identity
 operation. Identity, hashing and signing use the codec bytes of the recovered value, and
 ontos's APIs for them take bytes or values, never JSON text. The form of record is the
@@ -71,9 +72,14 @@ ontos <command> [options] [<hex>]
   and CR around the hex are ignored, and nothing else is: a form feed, NBSP, a
   byte-order mark or any other character makes the input `invalid_hex` (see
   [Value input](#value-input)).
-- **`--from-json <json|->`** supplies the input value as the **authoring notation**
-  instead of hex (see [Value input](#value-input)) — the CLI's
-  only text→bytes path. Mutually exclusive with a positional `<hex>`.
+- **`--from-json <json|->`** supplies the input value as JSON text instead of hex, by
+  default the **authoring notation** (see [Value input](#value-input)) — the CLI's
+  only text→bytes path. Mutually exclusive with a positional `<hex>`. The token after
+  `--from-json` is its argument whatever it begins with, so `--from-json -1` reads the
+  text `-1`.
+- **`--json-profile <total|readable>`** (default `total`) selects the JSON profile of the
+  `--from-json` input and of the value in `--format json` output (see
+  [JSON profiles](#json-profiles)). Readable input is read from stdin only.
 - **`--format <human|json>`** (default `human`). `json` emits **JSON Lines** (one
   JSON object per result line): a stable, machine-readable contract that doubles as
   the differential-harness protocol. `human` is for people, but is **also
@@ -88,9 +94,12 @@ A decoded `Value` is rendered two ways:
 
 - **human** — the core's existing `Display` / `String` / `toString` form, e.g.
   `Tuple(Atom(0x6d6170), Atom(0x61))`.
-- **json** — the **authoring notation** already used by `vectors/`:
-  `{"atom":"<hex>"}` or `{"tuple":[ … ]}`. Reusing it means the CLI's JSON output
-  round-trips with the vectors and is directly diffable by the harness.
+- **json** — the value in the selected [JSON profile](#json-profiles), as that profile's
+  library writes it. By default this is the total form, the **authoring notation**
+  already used by `vectors/`: `{"atom":"<hex>"}` or `{"tuple":[ … ]}`. Reusing it means
+  the CLI's JSON output round-trips with the vectors and is directly diffable by the
+  harness. With `--json-profile readable` it is the readable form (`257`, `"hi"`,
+  `{"$ontos":["bytes","AA=="]}`, …).
 
 ## Value input
 
@@ -102,7 +111,8 @@ Every command operates on one `Value`, obtained from exactly one source:
   allows), and no other character; whitespace inside it is not stripped. Bytes that
   are not UTF-8 are read as U+FFFD, as for `--from-json` (below), so they fail as
   `invalid_hex`.
-- **`--from-json <json|->`** — the value is **parsed** from the authoring notation
+- **`--from-json <json|->`** — the value is **read** from JSON text in the selected
+  [JSON profile](#json-profiles): by default the authoring notation
   (`{"atom":"<hex>"}` | `{"tuple":[ … ]}`), the exact inverse of the `--format json`
   value rendering. `-` reads the JSON from stdin. No bytes are decoded; the value is
   built directly, so it is canonical by construction (an L0 `Value` has exactly one
@@ -116,7 +126,8 @@ or JSON that is not the authoring shape — not exactly one of `atom`/`tuple`, a
 `atom` that is not even-length lowercase hex, a non-array `tuple` — is the stable
 `invalid_json` error (exit `2`). A text nested deeper than any value the default decoder
 accepts is `limit_exceeded` (exit `1`). [Reading the text](#reading-the-text) says exactly
-which texts are which.
+which texts are which under the default profile, and [JSON profiles](#json-profiles) says
+how a readable text's refusals map onto the same two codes.
 
 The intended use is **author → canonical bytes**:
 
@@ -135,7 +146,12 @@ form of record is the codec bytes.
 
 ### Reading the text
 
-All four implementations read a `--from-json` text the same way, in two stages.
+Under the total profile (the default), all four implementations read a `--from-json` text
+the same way, in two stages. The reader is each language's `ontos-total-json/1` library
+reader (`projection/json/{go,rs,ts,py}`) under that profile's shipped limits
+([ontos-total-json §9.2](ontos-total-json.md#92-the-shipped-defaults)), and the rules below
+are what it does, stated for the command line; only the replacement of bytes that are not
+UTF-8 is the command line's own step.
 
 **1. The text.** It must be exactly one JSON value as RFC 8259 defines it:
 
@@ -152,8 +168,8 @@ All four implementations read a `--from-json` text the same way, in two stages.
   after [consultation 0001](../consults/0001-reversible-json-projection.md)).
 - **Number tokens are read for grammar only**, so a number of any length is read: no
   number is ever part of a value. `NaN` and `Infinity` are not JSON.
-- **Nesting is capped at 2050** open arrays and objects. The deepest value the codec's
-  default decoder accepts is nested 1024 deep, with the root at depth 0
+- **Nesting is capped at 2050** open arrays and objects, the library's derived
+  `max_json_depth`. The deepest value the codec's default decoder accepts is nested 1024 deep, with the root at depth 0
   ([ontos-codec.md §4.1](ontos-codec.md)); when its deepest value is an empty tuple, its
   1025 tuples take two levels each (`{"tuple":[`), 2·1024 + 2 = 2050. A 2051st level is
   **`limit_exceeded`**, exit `1`, as a decode limit is. So no implementation builds a
@@ -164,20 +180,91 @@ All four implementations read a `--from-json` text the same way, in two stages.
   implementation sees it. U+FFFD is never hex and never part of `atom` or `tuple` (a
   member named with it fails the shape check), so such a text is always refused
   (`invalid_json`, or `limit_exceeded` when the cap comes first), and the outcome never
-  depends on how many U+FFFD a decoder produces.
+  depends on how many U+FFFD a decoder produces. This replacement belongs to the command
+  line's total transport: each implementation does it before the text reaches the library.
+  The library's byte reader is strict, as
+  [ontos-total-json §4.2](ontos-total-json.md#42-text-well-formed-utf-8) requires: it never
+  repairs text, and it refuses ill-formed UTF-8 (`invalid_utf8`) before it reads any JSON. The
+  readable profile has no such step ([JSON profiles](#json-profiles)).
 
 The text is read from left to right, and its **first fault ends the reading**: a 2051st
 level is `limit_exceeded`, any other fault is `invalid_json`. So a plain array 3000 deep
 is `limit_exceeded`, not `invalid_json`, while `[[x` followed by 3000 brackets is
 `invalid_json`.
 
-**2. The shape.** Only then is the JSON value checked against the authoring notation:
+**2. The shape.** Only then is the JSON value checked against the authoring notation
+(the library's stage 4, [ontos-total-json §4.4](ontos-total-json.md#44-interpretation-as-a-total-form-value)):
 every object has exactly one member, `atom` (an even-length lowercase-hex string) or
 `tuple` (an array of values). Any other shape is `invalid_json`.
 
 The conformance harness's reading mode
 ([tools/conformance/README.md](../../tools/conformance/README.md)) holds each rule above
 to cases, in all four implementations, through argv and through stdin.
+
+## JSON profiles
+
+`--json-profile <total|readable>` selects the JSON profile of the command line's two JSON
+surfaces: the `--from-json` input, and the `value` of `--format json` output (`decode`,
+`inspect`). It is accepted by every command, and it changes nothing else: not the hex input,
+not `--format human`, and not the output of `read` and `canon`, which render no value. Given
+more than once, the last one counts, as for `--format`; any other value is a usage error
+(exit `2`, reported on stderr).
+
+| profile | `--from-json` input | `--format json` value | library |
+|---|---|---|---|
+| `total` (the default) | an argument or stdin, read as [Reading the text](#reading-the-text) says | the total form | `ontos-total-json/1` |
+| `readable` | stdin only (`--from-json -`), as its exact bytes | the readable form | `ontos-readable-json/1` |
+
+Each implementation reads and writes through its language's library
+(`projection/json/{go,rs,ts,py}`), under that profile's shipped limits: value depth 1024 for
+both, JSON depth 2050 for total and 3076 for readable, and 4300 integer digits for readable
+([ontos-total-json §9.2](ontos-total-json.md#92-the-shipped-defaults),
+[ontos-readable-json §9](ontos-readable-json.md#9-limits)). The total profile is the default,
+so an invocation without the flag reads and writes exactly what it did before the selector
+existed.
+
+**Readable input is read from stdin only.** `--json-profile readable --from-json <text>`
+with any `<text>` other than `-` is `usage_error` (exit `2`) in all four implementations,
+before anything is read. A command-line argument may already have been decoded with U+FFFD in
+place of bytes that are not UTF-8 (Node does so before the `ts` implementation sees it), and
+the readable profile reads every string as text, so a replaced byte inside a string would read
+as a different value, accepted without complaint
+([ontos-readable-json §10.1](ontos-readable-json.md#101-reading-and-writing)). The total form
+is safe on such a channel because a U+FFFD never forms hex or a member name it accepts. Stdin
+carries the exact bytes, and the readable reader gets them unchanged, with no U+FFFD step: a
+byte that is not UTF-8 is refused (`invalid_utf8`, so `invalid_json` below). The reader runs
+the stages of [ontos-total-json §4.1](ontos-total-json.md#41-four-stages-in-order) in order
+(size, UTF-8, the strict JSON reading, then the readable interpretation), and the first
+refusal ends the reading. So a readable text with a byte that is not UTF-8 is `invalid_json`
+even when it also nests past 3076 levels.
+
+**Refusals map onto the command line's codes.** The libraries refuse with the codes of
+[ontos-total-json §8.4](ontos-total-json.md#84-codes) and
+[ontos-readable-json §8](ontos-readable-json.md#8-refusals). The command line keeps its own
+code set and adds no JSON Lines field:
+
+| library refusal | `error` | exit |
+|---|---|---|
+| `limit_exceeded`, of any kind (`json_depth`, `decode_depth`, `integer_digits`, …) | `limit_exceeded` | `1` |
+| any other code (`invalid_json`, `invalid_utf8`, `byte_order_mark`, `trailing_data`, `duplicate_member`, `invalid_unicode_escape`, `invalid_total_form`, `invalid_hex`, and the readable profile's `invalid_number`, `unsafe_integer_literal`, `invalid_envelope`, …) | `invalid_json` | `2` |
+
+The refusal's code, path, span and kind are not part of the JSON Lines output. In the human
+format the library's message goes to stderr, which carries no determinism guarantee.
+
+**Writing.** The `value` of `--format json` output is the profile's preferred spelling, as the
+library writes it, placed in the JSON Lines object byte for byte. A readable string therefore
+keeps `<`, `>`, `&`, U+2028, U+2029 and every non-ASCII character as itself
+([ontos-readable-json §5](ontos-readable-json.md#5-writing-deterministic-emission)), in all
+four implementations. Under the defaults the total writer writes every value the command line
+can hold, since none is nested deeper than 1024. The readable writer refuses an integer of
+more than 4300 decimal digits (kind `integer_digits`): `decode` and `inspect` then print
+`{"ok":false,"command":"<command>","error":"limit_exceeded"}` and exit `1`. The total profile
+writes such a value.
+
+The conformance harness's reading mode holds the readable profile to cases in all four
+implementations ([`input-reading-readable.json`](../../tools/conformance/input-reading-readable.json)):
+each text through stdin, and through argv as `usage_error`, and the readable writer's output
+from each accepted value's bytes.
 
 ## Commands (v1)
 
@@ -202,10 +289,10 @@ One object per result. The shape per command:
 
 ```jsonc
 // decode
-{"ok": true, "command": "decode", "codec": "ontos-codec-v1", "value": <authoring-json>}
+{"ok": true, "command": "decode", "codec": "ontos-codec-v1", "value": <value-json>}
 // inspect
 {"ok": true, "command": "inspect", "codec": "ontos-codec-v1", "canonical": true,
- "value": <authoring-json>, "recognized": ["map"]}
+ "value": <value-json>, "recognized": ["map"]}
 // read
 {"ok": true, "command": "read", "kind": "map", "recognized": true}
 // canon --check
@@ -216,9 +303,14 @@ One object per result. The shape per command:
 {"ok": false, "command": "decode", "error": "non_canonical_uvarint"}
 ```
 
+`<value-json>` is the value in the selected [JSON profile](#json-profiles): the authoring
+notation by default, or the readable form.
+
 `error` reuses the codec's stable `DecodeError` codes (`unexpected_eof`,
 `trailing_bytes`, `unknown_tag`, `non_canonical_uvarint`, `uvarint_overflow`,
-`limit_exceeded`) plus CLI codes: `invalid_hex`, `invalid_json`, `usage_error`.
+`limit_exceeded`) plus CLI codes: `invalid_hex`, `invalid_json`, `usage_error`. A JSON
+profile's refusal is reported as `invalid_json` or `limit_exceeded`
+([JSON profiles](#json-profiles)).
 
 There is **no** `not_recognized` error code: a recognition miss is a positive-shaped
 result, not an error. `read --kind <k>` on a non-match returns
@@ -284,8 +376,8 @@ recognized: none
 | code | meaning |
 |---|---|
 | `0` | success — decoded / canonical / recognized |
-| `1` | a well-formed **negative** result — decode failed, not canonical, or not recognized (the tool ran; the answer is "no"); also a `--from-json` text nested past the cap (`limit_exceeded`) |
-| `2` | usage error — bad flags, non-hex input, a malformed `--from-json` text (`invalid_json`), or missing input (the tool could not run) |
+| `1` | a well-formed **negative** result — decode failed, not canonical, or not recognized (the tool ran; the answer is "no"); also a `--from-json` text, or a value written as JSON, past a limit of its [JSON profile](#json-profiles) (`limit_exceeded`) |
+| `2` | usage error — bad flags, non-hex input, a malformed `--from-json` text (`invalid_json`), a readable `--from-json` text given as an argument (`usage_error`), or missing input (the tool could not run) |
 
 The `0` / `1` split makes the tool scriptable: `ontos canon --check <hex> && echo OK`.
 

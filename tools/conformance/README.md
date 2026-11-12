@@ -42,7 +42,7 @@ flag, the **decode** mode runs alone — back-compatible):
 | `--decode-roundtrip` | **decode** (default) | for each `(hex, command)`: `hex → JSON Lines`, **differential** (all impls byte-identical) |
 | `--human-roundtrip` | **human** | for each `(hex, command)`: `hex → --format human` (same corpus), **differential** |
 | `--from-json-roundtrip` | **author→bytes** | for each vector encode case: `value → canonical bytes` via `canon --emit --from-json`, **differential** AND **oracle** |
-| `--input-reading` | **reading** | for each text in [`input-reading.json`](input-reading.json): the outcome [`ontos-cli.md`](../../docs/spec/ontos-cli.md) "Reading the text" gives it, through argv and stdin, **oracle** |
+| `--input-reading` | **reading** | for each text in [`input-reading.json`](input-reading.json) and [`input-reading-readable.json`](input-reading-readable.json): the outcome [`ontos-cli.md`](../../docs/spec/ontos-cli.md) "Reading the text" and "JSON profiles" give it, through argv and stdin, **oracle** |
 
 **Human mode (`--human-roundtrip`)** re-runs the same `(hex, command)` corpus as decode
 mode but with `--format human`, asserting all impls' stdout + exit code are byte-identical.
@@ -92,6 +92,21 @@ texts run through stdin only. A text runs through argv only when its argument, a
 would quote it, fits 16 KiB, so every platform runs the same set. The impls run with
 `PYTHONIOENCODING=utf-8:strict`: Python decodes stdin through the locale, leniently under
 C.UTF-8 and strictly under en_US.UTF-8, and the py lane must read bytes under either. `--verbose` prints each case's per-impl outcome.
+
+*The readable profile.* [`input-reading-readable.json`](input-reading-readable.json) holds
+texts in `ontos-readable-json/1` ([`ontos-cli.md`](../../docs/spec/ontos-cli.md) "JSON
+profiles"): plain JSON and its normalizations, the seven envelope tags, the depth and digit
+bounds, every readable refusal and the exact-bytes rule. A cases file, or a single case, may
+name a `profile` (`total` or `readable`); every run of the case then passes
+`--json-profile <profile>`. A case with no profile passes no such flag, so the cases of
+`input-reading.json` run exactly as they did before the selector existed. Readable input is
+read from stdin only, so each readable `--from-json` text that fits a command line also runs
+through argv, where every impl must print `usage_error` with exit `2`. A case's optional
+`readable` pins the readable writer: `decode --format json --json-profile readable` of the
+case's canonical hex must print exactly that value text (a string, or pieces), or the
+refusal given as `{"error": …}` (an int of more than 4300 digits is `limit_exceeded`). Every
+outcome in the file was cross-checked against the independent reader and writer of
+[`tools/json-projection/check.mjs`](../json-projection/check.mjs).
 
 *Why a mode with a cases file.* The judgment is an **oracle**, not agreement: a fault all
 four impls shared would pass an agreement check, so each case carries its expected outcome. The cases are data, so a new rule is one more line
@@ -149,7 +164,7 @@ node tools/conformance/run.mjs \
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 78 texts, 152 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 143 texts (62 readable), 282 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter
@@ -168,7 +183,7 @@ node tools/conformance/run.mjs \
   --impl <name>=<command> [--impl <name>=<command> ...] \
   [--vectors <path> ...] [--commands "<csv>"] \
   [--decode-roundtrip] [--human-roundtrip] [--from-json-roundtrip] \
-  [--input-reading [--reading-cases <path>] [--verbose]]
+  [--input-reading [--reading-cases <path> ...] [--verbose]]
 ```
 
 - **`--impl NAME=COMMAND`** (repeatable, **≥1 required**) — an implementation to
@@ -191,10 +206,11 @@ node tools/conformance/run.mjs \
 - **`--from-json-roundtrip`** — run the **author→bytes** check mode: for each vector
   encode case, `canon --emit --from-json <value-json>` for each impl, asserting all impls
   agree byte-for-byte **and** the emitted hex equals the vector's pinned `.hex`.
-- **`--input-reading`** — run the **reading** check mode over the cases file: each text,
+- **`--input-reading`** — run the **reading** check mode over the cases files: each text,
   through argv and stdin, must give every impl exactly its expected line and exit code.
-- **`--reading-cases PATH`** — read the reading cases from `PATH` instead of
-  [`input-reading.json`](input-reading.json).
+- **`--reading-cases PATH`** (repeatable) — read the reading cases from the given files
+  instead of [`input-reading.json`](input-reading.json) and
+  [`input-reading-readable.json`](input-reading-readable.json).
 - **`--verbose`** — with `--input-reading`, print each case's per-impl outcome.
 
 **Assumption — no spaces in paths.** Because `--impl COMMAND` and each `--commands`

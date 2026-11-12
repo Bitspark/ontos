@@ -339,8 +339,8 @@ with `invalid_number`, though each denotes a whole number.
 **No integer passes through a bounded host type.** A reader converts decimal text to the
 sign-magnitude bytes of ontos-data §5.1, and a writer converts back, at any magnitude, subject
 only to `max_integer_digits` (§9). In particular Rust MUST NOT route an integer through `i128`.
-An integer beyond a face's conversion policy is a `limit_exceeded` refusal with kind
-`integer_digits`. It is never written another way.
+An integer with more digits than that bound is a `limit_exceeded` refusal with kind
+`integer_digits`, in every face alike. It is never written another way.
 
 ### 4.6 Decimals
 
@@ -399,7 +399,11 @@ atoms and tuples it produces itself, not counting those its child JSON nodes pro
 string at value depth `d` contributes the tuple `utf8-text(…)` at depth `d` and its two atoms at
 depth `d + 1`. An object contributes the map tuple, its label atom, one entry tuple per member,
 and each member's key text (a tuple and two atoms, at depths `d + 2` and `d + 3`), while the
-member values are its children.
+member values are its children. An envelope contributes all of its tag's value except what its
+value positions produce (the keys and values of `map`, the elements of `set`, the arguments of
+`compound`, the subtree of `raw`): the atom for `bytes`, the whole value for `int` and
+`decimal`, the map tuple, its label atom and the entry tuples for `map`, the tuple and its label
+atom for `set` and `compound`, and nothing for `raw`.
 
 After a node's own checks, its contribution is checked against the value-side bounds in this
 order, and the first exceeded bound is the refusal, `limit_exceeded` at the node:

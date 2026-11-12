@@ -521,7 +521,8 @@ runs it.
 - **The command line.** `--from-json` and `--format json` use this notation today. When the
   command lines move onto this profile's library reader (0010 §5, step 3), `--from-json`
   accepts exactly this profile's language, and `--format json` emits exactly `W`. The command
-  line maps every refusal to its own `invalid_json` code ([ontos-cli](ontos-cli.md)).
+  line reports a refusal with its own stable codes
+  ([ontos-cli](ontos-cli.md#json-lines-output-schema)).
 - **The readable profile** embeds this profile in its `raw` arm, and reads text with stages 1
   to 3 of §4.
 - **`ontos-data-json/1`** reads domain JSON into embeddings and is a separate surface. The two

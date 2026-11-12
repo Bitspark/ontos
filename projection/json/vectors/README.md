@@ -124,6 +124,7 @@ record), the cases the command lines need, and both profiles' refusal codes and 
 | `compounds`, `preferred`, `raw` | unknown, empty, namespaced and non-UTF-8 labels, malformed registered-label tuples preserved, preferred-spelling normalizations, raw subtrees in total form |
 | `envelope` | the reservation of `$ontos` after escape decoding, extra members, malformed envelopes, unknown tags, arities |
 | `empties`, `origins` | all distinct empty values, and origins across sorting and through `raw` |
+| `contributions` | the value depth each readable arm contributes itself (readable §4.9): every arm accepted at the bound its deepest node needs, and refused one below by the reader (at that node) and by the writer |
 | `depth`, `limits`, `write-limits` | JSON depth against value depth (each refusing where the other does not), the derived JSON depth, the defaults at and past their bounds, every limit kind for reading and for writing, and a write refusal where two bounds are exceeded |
 | `spans` | spans and paths after multi-byte UTF-8 text, where byte offsets and UTF-16 offsets differ |
 

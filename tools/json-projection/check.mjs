@@ -560,10 +560,14 @@ const LIMIT_KEYS = [
   "max_integer_digits",
 ];
 
+/**
+ * The effective limits of a case: the profile's own defaults (total §9.2, readable §9), then
+ * the case's overrides. max_json_depth, unless set explicitly, is derived from the effective
+ * max_value_depth: 2v + 2 for total, 3v + 4 for readable.
+ */
 function limitsFor(profile, overrides = {}) {
   const L = {
     max_text_bytes: Infinity,
-    max_json_depth: profile === "total" ? 2050 : 3076,
     max_value_depth: 1024,
     max_atom_bytes: Infinity,
     max_tuple_arity: Infinity,
@@ -574,6 +578,10 @@ function limitsFor(profile, overrides = {}) {
     if (profile === "total" && k === "max_integer_digits") throw new Error("total has no max_integer_digits");
     if (!Number.isInteger(v) || v < 0) throw new Error(`bad limit ${k}=${v}`);
     L[k] = v;
+  }
+  if (L.max_json_depth === undefined) {
+    const v = L.max_value_depth;
+    L.max_json_depth = profile === "total" ? 2 * v + 2 : 3 * v + 4;
   }
   return L;
 }
@@ -1123,8 +1131,10 @@ const CASE_FIELDS = [
   "name",
   "group",
   "note",
+  "provenance",
   "input",
   "input_hex",
+  "input_parts",
   "limits",
   "value",
   "value_hex",
@@ -1146,6 +1156,26 @@ function checkCase(c, profile) {
   if (c.input !== undefined && bytesToHex(te.encode(expandRuns(c.input))) !== inputHex) {
     throw new Error("input_hex is not the UTF-8 of input");
   }
+  // An input that is not UTF-8 has no `input`; its hand-written input_hex is checked against
+  // its hand-written parts instead, text pieces as UTF-8 and hex pieces as they stand.
+  if (c.input_parts !== undefined) {
+    if (c.input !== undefined) throw new Error("input_parts is for an input that has no `input`");
+    const joined = c.input_parts
+      .map(([kind, piece]) => {
+        if (kind === "text") return bytesToHex(te.encode(piece));
+        if (kind === "hex") return bytesToHex(hexToBytes(piece));
+        throw new Error(`bad input part ${kind}`);
+      })
+      .join("");
+    if (joined !== inputHex) throw new Error("input_hex is not the concatenation of input_parts");
+  }
+  if (inputHex !== undefined && c.input === undefined && c.input_parts === undefined) {
+    throw new Error("an input_hex needs `input` or `input_parts` beside it");
+  }
+  // Provenance (docs/conformance-vector-provenance.md): value_hex derived from a datum, or not.
+  const wantProv = c.value !== undefined ? "derived-from-spec-algorithm" : "hand-authored";
+  if (c.provenance !== wantProv) throw new Error(`provenance should be ${wantProv}`);
+  if (c.value_hex !== undefined && c.value === undefined) throw new Error("a value_hex needs its value datum");
   const valueHex = expandRuns(c.value_hex);
   if (c.value !== undefined && bytesToHex(encode(buildDatum(c.value))) !== valueHex) {
     throw new Error(`value_hex is not the encoding of the value datum: ${bytesToHex(encode(buildDatum(c.value)))}`);

@@ -5,40 +5,29 @@
  * projection/json/vectors/{total,readable}.json are hand-authored (README there). A
  * case's author writes the input as text (`input`), the value it denotes in the datum
  * notation (`value`), the preferred output and the refusal. Two fields follow mechanically
- * from those, and this tool writes them:
+ * from those, and this tool writes them, with a third that labels the case:
  *
- *   input_hex  the UTF-8 bytes of `input`, as hex. A case whose input is not UTF-8 has
- *              no `input`, and its author writes input_hex directly.
- *   value_hex  the ontos-codec-v1 bytes of `value`, built with the frozen
- *              @bitspark/ontos-data encoders (encodeInt, encodeText, encodeMap, …) and
- *              @bitspark/ontos-codec's encode. Those packages are pinned to all four faces
- *              by vectors/data.json, and they share no code with the projection.
+ *   input_hex   the UTF-8 bytes of `input`, as hex. An input that is not UTF-8 has no
+ *               `input`: its author writes input_hex by hand, beside `input_parts`, and
+ *               check.mjs checks the two against each other.
+ *   value_hex   the ontos-codec-v1 bytes of `value`, computed by the encoder below. It is
+ *               this tool's own, written from ontos-codec.md §2 and ontos-data.md §5, and it
+ *               builds encodings directly as bytes. It imports no face's package
+ *               (docs/conformance-vector-provenance.md: an oracle is never an implementation's
+ *               output), and it shares no code with check.mjs, which builds value trees with
+ *               its own encoders and so cross-checks every value_hex.
+ *   provenance  "derived-from-spec-algorithm" when value_hex is derived from `value`, else
+ *               "hand-authored" (a refusal case: every field written by hand).
  *
  * It also writes each case's fields in one fixed order, so the files diff cleanly.
- * tools/json-projection/check.mjs then checks every case with its own reader, writer and
- * ontos/data encoders, which cross-checks value_hex as well. scripts/check.sh vectors runs
- * this tool, fails if the files change, then runs the checker.
+ * scripts/check.sh vectors runs this tool, fails if the files change, then runs check.mjs.
  *
- * Run: node tools/json-projection/gen.mjs   (from the repo root, after the ts build)
+ * Run: node tools/json-projection/gen.mjs
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { atom, tuple, toHex } from "@bitspark/ontos-core";
-import { encode, encodeTupleHeader } from "@bitspark/ontos-codec";
-import {
-  encodeBool,
-  encodeDecimal,
-  encodeInt,
-  encodeList,
-  encodeMap,
-  encodeNull,
-  encodeSet,
-  encodeText,
-  readDecimal,
-} from "@bitspark/ontos-data";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIR = join(HERE, "..", "..", "projection", "json", "vectors");
@@ -47,8 +36,10 @@ const FIELD_ORDER = [
   "name",
   "group",
   "note",
+  "provenance",
   "input",
   "input_hex",
+  "input_parts",
   "limits",
   "value",
   "value_hex",
@@ -57,47 +48,104 @@ const FIELD_ORDER = [
   "render_refusal",
   "origins",
 ];
-const te = new TextEncoder();
+const utf8 = (s) => [...new TextEncoder().encode(s)];
 
-function hexToBytes(h) {
-  const out = new Uint8Array(h.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(2 * i, 2), 16);
+// --- an encoder that builds bytes directly (ontos-codec.md §2, §3) -----------------------
+// An encoding is a plain array of byte numbers. atomEnc and tupleEnc are the two equations.
+
+function lengthBytes(n) {
+  const out = [];
+  do {
+    let b = n % 128;
+    n = (n - b) / 128;
+    if (n > 0) b += 128;
+    out.push(b);
+  } while (n > 0);
   return out;
 }
+const atomEnc = (bytes) => [0x00, ...lengthBytes(bytes.length), ...bytes];
+const tupleEnc = (children) => [0x01, ...lengthBytes(children.length), ...children.flat()];
 
-/** The datum notation of the README, built with the frozen ontos/data encoders. */
-function build(d) {
+function hexBytes(h) {
+  if (!/^(?:[0-9a-f]{2})*$/.test(h)) throw new Error(`not lowercase hex: ${h.slice(0, 20)}`);
+  const out = [];
+  for (let i = 0; i < h.length; i += 2) out.push(parseInt(h.slice(i, i + 2), 16));
+  return out;
+}
+const toHexString = (bytes) => bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+
+function lexLess(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+
+/** int payload (ontos-data.md §5.1) from canonical decimal text, by long division in base 256. */
+function intPayloadFromText(text) {
+  if (!/^(0|-?[1-9][0-9]*)$/.test(text)) throw new Error(`int datum is not canonical text: ${text}`);
+  const negative = text.startsWith("-");
+  let digits = (negative ? text.slice(1) : text).split("").map(Number);
+  const magnitude = [];
+  while (digits.length > 1 || digits[0] !== 0) {
+    let rem = 0;
+    const next = [];
+    for (const d of digits) {
+      const cur = rem * 10 + d;
+      const q = Math.floor(cur / 256);
+      rem = cur % 256;
+      if (next.length || q) next.push(q);
+    }
+    magnitude.unshift(rem);
+    digits = next.length ? next : [0];
+  }
+  return [negative ? 0x01 : 0x00, ...magnitude];
+}
+
+const label = (s) => atomEnc(utf8(s));
+const intEnc = (text) => tupleEnc([label("int"), atomEnc(intPayloadFromText(text))]);
+
+function sortedDistinct(encodings, what) {
+  const sorted = [...encodings].sort((x, y) => lexLess(x.key, y.key));
+  for (let i = 1; i < sorted.length; i++) {
+    if (lexLess(sorted[i - 1].key, sorted[i].key) === 0) throw new Error(`duplicate ${what} in a datum`);
+  }
+  return sorted;
+}
+
+/** The README's datum notation, encoded. */
+function enc(d) {
   const [op, ...a] = d;
   switch (op) {
     case "atom":
-      return atom(hexToBytes(a[0]));
+      return atomEnc(hexBytes(a[0]));
     case "utf8":
-      return atom(te.encode(a[0]));
+      return atomEnc(utf8(a[0]));
     case "tuple":
-      return tuple(a[0].map(build));
+      return tupleEnc(a[0].map(enc));
     case "compound":
-      return tuple([atom(te.encode(a[0])), ...a[1].map(build)]);
+      return tupleEnc([atomEnc(utf8(a[0])), ...a[1].map(enc)]);
     case "int":
-      return encodeInt(BigInt(a[0]));
+      return intEnc(a[0]);
     case "text":
-      return encodeText(a[0]);
+      return tupleEnc([label("utf8-text"), atomEnc(utf8(a[0]))]);
     case "bool":
-      return encodeBool(a[0]);
+      return tupleEnc([label("bool"), atomEnc([a[0] ? 1 : 0])]);
     case "null":
-      return encodeNull();
+      return tupleEnc([label("null")]);
     case "list":
-      return encodeList(a[0].map(build));
-    case "map":
-      return encodeMap(a[0].map(([k, v]) => [build(k), build(v)]));
-    case "set":
-      return encodeSet(a[0].map(build));
+      return tupleEnc([label("list"), ...a[0].map(enc)]);
+    case "map": {
+      const entries = a[0].map(([k, v]) => ({ key: enc(k), whole: tupleEnc([enc(k), enc(v)]) }));
+      return tupleEnc([label("map"), ...sortedDistinct(entries, "map key").map((e) => e.whole)]);
+    }
+    case "set": {
+      const elems = a[0].map((e) => ({ key: enc(e), whole: enc(e) }));
+      return tupleEnc([label("set"), ...sortedDistinct(elems, "set element").map((e) => e.whole)]);
+    }
     case "decimal": {
-      const v = encodeDecimal(BigInt(a[0]), BigInt(a[1]));
-      const { mantissa, exponent } = readDecimal(v);
-      if (mantissa !== BigInt(a[0]) || exponent !== BigInt(a[1])) {
-        throw new Error(`decimal datum ${a[0]}, ${a[1]} is not canonical`);
-      }
-      return v;
+      const [m, e] = a;
+      const canonical = m === "0" ? e === "0" : !m.endsWith("0");
+      if (!canonical) throw new Error(`decimal datum ${m}, ${e} is not canonical`);
+      return tupleEnc([label("decimal"), intEnc(m), intEnc(e)]);
     }
     case "deep":
       throw new Error("a deep datum is allowed only at the top of `value`");
@@ -105,42 +153,42 @@ function build(d) {
   throw new Error(`unknown datum op ${op}`);
 }
 
-/** value_hex for a datum: a plain hex string, or runs for a top-level deep datum. */
+/** value_hex for a datum: a hex string, or runs for a top-level deep datum. */
 function valueHex(d) {
-  if (d[0] !== "deep") return toHex(encode(build(d)));
-  const [, n, kind, inner] = d;
-  // A wrapper is a one-child tuple, a one-element list, or a one-argument compound.
-  const label = kind === "tuple" ? null : kind === "list" ? "list" : kind[1];
+  if (d[0] !== "deep") return toHexString(enc(d));
+  const [, n, wrapper, inner] = d;
+  // A wrapper is a one-child tuple, a one-element list or a one-argument compound, so its
+  // header is the tuple tag and arity, then any label atom, then the single child.
   const header =
-    label === null
-      ? toHex(encodeTupleHeader(1))
-      : toHex(encodeTupleHeader(2)) + toHex(encode(atom(te.encode(label))));
-  const wrap = (x) =>
-    kind === "tuple" ? tuple([x]) : kind === "list" ? encodeList([x]) : tuple([atom(te.encode(label)), x]);
-  // Cross-check the runs against the whole value encoded at once.
-  let whole = build(inner);
-  for (let i = 0; i < n; i++) whole = wrap(whole);
-  const runs = { runs: [[header, n], [toHex(encode(build(inner))), 1]] };
-  if (header.repeat(n) + toHex(encode(build(inner))) !== toHex(encode(whole))) {
+    wrapper === "tuple"
+      ? [0x01, ...lengthBytes(1)]
+      : [0x01, ...lengthBytes(2), ...label(wrapper === "list" ? "list" : wrapper[1])];
+  const innerBytes = enc(inner);
+  // Cross-check the runs against the whole value built the long way.
+  let whole = innerBytes;
+  for (let i = 0; i < n; i++) whole = [...header, ...whole];
+  const runs = { runs: [[toHexString(header), n], [toHexString(innerBytes), 1]] };
+  if (toHexString(header).repeat(n) + toHexString(innerBytes) !== toHexString(whole)) {
     throw new Error("deep datum: runs do not reproduce the whole encoding");
   }
   return runs;
 }
 
 function inputHex(input) {
-  if (typeof input === "string") return toHex(te.encode(input));
-  return { runs: input.runs.map(([text, count]) => [toHex(te.encode(text)), count]) };
+  if (typeof input === "string") return toHexString(utf8(input));
+  return { runs: input.runs.map(([text, count]) => [toHexString(utf8(text)), count]) };
 }
 
 function serialize(doc) {
   const lines = ["{"];
-  const top = Object.keys(doc).filter((k) => k !== "cases");
-  for (const k of top) lines.push(`  ${JSON.stringify(k)}: ${JSON.stringify(doc[k])},`);
+  for (const k of Object.keys(doc).filter((key) => key !== "cases")) {
+    lines.push(`  ${JSON.stringify(k)}: ${JSON.stringify(doc[k])},`);
+  }
   lines.push('  "cases": [');
   doc.cases.forEach((c, i) => {
-    const keys = FIELD_ORDER.filter((k) => c[k] !== undefined);
     const extra = Object.keys(c).filter((k) => !FIELD_ORDER.includes(k));
     if (extra.length) throw new Error(`${c.name}: unknown field(s) ${extra.join(", ")}`);
+    const keys = FIELD_ORDER.filter((k) => c[k] !== undefined);
     lines.push("    {");
     keys.forEach((k, j) => {
       lines.push(`      ${JSON.stringify(k)}: ${JSON.stringify(c[k])}${j < keys.length - 1 ? "," : ""}`);
@@ -159,6 +207,7 @@ for (const file of FILES) {
     try {
       if (c.input !== undefined) c.input_hex = inputHex(c.input);
       if (c.value !== undefined) c.value_hex = valueHex(c.value);
+      c.provenance = c.value !== undefined ? "derived-from-spec-algorithm" : "hand-authored";
     } catch (e) {
       throw new Error(`${file} ${c.name}: ${e.message}`);
     }

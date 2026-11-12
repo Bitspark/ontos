@@ -44,7 +44,8 @@
  * judges how each impl READS an input text (ontos-cli.md "Value input"): it runs a file
  * of texts — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with the
  * outcome the contract gives it, through argv and through stdin, and asserts every
- * impl's stdout + exit code equal that outcome. Pass --decode-roundtrip,
+ * impl's stdout + exit code equal that outcome; a second file holds texts in the
+ * readable JSON profile (--json-profile readable). Pass --decode-roundtrip,
  * --from-json-roundtrip, --human-roundtrip and/or --input-reading to select modes;
  * with no mode flag the default decode mode runs (back-compatible). The passes are
  * independent and any divergence in any of them fails the run.
@@ -61,7 +62,7 @@
  *     --impl <name>=<command> [--impl <name>=<command> ...] \
  *     [--vectors <path> ...] [--commands "<csv>"] \
  *     [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \
- *     [--input-reading [--reading-cases <path>] [--verbose]]
+ *     [--input-reading [--reading-cases <path> ...] [--verbose]]
  *
  *   --impl NAME=COMMAND   (repeatable, >=1 required) An implementation to drive.
  *                         COMMAND is whitespace-split into an argv array, e.g.
@@ -94,8 +95,9 @@
  *                         human rendering (ontos-internal#46) — purely differential, no oracle
  *                         (human output is a tri-core identity property, not pinned in the
  *                         vectors).
- *   --input-reading       Run the READING check mode over the cases file (default
- *                         tools/conformance/input-reading.json). Each case is an input
+ *   --input-reading       Run the READING check mode over the cases files (default
+ *                         tools/conformance/input-reading.json and
+ *                         input-reading-readable.json). Each case is an input
  *                         text (a --from-json text, or with "source": "hex" the hex
  *                         input) and its expected outcome: canonical hex, or an error
  *                         code. For each case, each impl runs `canon --emit --format json`
@@ -104,7 +106,11 @@
  *                         the contract's exit code. For an accepted text, `decode` (json
  *                         and human) of the text must also equal `decode` of the expected
  *                         hex, whole and byte for byte, in each impl and across impls.
- *   --reading-cases PATH  Read the READING cases from PATH instead.
+ *                         A case with a "profile" runs with --json-profile <profile>; a
+ *                         readable --from-json text through argv must be usage_error. A
+ *                         case's "readable" pins `decode --format json --json-profile
+ *                         readable` of its hex: the value text, or an error code.
+ *   --reading-cases PATH  (repeatable) Read the READING cases from PATH instead.
  *   --verbose             With --input-reading: print each case's per-impl outcome.
  *
  * ASSUMPTION — NO SPACES IN PATHS. Because both --impl COMMAND and each --commands
@@ -144,7 +150,7 @@ const DEFAULT_VECTORS = [
 
 const DEFAULT_COMMANDS = ["decode", "inspect", "read --all", "canon --check", "canon --emit"];
 
-const DEFAULT_READING_CASES = join(HERE, "input-reading.json");
+const DEFAULT_READING_CASES = [join(HERE, "input-reading.json"), join(HERE, "input-reading-readable.json")];
 
 // The registered embedding labels, in the contract's fixed order (ontos-data.md §5).
 // The HUMAN mode additionally drives `read --kind <label>` for each so the per-kind
@@ -169,7 +175,7 @@ function parseArgs(argv) {
   let fromJsonRoundtrip = false;
   let humanRoundtrip = false;
   let inputReading = false;
-  let readingCases = null;
+  const readingCases = [];
   let verbose = false;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -207,7 +213,7 @@ function parseArgs(argv) {
     } else if (arg === "--input-reading") {
       inputReading = true;
     } else if (arg === "--reading-cases") {
-      readingCases = takeValue("--reading-cases");
+      readingCases.push(takeValue("--reading-cases"));
     } else if (arg === "--verbose") {
       verbose = true;
     } else if (arg === "-h" || arg === "--help") {
@@ -233,7 +239,7 @@ function parseArgs(argv) {
     fromJsonRoundtrip,
     humanRoundtrip,
     inputReading,
-    readingCases: readingCases ?? DEFAULT_READING_CASES,
+    readingCases: readingCases.length > 0 ? readingCases : DEFAULT_READING_CASES,
     verbose,
   };
 }
@@ -244,7 +250,7 @@ function printUsage() {
       "         --impl <name>=<command> [--impl <name>=<command> ...] \\\n" +
       "         [--vectors <path> ...] [--commands \"<csv>\"] \\\n" +
       "         [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \\\n" +
-      "         [--input-reading [--reading-cases <path>] [--verbose]]\n",
+      "         [--input-reading [--reading-cases <path> ...] [--verbose]]\n",
   );
 }
 
@@ -470,18 +476,27 @@ function runFromJsonMode(impls, cases) {
 
 
 // --- reading mode: how each impl reads its input text ------------------------
-// The cases file (DEFAULT_READING_CASES) holds texts the authoring-value modes above
+// The cases files (DEFAULT_READING_CASES) hold texts the authoring-value modes above
 // cannot express — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with
-// the outcome docs/spec/ontos-cli.md gives it ("Value input"). A case's text is a
-// --from-json text by default, or with "source": "hex" the hex input. Every impl runs
-// `canon --emit --format json` on it, and the judgment is an ORACLE: every impl must
-// give exactly the expected stdout line and the contract's exit code, so a fault
-// shared by all four impls still fails the run.
+// the outcome docs/spec/ontos-cli.md gives it ("Value input", "JSON profiles"). A
+// case's text is a --from-json text by default, or with "source": "hex" the hex
+// input. Every impl runs `canon --emit --format json` on it, and the judgment is an
+// ORACLE: every impl must give exactly the expected stdout line and the contract's
+// exit code, so a fault shared by all four impls still fails the run.
+//
+// A file or a case may name a "profile" (total or readable): every run of the case
+// then passes --json-profile <profile>, and a case without one passes no such flag,
+// as every invocation did before the selector existed. Readable input is read from
+// stdin only, so a readable --from-json text through argv must be usage_error. A
+// case's "readable" pins the readable writer: `decode --format json --json-profile
+// readable` of the case's canonical hex must print exactly that value text, or the
+// error code given as {"error": …}.
 
 // The contract's exit code for each outcome (ontos-cli.md "Exit codes"): success 0;
 // a decode error, or limit_exceeded, 1; invalid_json and invalid_hex 2, the usage class.
 const READING_EXIT = {
   ok: 0,
+  usage_error: 2,
   limit_exceeded: 1,
   unexpected_eof: 1,
   trailing_bytes: 1,
@@ -522,6 +537,8 @@ function expandPieces(spec, where) {
     .join("");
 }
 
+const PROFILES = ["total", "readable"];
+
 function collectReadingCases(path) {
   let parsed;
   try {
@@ -532,11 +549,16 @@ function collectReadingCases(path) {
   if (!parsed || !Array.isArray(parsed.cases) || parsed.cases.length === 0) {
     throw new UsageError(`reading cases ${path} has no "cases" array`);
   }
+  if (parsed.profile !== undefined && !PROFILES.includes(parsed.profile)) {
+    throw new UsageError(`reading cases ${path}: "profile" must be "total" or "readable"`);
+  }
   return parsed.cases.map((c, i) => {
     const where = `${path}: cases[${i}]`;
     if (typeof c.name !== "string") throw new UsageError(`${where} has no string "name"`);
     const source = c.source ?? "json";
     if (source !== "json" && source !== "hex") throw new UsageError(`${where}.source must be "json" or "hex"`);
+    const profile = c.profile ?? parsed.profile ?? null;
+    if (profile !== null && !PROFILES.includes(profile)) throw new UsageError(`${where}.profile must be "total" or "readable"`);
     if ((c.text === undefined) === (c.bytes === undefined)) {
       throw new UsageError(`${where} needs exactly one of "text" or "bytes"`);
     }
@@ -571,7 +593,20 @@ function collectReadingCases(path) {
     } else {
       throw new UsageError(`${where}.expect must be {"hex": …} or {"error": <a contract error code>}`);
     }
-    return { name: c.name, source, input, text, sources, expect, chunked: c.chunked === true };
+    let readable = null;
+    if (c.readable !== undefined) {
+      if (expect.hex === undefined) throw new UsageError(`${where}.readable needs an accepted case ({"hex": …})`);
+      const r = c.readable;
+      if (r !== null && typeof r === "object" && !Array.isArray(r)) {
+        if (!Object.hasOwn(READING_EXIT, r.error) || r.error === "ok") {
+          throw new UsageError(`${where}.readable.error must be a contract error code`);
+        }
+        readable = { error: r.error };
+      } else {
+        readable = { text: expandPieces(r, `${where}.readable`) };
+      }
+    }
+    return { name: c.name, source, input, text, sources, expect, chunked: c.chunked === true, profile, readable };
   });
 }
 
@@ -625,19 +660,25 @@ function runAsync(impl, args, input, chunked = false) {
 }
 
 // One case: `canon --emit` through each source (oracle), then, for an accepted
-// text, decode of the text against decode of the expected hex.
+// text, decode of the text against decode of the expected hex, and the readable
+// writer's output when the case pins it.
 async function runReadingCase(impls, c) {
   const divergences = [];
   const report = [];
-  const expectedLine = c.expect.hex !== undefined
+  const outcomeLine = c.expect.hex !== undefined
     ? `{"ok":true,"command":"canon","hex":"${c.expect.hex}"}\n`
     : `{"ok":false,"command":"canon","error":"${c.expect.error}"}\n`;
-  const expectedExit = READING_EXIT[c.expect.hex !== undefined ? "ok" : c.expect.error];
+  const outcomeExit = READING_EXIT[c.expect.hex !== undefined ? "ok" : c.expect.error];
   const flag = c.source === "json" ? ["--from-json"] : [];
+  const profileFlag = c.profile !== null ? ["--json-profile", c.profile] : [];
 
   for (const via of c.sources) {
+    // Readable input is read from stdin only: through argv it is refused unread.
+    const refused = via === "argv" && c.source === "json" && c.profile === "readable";
+    const expectedLine = refused ? `{"ok":false,"command":"canon","error":"usage_error"}\n` : outcomeLine;
+    const expectedExit = refused ? READING_EXIT.usage_error : outcomeExit;
     const arg = via === "stdin" ? "-" : c.text ?? c.input;
-    const args = ["canon", "--emit", "--format", "json", ...flag, arg];
+    const args = ["canon", "--emit", "--format", "json", ...profileFlag, ...flag, arg];
     const input = via === "stdin" ? c.input : Buffer.alloc(0);
     const chunked = via === "stdin" && c.chunked;
     const perImpl = await Promise.all(
@@ -663,8 +704,12 @@ async function runReadingCase(impls, c) {
     for (const format of ["json", "human"]) {
       const perImpl = await Promise.all(
         impls.map(async (impl) => {
-          const viaJson = await runAsync(impl, ["decode", "--format", format, ...flag, "-"], c.input, c.chunked);
-          const viaHex = await runAsync(impl, ["decode", "--format", format], Buffer.from(c.expect.hex), c.chunked);
+          const viaJson = await runAsync(
+            impl, ["decode", "--format", format, ...profileFlag, ...flag, "-"], c.input, c.chunked,
+          );
+          const viaHex = await runAsync(
+            impl, ["decode", "--format", format, ...profileFlag], Buffer.from(c.expect.hex), c.chunked,
+          );
           return { impl, viaJson, viaHex };
         }),
       );
@@ -685,6 +730,30 @@ async function runReadingCase(impls, c) {
           })),
         });
       }
+    }
+  }
+
+  if (c.readable !== null) {
+    // The readable writer, from the canonical hex: exactly the pinned value text, or
+    // the pinned refusal.
+    const line = c.readable.text !== undefined
+      ? `{"ok":true,"command":"decode","codec":"ontos-codec-v1","value":${c.readable.text}}\n`
+      : `{"ok":false,"command":"decode","error":"${c.readable.error}"}\n`;
+    const exit = c.readable.text !== undefined ? 0 : READING_EXIT[c.readable.error];
+    const perImpl = await Promise.all(
+      impls.map(async (impl) => ({
+        impl,
+        ...(await runAsync(impl, ["decode", "--format", "json", "--json-profile", "readable"], Buffer.from(c.expect.hex))),
+      })),
+    );
+    if (!perImpl.every((r) => r.stdout === line && r.status === exit)) {
+      divergences.push({
+        mode: "reading (readable output of the hex)",
+        label: c.name,
+        kind: "outcome",
+        expected: `${shorten(line.replace(/\n$/, ""))} with exit ${exit}`,
+        perImpl: perImpl.map((r) => ({ name: r.impl.name, stdout: shorten(r.stdout), status: r.status })),
+      });
     }
   }
   return { divergences, report };
@@ -723,13 +792,15 @@ async function runReadingMode(impls, cases, verbose) {
     }
   });
   const runs = cases.reduce((n, c) => n + c.sources.length, 0);
+  const readableCases = cases.filter((c) => c.profile === "readable").length;
   const unrun = cases.filter((c) => c.sources.length === 0).map((c) => c.name);
   if (unrun.length > 0) {
     // Only an argv-only text that is not UTF-8, on Windows (argv is UTF-16 there).
     process.stdout.write(`reading: not run on this platform: ${unrun.join("; ")}\n`);
   }
   const summary =
-    `reading: ${cases.length} texts, ${runs} runs through argv or stdin, x ${impls.length} impls (outcome oracle)`;
+    `reading: ${cases.length} texts (${readableCases} readable), ${runs} runs through argv or stdin, ` +
+    `x ${impls.length} impls (outcome oracle)`;
   return { divergences, summary };
 }
 
@@ -791,7 +862,8 @@ async function main() {
   if (inputReading) {
     let r;
     try {
-      r = await runReadingMode(impls, collectReadingCases(resolve(config.readingCases)), config.verbose);
+      const cases = config.readingCases.flatMap((p) => collectReadingCases(resolve(p)));
+      r = await runReadingMode(impls, cases, config.verbose);
     } catch (err) {
       abortOnUsage(err);
     }

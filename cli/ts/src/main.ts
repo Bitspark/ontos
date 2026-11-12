@@ -568,11 +568,30 @@ function isKind(value: string): value is Kind {
   return (KINDS as readonly string[]).includes(value);
 }
 
+/**
+ * `--from-json <text>` takes the next token whatever it is, as the other CLIs do: a
+ * JSON text may begin with "-" (`-1`), which parseArgs would refuse as an ambiguous
+ * option value. The pair becomes the equivalent `--from-json=<text>`.
+ */
+function joinFromJson(argv: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    if (arg === "--from-json" && i + 1 < argv.length) {
+      out.push(`--from-json=${argv[i + 1]!}`);
+      i += 1;
+    } else {
+      out.push(arg);
+    }
+  }
+  return out;
+}
+
 function main(argv: readonly string[]): never {
   let parsed;
   try {
     parsed = parseArgs({
-      args: [...argv],
+      args: joinFromJson(argv),
       allowPositionals: true,
       strict: true,
       options: {

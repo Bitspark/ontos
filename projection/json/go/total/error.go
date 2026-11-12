@@ -13,23 +13,23 @@ import (
 // its own (readable §8). A code is never reassigned to another meaning.
 const (
 	// CodeLimitExceeded: an operational bound of §9 was reached; Error.Kind names it.
-	CodeLimitExceeded = jsontext.CodeLimitExceeded
+	CodeLimitExceeded = "limit_exceeded"
 	// CodeInvalidUTF8: the input is not well-formed UTF-8 (stage 2).
-	CodeInvalidUTF8 = jsontext.CodeInvalidUTF8
+	CodeInvalidUTF8 = "invalid_utf8"
 	// CodeByteOrderMark: the input begins with U+FEFF (stage 3).
-	CodeByteOrderMark = jsontext.CodeByteOrderMark
+	CodeByteOrderMark = "byte_order_mark"
 	// CodeInvalidJSON: the input is not an RFC 8259 JSON text with RFC 8259's whitespace.
-	CodeInvalidJSON = jsontext.CodeInvalidJSON
+	CodeInvalidJSON = "invalid_json"
 	// CodeInvalidUnicodeEscape: a \u escape names a lone surrogate.
-	CodeInvalidUnicodeEscape = jsontext.CodeInvalidUnicodeEscape
+	CodeInvalidUnicodeEscape = "invalid_unicode_escape"
 	// CodeDuplicateMember: an object repeats a member name after escape decoding.
-	CodeDuplicateMember = jsontext.CodeDuplicateMember
+	CodeDuplicateMember = "duplicate_member"
 	// CodeTrailingData: something other than whitespace follows the value.
-	CodeTrailingData = jsontext.CodeTrailingData
+	CodeTrailingData = "trailing_data"
 	// CodeInvalidTotalForm: a node is not exactly {"atom": string} or {"tuple": array}.
-	CodeInvalidTotalForm = jsontext.CodeInvalidTotalForm
+	CodeInvalidTotalForm = "invalid_total_form"
 	// CodeInvalidHex: an atom string is not even-length lowercase hexadecimal.
-	CodeInvalidHex = jsontext.CodeInvalidHex
+	CodeInvalidHex = "invalid_hex"
 )
 
 // The limit kinds of spec §9.1 and readable §9. They share the codec's namespace
@@ -37,12 +37,12 @@ const (
 // codec decoder's bounds mean, and the others are new for the projection. The codec's
 // native_width has no counterpart in text, so the projection never reports it.
 const (
-	KindTextBytes     codec.DecodeLimitKind = jsontext.KindTextBytes
-	KindJSONDepth     codec.DecodeLimitKind = jsontext.KindJSONDepth
+	KindTextBytes     codec.DecodeLimitKind = "text_bytes"
+	KindJSONDepth     codec.DecodeLimitKind = "json_depth"
 	KindDecodeDepth                         = codec.LimitDecodeDepth
 	KindAtomBytes                           = codec.LimitAtomBytes
 	KindTupleArity                          = codec.LimitTupleArity
-	KindIntegerDigits codec.DecodeLimitKind = jsontext.KindIntegerDigits
+	KindIntegerDigits codec.DecodeLimitKind = "integer_digits"
 )
 
 // Error is a refusal of either JSON profile (spec §8.1). Profile, Code, Path, Span and Kind

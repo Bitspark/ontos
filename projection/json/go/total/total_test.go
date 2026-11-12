@@ -10,6 +10,7 @@ import (
 	"github.com/bitspark/ontos/codec/go"
 	"github.com/bitspark/ontos/core/go"
 	"github.com/bitspark/ontos/projection/json/go/internal/gen"
+	"github.com/bitspark/ontos/projection/json/go/internal/jsontext"
 	"github.com/bitspark/ontos/projection/json/go/internal/vectors"
 	"github.com/bitspark/ontos/projection/json/go/total"
 )
@@ -38,8 +39,33 @@ func TestDefaultLimits(t *testing.T) {
 	if got := total.DefaultLimits(); got != want {
 		t.Fatalf("DefaultLimits() = %+v, want %+v", got, want)
 	}
-	if total.DeriveJSONDepth >= 0 {
-		t.Fatalf("DeriveJSONDepth is %d; spec §10 makes it a negative constant", total.DeriveJSONDepth)
+	if total.DeriveJSONDepth >= 0 || total.DeriveJSONDepth != jsontext.Derive {
+		t.Fatalf("DeriveJSONDepth is %d; spec §10 makes it a negative constant, the one jsontext resolves", total.DeriveJSONDepth)
+	}
+}
+
+// The public names spell the internal ones.
+func TestNames(t *testing.T) {
+	for public, internal := range map[string]string{
+		total.CodeLimitExceeded:         jsontext.CodeLimitExceeded,
+		total.CodeInvalidUTF8:           jsontext.CodeInvalidUTF8,
+		total.CodeByteOrderMark:         jsontext.CodeByteOrderMark,
+		total.CodeInvalidJSON:           jsontext.CodeInvalidJSON,
+		total.CodeInvalidUnicodeEscape:  jsontext.CodeInvalidUnicodeEscape,
+		total.CodeDuplicateMember:       jsontext.CodeDuplicateMember,
+		total.CodeTrailingData:          jsontext.CodeTrailingData,
+		total.CodeInvalidTotalForm:      jsontext.CodeInvalidTotalForm,
+		total.CodeInvalidHex:            jsontext.CodeInvalidHex,
+		string(total.KindTextBytes):     jsontext.KindTextBytes,
+		string(total.KindJSONDepth):     jsontext.KindJSONDepth,
+		string(total.KindDecodeDepth):   jsontext.KindDecodeDepth,
+		string(total.KindAtomBytes):     jsontext.KindAtomBytes,
+		string(total.KindTupleArity):    jsontext.KindTupleArity,
+		string(total.KindIntegerDigits): jsontext.KindIntegerDigits,
+	} {
+		if public != internal {
+			t.Errorf("%q != %q", public, internal)
+		}
 	}
 }
 

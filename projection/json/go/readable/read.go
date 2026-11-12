@@ -158,7 +158,10 @@ func (r *reader) head(x *node, d int, p *path) (core.Value, *origin, frame, *fau
 		if _, ok := x.Member("$ontos"); ok {
 			return r.envelope(x, d, p)
 		}
-		return nil, nil, r.object(x, d, p), r.checkObject(x, d, p)
+		if f := r.checkObject(x, d, p); f != nil {
+			return nil, nil, nil, f
+		}
+		return nil, nil, r.object(x, d, p), nil
 	}
 	panic("readable: unknown JSON node kind")
 }

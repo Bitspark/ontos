@@ -65,10 +65,11 @@ func (e *Emitter) Close(c byte, path *Path) *Fault {
 
 // writeFrame is a tuple whose children are being written.
 type writeFrame struct {
-	t    core.Tuple
-	next int
-	d    int
-	path *Path // the tuple-object's path in the output
+	t     core.Tuple
+	next  int
+	d     int
+	path  *Path // the tuple-object's path in the output
+	items *Path // its array's: path + ["tuple"]
 }
 
 // WriteTotal writes v at value depth d as its total-form spelling (total §2, §5), with an
@@ -107,25 +108,26 @@ func WriteTotal(e *Emitter, v core.Value, d int, path *Path) *Fault {
 			if f := e.Write(`"tuple":`, path); f != nil {
 				return f
 			}
-			if f := e.Open('[', path.Name("tuple")); f != nil {
+			items := path.Name("tuple")
+			if f := e.Open('[', items); f != nil {
 				return f
 			}
-			stack = append(stack, writeFrame{t: x, d: d, path: path})
+			stack = append(stack, writeFrame{t: x, d: d, path: path, items: items})
 		}
 		v = nil
 		for len(stack) > 0 {
 			top := &stack[len(stack)-1]
 			if top.next < top.t.Len() {
 				if top.next > 0 {
-					if f := e.Write(",", top.path.Name("tuple")); f != nil {
+					if f := e.Write(",", top.items); f != nil {
 						return f
 					}
 				}
-				v, d, path = top.t.At(top.next), top.d+1, top.path.Name("tuple").Index(top.next)
+				v, d, path = top.t.At(top.next), top.d+1, top.items.Index(top.next)
 				top.next++
 				break
 			}
-			if f := e.Close(']', top.path.Name("tuple")); f != nil {
+			if f := e.Close(']', top.items); f != nil {
 				return f
 			}
 			if f := e.Close('}', top.path); f != nil {

@@ -43,7 +43,7 @@ const Unbounded = math.MaxInt
 // DeriveJSONDepth, as MaxJSONDepth, derives the JSON depth bound from MaxValueDepth: the
 // deepest spelling of a value within the value depth bound (spec §9.2). An unbounded
 // MaxValueDepth derives an unbounded MaxJSONDepth.
-const DeriveJSONDepth = jsontext.Derive
+const DeriveJSONDepth = -1
 
 // ErrInvalidLimits is wrapped by the error a reader or writer returns for a limits record
 // it cannot represent: a negative bound other than MaxJSONDepth = DeriveJSONDepth.

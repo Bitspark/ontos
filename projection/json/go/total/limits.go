@@ -77,4 +77,3 @@ func (l Limits) resolve(factor, offset int) (jsontext.Limits, error) {
 	return jsontext.Resolve(l.MaxTextBytes, l.MaxJSONDepth, l.MaxValueDepth, l.MaxAtomBytes, l.MaxTupleArity,
 		l.MaxIntegerDigits, factor, offset)
 }
-

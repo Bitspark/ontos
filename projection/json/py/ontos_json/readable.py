@@ -16,6 +16,12 @@ Integers are converted between decimal text and binary by this module itself, in
 most 512 digits, so the result never depends on CPython's process-wide limit on int/str
 conversion (``PYTHONINTMAXSTRDIGITS``, as low as 640), and only ASCII digits are ever accepted
 (§4.5).
+
+Keys of a ``map`` tag and elements of a ``set`` tag are compared and sorted by their codec
+encodings (§4.4, §4.8), and so are a canonical map's keys and a canonical set's elements when
+the writer recognizes them (through ``ontos_data``). Each such container encodes its keys or
+elements once, so a value costs at most its size times its nesting depth: bounded by the depth
+limit, 1024 by default.
 """
 
 from __future__ import annotations

@@ -464,6 +464,7 @@
       "value-rendering",
       "value-input",
       "reading-the-text",
+      "json-profiles",
       "commands-v1",
       "json-lines-output-schema",
       "human-format",

@@ -89,11 +89,12 @@
 //! The **byte-level** decimal pair [`encode_decimal_bytes`] / [`read_decimal_bytes`] is
 //! the `int` byte pair lifted to `decimal`, for producers and consumers that carry the
 //! full unbounded range. Each of the mantissa and the exponent is a `(negative,
-//! magnitude)` part, the shape [`encode_int_bytes`] takes and [`read_int_bytes`] returns:
+//! magnitude)` part, the shape [`encode_int_bytes`] takes and [`read_int_bytes`] returns,
+//! named [`IntBytes`]:
 //!
 //! ```text
-//! encode_decimal_bytes((m_negative, m_magnitude), (e_negative, e_magnitude)) -> Result<Value, DataError>
-//! read_decimal_bytes(&Value) -> Result<((bool, &[u8]), (bool, &[u8])), DataError>
+//! encode_decimal_bytes(mantissa: IntBytes, exponent: IntBytes) -> Result<Value, DataError>
+//! read_decimal_bytes(&Value) -> Result<(IntBytes, IntBytes), DataError>   // (mantissa, exponent)
 //! ```
 //!
 //! `read_decimal_bytes` recognizes every canonical `decimal` (the [`recognize_decimal`]
@@ -465,6 +466,16 @@ pub fn read_int_bytes(v: &Value) -> Result<(bool, &[u8]), DataError> {
     Ok((sign == SIGN_NEG, magnitude))
 }
 
+/// The byte-level parts of an `int`: `(negative, magnitude)`, the sign (`true` =
+/// negative) and `|n|` as big-endian bytes, exactly what [`read_int_bytes`] returns and
+/// what [`encode_int_bytes`] takes as its two arguments. A plain alias, so the two are
+/// the same type. The byte-level decimal pair, [`encode_decimal_bytes`] and
+/// [`read_decimal_bytes`], carries its mantissa and exponent in this shape.
+///
+/// The parts are canonical when the magnitude is minimal (no leading `0x00` byte) and
+/// zero (the empty magnitude) is not negative.
+pub type IntBytes<'a> = (bool, &'a [u8]);
+
 // ----- bool (spec 5.3) -----
 
 /// Build the canonical `bool` value: `Tuple(Atom("bool"), Atom(0x00 | 0x01))`.
@@ -815,8 +826,8 @@ pub fn read_decimal(v: &Value) -> Result<(i128, i128), DataError> {
 }
 
 /// Build the canonical `decimal` value directly from the **byte-level parts** of its
-/// mantissa and exponent — each `(negative, magnitude)`, exactly the shape
-/// [`encode_int_bytes`] takes and [`read_int_bytes`] returns — with no host integer width
+/// mantissa and exponent, each an [`IntBytes`] `(negative, magnitude)` (the shape
+/// [`encode_int_bytes`] takes and [`read_int_bytes`] returns), with no host integer width
 /// ceiling: `Tuple(Atom("decimal"), int(mantissa), int(exponent))` (§5.9).
 ///
 /// This is the unbounded sibling of [`encode_decimal`], and [`encode_int_bytes`] lifted
@@ -850,8 +861,8 @@ pub fn read_decimal(v: &Value) -> Result<(i128, i128), DataError> {
 /// `encode_decimal` it never returns [`DataError::IntOutOfRange`]: it does no exponent
 /// arithmetic, so there is no host-width edge. Never panics.
 pub fn encode_decimal_bytes(
-    mantissa: (bool, &[u8]),
-    exponent: (bool, &[u8]),
+    mantissa: IntBytes<'_>,
+    exponent: IntBytes<'_>,
 ) -> Result<Value, DataError> {
     const KIND: &str = "decimal";
     // The int rules for each child, reported at the decimal layer (as decimal_parts does).
@@ -866,10 +877,9 @@ pub fn encode_decimal_bytes(
     ])))
 }
 
-/// Recognize a canonical `decimal` value and return its mantissa and exponent as
-/// byte-level parts, `((negative, magnitude), (negative, magnitude))` — each in the shape
-/// [`read_int_bytes`] returns — with **no `i128` materialization** and thus no
-/// [`DataError::IntOutOfRange`].
+/// Recognize a canonical `decimal` value and return `(mantissa, exponent)` as byte-level
+/// [`IntBytes`] parts, each `(negative, magnitude)` as [`read_int_bytes`] returns it, with
+/// **no `i128` materialization** and thus no [`DataError::IntOutOfRange`].
 ///
 /// This is the unbounded sibling of [`read_decimal`]: it runs the same canonical-form gate
 /// as [`recognize_decimal`] (shape, label, canonical-`int` children, zero is
@@ -884,7 +894,7 @@ pub fn encode_decimal_bytes(
 /// [`read_decimal`] returns, and they rebuild the same value through
 /// [`encode_decimal_bytes`]. An arbitrary-precision consumer reconstructs its own big
 /// integers from these bytes. Never panics.
-pub fn read_decimal_bytes(v: &Value) -> Result<((bool, &[u8]), (bool, &[u8])), DataError> {
+pub fn read_decimal_bytes(v: &Value) -> Result<(IntBytes<'_>, IntBytes<'_>), DataError> {
     let (mantissa, exponent) = decimal_parts(v)?;
     Ok((read_int_bytes(mantissa)?, read_int_bytes(exponent)?))
 }
@@ -1494,7 +1504,7 @@ mod tests {
         let mut wide_tens = vec![0x05u8];
         wide_tens.extend(std::iter::repeat_n(0x00, 16));
         let big = two_pow_128();
-        let refused: [((bool, &[u8]), (bool, &[u8])); 13] = [
+        let refused: [(IntBytes, IntBytes); 13] = [
             // Trailing base-10 zero on a non-zero mantissa (10, -100, 5 × 2^128).
             ((false, &[0x0a]), (false, &[])),
             ((true, &[0x64]), (false, &[0x03])),
@@ -1568,7 +1578,7 @@ mod tests {
         // 2^127 = i128::MAX + 1: 0x80 then fifteen 0x00.
         let mut max_plus_1 = vec![0x80u8];
         max_plus_1.extend(std::iter::repeat_n(0x00, 15));
-        let cases: [((bool, &[u8]), (bool, &[u8])); 5] = [
+        let cases: [(IntBytes, IntBytes); 5] = [
             // Mantissa beyond i128 (the decimal_2pow128_mantissa vector), either sign.
             ((false, &big), (false, &[])),
             ((true, &big), (true, &[0x02])),

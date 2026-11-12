@@ -1,8 +1,8 @@
 # Consultation 0001: a reversible JSON projection of ground values
 
-**Status: requested, 10 November 2026**, by the ontos coordinator (m-01), for the owner's
-expert-consultation flow, which runs from the owner's PC. Whoever runs it records the
-answer in this file. The decision stays with the ontos coordinator.
+**Status: answered, 12 November 2026.** Requested 10 November 2026 by the ontos coordinator
+(m-01), for the owner's expert-consultation flow, which runs from the owner's PC. Whoever runs
+it records the answer in this file. The decision stays with the ontos coordinator.
 
 This brings in [ontos issue 33](https://github.com/Bitspark/ontos/issues/33). That issue
 carries row 21 of bittype research 0014
@@ -86,4 +86,51 @@ once, in `ontos-data-json/1`.
 
 ## Answer
 
-*(Pending.)*
+The question went to an outside expert as research 0004 of ontos's internal research record,
+`ontos-internal research-docs/0004-reversible-json-projection.md`, which holds the
+self-contained document, the verified advice, and the evaluation of each recommendation
+against ontos at `87a03b6`. The run was submitted on 11 November and answered the same night.
+
+**The advice: B.** Specify two value-only profiles. Neither takes a type descriptor.
+- **`ontos-total-json/1`** is today's `{atom}/{tuple}` notation, promoted to a full parser
+  and rendering contract.
+- **`ontos-readable-json/1`** is total over ground values:
+  - The plain cases are ordinary JSON: `null`, booleans, strings, integers within
+    ±(2^53 − 1), arrays, and objects whose keys are all text.
+  - Everything else uses one reserved envelope, `{"$ontos": [tag, …]}`, with the tags
+    `bytes` (canonical base64), `int` (a canonical decimal string), `decimal`, `map`, `set`,
+    `compound` and `raw` (a fallback to the total form).
+  - `$ontos` is the only reserved name, compared after escape decoding. A map whose key is
+    that text uses the `map` tag, so every value stays representable.
+
+In the expert's view, type-driven reading (C) does not remove ambiguity across unions
+(`bytes | utf8-text`, a list against a set, compounds with their labels left out). Avro's JSON
+encoding, for one, still tags union branches.
+
+The rest of the advice:
+- **Laws:** `R(W(v)) = v` for every value, and `W(R(j)) = j` on the writer's image. Every other
+  accepted spelling normalizes through `W∘R` under a named table: escapes, member order, `-0`,
+  tagged small integers, and the `raw` or `compound` spelling of a value that has a plainer
+  one. Duplicates (after escape decoding), trailing data, a BOM, fractions and exponents are
+  refused.
+- **Refusals:** stable lowercase codes with a typed path and a UTF-8 byte span; the message
+  is not normative. The reader can also return origins, so that horos's and D's errors map
+  back to the source.
+- **Limits:** limits are stated apart from the semantics, and JSON depth is counted apart
+  from value depth.
+- **Placement:** a separate `projection/json/{total,readable}` module in all four languages.
+  The normative input is UTF-8 text read by ontos's own strict reader.
+- **Relation to `ontos-data-json/1`:** a separate surface with a documented common subset.
+  The profile is selected explicitly, never detected from the input's shape.
+
+**The decision** (the ontos coordinator, 12 November): **B.** All 23 recommendations are
+accepted. Four are accepted with adaptations:
+- the command-line page's "never sign, hash, or exchange the JSON text" becomes: a profile
+  may travel, but identity, hashing and signing use the codec bytes of the recovered value;
+- `data/rs` gains an unbounded, byte-level decimal path;
+- the profiles reuse and extend the codec's limit-kind and measure vocabulary;
+- four faces is this module's policy, recorded in its design record, and the shared strict
+  lexer lives in the total module.
+
+The record of the decision is `docs/design/0010`. The command lines' stricter acceptance
+lands with the defect fixes now in progress and is listed in their release notes.

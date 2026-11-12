@@ -58,7 +58,8 @@
 //! negative-zero magnitude (§4), so it cannot mint a non-canonical embedding. These let a
 //! consumer reach the byte form without re-deriving it or structurally unwrapping an
 //! `encode_int` result; for an in-range value they agree byte-for-byte with `encode_int` /
-//! `read_int`.
+//! `read_int`. `decimal` has the same pair, [`encode_decimal_bytes`] /
+//! [`read_decimal_bytes`], described with `decimal` below.
 //!
 //! `map` (§5.7) is the **keyed structural** embedding, frozen 2026-06-01: a label
 //! `map` followed by `n` exactly-arity-2 `Tuple(key, value)` entries, sorted strictly
@@ -84,6 +85,24 @@
 //! materializes to `(i128, i128)` and returns `IntOutOfRange` past host width, and
 //! [`encode_decimal`] is likewise fallible at the (astronomically large) exponent
 //! host-width edge rather than overflowing.
+//!
+//! The **byte-level** decimal pair [`encode_decimal_bytes`] / [`read_decimal_bytes`] is
+//! the `int` byte pair lifted to `decimal`, for producers and consumers that carry the
+//! full unbounded range. Each of the mantissa and the exponent is a `(negative,
+//! magnitude)` part, the shape [`encode_int_bytes`] takes and [`read_int_bytes`] returns:
+//!
+//! ```text
+//! encode_decimal_bytes((m_negative, m_magnitude), (e_negative, e_magnitude)) -> Result<Value, DataError>
+//! read_decimal_bytes(&Value) -> Result<((bool, &[u8]), (bool, &[u8])), DataError>
+//! ```
+//!
+//! `read_decimal_bytes` recognizes every canonical `decimal` (the [`recognize_decimal`]
+//! surface), including a mantissa or exponent outside `i128`, so it never returns
+//! `IntOutOfRange`. `encode_decimal_bytes` takes the canonical pair and **refuses**
+//! anything else rather than normalizing it: a non-minimal or negative-zero magnitude, a
+//! zero mantissa with a non-zero exponent, or a non-zero mantissa divisible by 10. It
+//! shares that check with the recognizer, so it cannot mint a non-canonical `decimal`.
+//! Within `i128` the pair agrees byte for byte with `encode_decimal` / `read_decimal`.
 //!
 //! The byte forms are normative in `docs/spec/ontos-data.md` and pinned by
 //! `vectors/data.json`; changing one is a breaking change shipped as a new version,
@@ -697,15 +716,38 @@ fn normalize_decimal(mut mantissa: i128, mut exponent: i128) -> Option<(i128, i1
     Some((mantissa, exponent))
 }
 
+/// The canonical-decimal rule (§5.9) over the magnitudes of two children that are
+/// already canonical `int`s: zero is `decimal(int 0, int 0)`, and a non-zero mantissa is
+/// not divisible by 10. Because the children are canonical ints, an empty magnitude *is*
+/// zero (its sign is necessarily non-negative). Divisibility is decided on the mantissa
+/// magnitude bytes ([`magnitude_mod_10`]), never by materializing.
+///
+/// This is the one place the rule lives: the recognizer ([`decimal_parts`]) and the
+/// byte-level producer ([`encode_decimal_bytes`]) both call it, so what the producer
+/// accepts and what the recognizer accepts cannot drift apart.
+fn check_decimal_rule(mantissa_mag: &[u8], exponent_mag: &[u8]) -> Result<(), DataError> {
+    const KIND: &str = "decimal";
+    if mantissa_mag.is_empty() {
+        // mantissa == 0 ⇒ the exponent must be canonical zero (empty magnitude); a
+        // non-zero exponent on zero is a second spelling of zero.
+        if !exponent_mag.is_empty() {
+            return Err(DataError::NonCanonicalPayload { kind: KIND });
+        }
+    } else if magnitude_mod_10(mantissa_mag) == 0 {
+        // A non-zero mantissa divisible by 10 carries a trailing base-10 zero.
+        return Err(DataError::NonCanonicalPayload { kind: KIND });
+    }
+    Ok(())
+}
+
 /// Validate the canonical `decimal` structure and return the canonical `int` mantissa
 /// and exponent child values if `v` is a well-formed canonical `decimal` — for ANY
 /// mantissa/exponent magnitude, including beyond a host integer width. The recognition
-/// gate shared by [`recognize_decimal`] and [`read_decimal`]: shape (arity-3 tuple,
-/// `decimal` label) + **both children are canonical `int`s** (the structural
-/// [`recognize_int`] gate via `int_payload`, so a `> i128` child is still recognized) +
-/// the canonical-decimal rule — zero is `decimal(int 0, int 0)`, and a non-zero mantissa
-/// is not divisible by 10. The divisibility is decided on the mantissa magnitude bytes
-/// ([`magnitude_mod_10`]), never by materializing.
+/// gate shared by [`recognize_decimal`], [`read_decimal`] and [`read_decimal_bytes`]:
+/// shape (arity-3 tuple, `decimal` label) + **both children are canonical `int`s** (the
+/// structural [`recognize_int`] gate via `int_payload`, so a `> i128` child is still
+/// recognized) + the canonical-decimal rule ([`check_decimal_rule`]) — zero is
+/// `decimal(int 0, int 0)`, and a non-zero mantissa is not divisible by 10.
 ///
 /// Unlike `list`/`map`/`set`, `decimal` **recurses** into its children: it is a scalar
 /// (identity = the number it denotes), so one-spelling-per-value requires canonical-`int`
@@ -722,16 +764,7 @@ fn decimal_parts(v: &Value) -> Result<(&Value, &Value), DataError> {
         int_payload(mantissa).map_err(|_| DataError::NonCanonicalPayload { kind: KIND })?;
     let (_, exponent_mag) =
         int_payload(exponent).map_err(|_| DataError::NonCanonicalPayload { kind: KIND })?;
-    if mantissa_mag.is_empty() {
-        // mantissa == 0 ⇒ the exponent must be canonical zero (empty magnitude); a
-        // non-zero exponent on zero is a second spelling of zero.
-        if !exponent_mag.is_empty() {
-            return Err(DataError::NonCanonicalPayload { kind: KIND });
-        }
-    } else if magnitude_mod_10(mantissa_mag) == 0 {
-        // A non-zero mantissa divisible by 10 carries a trailing base-10 zero.
-        return Err(DataError::NonCanonicalPayload { kind: KIND });
-    }
+    check_decimal_rule(mantissa_mag, exponent_mag)?;
     Ok((mantissa, exponent))
 }
 
@@ -779,6 +812,81 @@ pub fn recognize_decimal(v: &Value) -> Result<(), DataError> {
 pub fn read_decimal(v: &Value) -> Result<(i128, i128), DataError> {
     let (mantissa, exponent) = decimal_parts(v)?;
     Ok((read_int(mantissa)?, read_int(exponent)?))
+}
+
+/// Build the canonical `decimal` value directly from the **byte-level parts** of its
+/// mantissa and exponent — each `(negative, magnitude)`, exactly the shape
+/// [`encode_int_bytes`] takes and [`read_int_bytes`] returns — with no host integer width
+/// ceiling: `Tuple(Atom("decimal"), int(mantissa), int(exponent))` (§5.9).
+///
+/// This is the unbounded sibling of [`encode_decimal`], and [`encode_int_bytes`] lifted
+/// to the pair: each component is a sign (`true` = negative) plus `|n|` as big-endian
+/// bytes, and the children are built exactly as [`encode_int_bytes`] builds them. The
+/// value is `mantissa × 10^exponent`.
+///
+/// It **does not normalize; it refuses.** The parts MUST already be the canonical pair,
+/// so the call cannot mint a non-canonical embedding. It returns
+/// [`DataError::NonCanonicalPayload`] (`kind: "decimal"`) when
+/// - either magnitude is not minimal (a leading `0x00` byte), or either component is
+///   negative zero (`negative` true with an empty magnitude) — the `int` rules (§5.1);
+/// - the mantissa is zero and the exponent is not (zero is exactly
+///   `decimal(int 0, int 0)`);
+/// - the mantissa is non-zero and divisible by 10 (a trailing base-10 zero; `100` is
+///   `decimal(int 1, int 2)`, never `decimal(int 100, int 0)`).
+///
+/// The divisibility test runs on the magnitude bytes, so it holds for a mantissa of any
+/// width. The rule is the recognizer's own (one shared check), so this accepts a pair
+/// exactly when [`recognize_decimal`] accepts the value it builds; the result always
+/// round-trips through [`read_decimal_bytes`].
+///
+/// Why refuse rather than normalize, when [`encode_decimal`] normalizes: normalizing here
+/// would mean dividing a byte-string mantissa by ten and carrying into a byte-string
+/// exponent, arithmetic a big-integer producer already has and this crate would only
+/// duplicate. A producer holding a non-canonical pair normalizes it in its own number
+/// type first. [`encode_int_bytes`] refuses a non-minimal magnitude for the same reason.
+///
+/// For a canonical pair within [`i128`] the result is byte-identical to
+/// [`encode_decimal`] on the same numbers (pinned by the in-range agreement tests). Unlike
+/// `encode_decimal` it never returns [`DataError::IntOutOfRange`]: it does no exponent
+/// arithmetic, so there is no host-width edge. Never panics.
+pub fn encode_decimal_bytes(
+    mantissa: (bool, &[u8]),
+    exponent: (bool, &[u8]),
+) -> Result<Value, DataError> {
+    const KIND: &str = "decimal";
+    // The int rules for each child, reported at the decimal layer (as decimal_parts does).
+    let non_canonical = |_| DataError::NonCanonicalPayload { kind: KIND };
+    let mantissa_int = encode_int_bytes(mantissa.0, mantissa.1).map_err(non_canonical)?;
+    let exponent_int = encode_int_bytes(exponent.0, exponent.1).map_err(non_canonical)?;
+    check_decimal_rule(mantissa.1, exponent.1)?;
+    Ok(Value::Tuple(Tuple::new(vec![
+        Value::Atom(Atom::new(LABEL_DECIMAL.to_vec())),
+        mantissa_int,
+        exponent_int,
+    ])))
+}
+
+/// Recognize a canonical `decimal` value and return its mantissa and exponent as
+/// byte-level parts, `((negative, magnitude), (negative, magnitude))` — each in the shape
+/// [`read_int_bytes`] returns — with **no `i128` materialization** and thus no
+/// [`DataError::IntOutOfRange`].
+///
+/// This is the unbounded sibling of [`read_decimal`]: it runs the same canonical-form gate
+/// as [`recognize_decimal`] (shape, label, canonical-`int` children, zero is
+/// `decimal(int 0, int 0)`, a non-zero mantissa is not divisible by 10), then returns
+/// each child's sign and a borrow of its big-endian minimal magnitude from `v` (empty for
+/// zero, and zero is never negative). It accepts **every** canonical `decimal` —
+/// exactly the values [`read_decimal`] returns, plus those whose mantissa or exponent lies
+/// outside `i128`, which `read_decimal` reports as `IntOutOfRange`. Its only failures are
+/// not-recognized / non-canonical, never a resource limit.
+///
+/// For an in-range value the parts are exactly those of [`encode_int`] on the pair
+/// [`read_decimal`] returns, and they rebuild the same value through
+/// [`encode_decimal_bytes`]. An arbitrary-precision consumer reconstructs its own big
+/// integers from these bytes. Never panics.
+pub fn read_decimal_bytes(v: &Value) -> Result<((bool, &[u8]), (bool, &[u8])), DataError> {
+    let (mantissa, exponent) = decimal_parts(v)?;
+    Ok((read_int_bytes(mantissa)?, read_int_bytes(exponent)?))
 }
 
 // ----- null (spec 5.10) -----
@@ -1302,6 +1410,192 @@ mod tests {
         // divisible by 10): the boundary is the carry, not the value i128::MAX.
         let v = encode_decimal(7, i128::MAX).unwrap();
         assert_eq!(read_decimal(&v).unwrap(), (7, i128::MAX));
+    }
+
+    /// `decimal(m, e)` assembled structurally from two child values, with no checks.
+    fn raw_decimal(mantissa: Value, exponent: Value) -> Value {
+        Value::Tuple(Tuple::new(vec![
+            Value::atom(LABEL_DECIMAL.to_vec()),
+            mantissa,
+            exponent,
+        ]))
+    }
+
+    /// The `(negative, magnitude)` parts `encode_int` derives for an in-range integer.
+    fn int_parts(n: i128) -> (bool, Vec<u8>) {
+        let v = encode_int(n);
+        let (negative, magnitude) = read_int_bytes(&v).unwrap();
+        (negative, magnitude.to_vec())
+    }
+
+    /// `2^128` as a big-endian minimal magnitude: `0x01` then sixteen `0x00` (17 bytes).
+    fn two_pow_128() -> Vec<u8> {
+        let mut m = vec![0x01u8];
+        m.extend(std::iter::repeat_n(0x00, 16));
+        m
+    }
+
+    #[test]
+    fn decimal_bytes_round_trip_and_agree_with_encode_decimal() {
+        // Canonical in-range pairs, including the i128 extremes in both slots (neither
+        // i128::MAX = …727 nor i128::MIN = …728 is divisible by 10).
+        for (m, e) in [
+            (0i128, 0i128),
+            (1, 0),
+            (314, -2),
+            (1, 2),
+            (-5, -1),
+            (-12, 4),
+            (255, -256),
+            (7, i128::MAX),
+            (-3, i128::MIN),
+            (i128::MAX, i128::MAX),
+            (i128::MIN, i128::MIN),
+        ] {
+            let v = encode_decimal(m, e).unwrap();
+            let (m_parts, e_parts) = read_decimal_bytes(&v).unwrap();
+            // The parts are exactly encode_int's parts for each child...
+            let (want_m, want_e) = (int_parts(m), int_parts(e));
+            assert_eq!(
+                m_parts,
+                (want_m.0, want_m.1.as_slice()),
+                "mantissa of ({m},{e})"
+            );
+            assert_eq!(
+                e_parts,
+                (want_e.0, want_e.1.as_slice()),
+                "exponent of ({m},{e})"
+            );
+            // ...they rebuild the very same value...
+            assert_eq!(
+                encode_decimal_bytes(m_parts, e_parts).unwrap(),
+                v,
+                "encode_decimal_bytes round-trip ({m},{e})"
+            );
+            // ...and the i128 reader agrees on the same value.
+            assert_eq!(read_decimal(&v).unwrap(), (m, e));
+        }
+    }
+
+    #[test]
+    fn decimal_bytes_zero_is_both_parts_nonnegative_empty() {
+        let zero = encode_decimal_bytes((false, &[]), (false, &[])).unwrap();
+        assert_eq!(zero, encode_decimal(0, 0).unwrap());
+        assert_eq!(
+            read_decimal_bytes(&zero).unwrap(),
+            ((false, &[][..]), (false, &[][..]))
+        );
+    }
+
+    #[test]
+    fn encode_decimal_bytes_refuses_exactly_what_recognition_rejects() {
+        // 5 × 2^128 = 0x05 then sixteen 0x00: beyond i128 and divisible by 10
+        // (2^128 ends in 6), so the mod-10 rule must run on the bytes.
+        let mut wide_tens = vec![0x05u8];
+        wide_tens.extend(std::iter::repeat_n(0x00, 16));
+        let big = two_pow_128();
+        let refused: [((bool, &[u8]), (bool, &[u8])); 13] = [
+            // Trailing base-10 zero on a non-zero mantissa (10, -100, 5 × 2^128).
+            ((false, &[0x0a]), (false, &[])),
+            ((true, &[0x64]), (false, &[0x03])),
+            ((false, &wide_tens), (true, &[0x01])),
+            // Zero mantissa with a non-zero exponent (positive, negative, beyond i128).
+            ((false, &[]), (false, &[0x05])),
+            ((false, &[]), (true, &[0x01])),
+            ((false, &[]), (false, &big)),
+            // Non-minimal magnitudes, in either child, including a 0x00 spelling of zero.
+            ((false, &[0x00, 0x01]), (false, &[])),
+            ((false, &[0x01]), (true, &[0x00, 0x02])),
+            ((false, &[0x00]), (false, &[])),
+            ((false, &[]), (false, &[0x00])),
+            // Negative zero, in either child.
+            ((true, &[]), (false, &[])),
+            ((false, &[0x01]), (true, &[])),
+            ((false, &[]), (true, &[])),
+        ];
+        for (m, e) in refused {
+            assert_eq!(
+                encode_decimal_bytes(m, e),
+                Err(DataError::NonCanonicalPayload { kind: "decimal" }),
+                "encode_decimal_bytes must refuse {m:?}, {e:?}"
+            );
+            // The value those parts spell is exactly what the recognizers reject.
+            let sign = |negative: bool| if negative { SIGN_NEG } else { SIGN_NONNEG };
+            let v = raw_decimal(int_from(sign(m.0), m.1), int_from(sign(e.0), e.1));
+            assert!(
+                recognize_decimal(&v).is_err(),
+                "recognize_decimal must reject {v}"
+            );
+            assert!(
+                read_decimal_bytes(&v).is_err(),
+                "read_decimal_bytes must reject {v}"
+            );
+            assert!(read_decimal(&v).is_err(), "read_decimal must reject {v}");
+        }
+    }
+
+    #[test]
+    fn read_decimal_bytes_rejects_noncanonical_values() {
+        // The decimal_rejects_noncanonical_forms set: read_decimal_bytes shares its gate.
+        let noncanonical = [
+            raw_decimal(encode_int(10), encode_int(0)),
+            raw_decimal(encode_int(0), encode_int(5)),
+            raw_decimal(scalar(LABEL_INT, vec![0x00, 0x00, 0x01]), encode_int(0)),
+            raw_decimal(Value::atom(vec![0x01]), encode_int(0)),
+            raw_decimal(encode_int(1), Value::atom(vec![0x00])),
+            Value::Tuple(Tuple::new(vec![
+                Value::atom(LABEL_DECIMAL.to_vec()),
+                encode_int(1),
+            ])),
+            Value::atom(LABEL_DECIMAL.to_vec()),
+            encode_int(1),
+        ];
+        for v in &noncanonical {
+            assert!(
+                read_decimal_bytes(v).is_err(),
+                "read_decimal_bytes must reject {v}"
+            );
+            assert!(
+                recognize_decimal(v).is_err(),
+                "recognize_decimal must reject {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn decimal_bytes_handle_beyond_i128_without_a_resource_limit() {
+        let big = two_pow_128();
+        // 2^127 = i128::MAX + 1: 0x80 then fifteen 0x00.
+        let mut max_plus_1 = vec![0x80u8];
+        max_plus_1.extend(std::iter::repeat_n(0x00, 15));
+        let cases: [((bool, &[u8]), (bool, &[u8])); 5] = [
+            // Mantissa beyond i128 (the decimal_2pow128_mantissa vector), either sign.
+            ((false, &big), (false, &[])),
+            ((true, &big), (true, &[0x02])),
+            // Exponent beyond i128, either sign.
+            ((false, &[0x01]), (true, &big)),
+            ((true, &[0x07]), (false, &big)),
+            // Both beyond.
+            ((true, &big), (false, &big)),
+        ];
+        for (m, e) in cases {
+            let v = encode_decimal_bytes(m, e).unwrap();
+            assert_eq!(read_decimal_bytes(&v).unwrap(), (m, e), "parts of {v}");
+            assert_eq!(recognize_decimal(&v), Ok(()), "recognize {v}");
+            assert_eq!(read_decimal(&v), Err(DataError::IntOutOfRange), "read {v}");
+        }
+
+        // encode_decimal's own host-width edge: 10 × 10^i128::MAX normalizes to
+        // decimal(int 1, int 2^127), whose exponent i128 cannot hold. The byte path
+        // builds that canonical value, which recognize_decimal accepts.
+        assert_eq!(encode_decimal(10, i128::MAX), Err(DataError::IntOutOfRange));
+        let v = encode_decimal_bytes((false, &[0x01]), (false, &max_plus_1)).unwrap();
+        assert_eq!(
+            v,
+            raw_decimal(encode_int(1), int_from(SIGN_NONNEG, &max_plus_1))
+        );
+        assert_eq!(recognize_decimal(&v), Ok(()));
+        assert_eq!(read_decimal(&v), Err(DataError::IntOutOfRange));
     }
 
     #[test]

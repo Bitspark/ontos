@@ -189,10 +189,46 @@ class Tuple(Value):
         return hash(("tuple", self._items))
 
     def __str__(self) -> str:
-        return "Tuple(" + ", ".join(str(item) for item in self._items) + ")"
+        # Walks with an explicit stack of open tuples, never one Python frame per
+        # nesting level, so any value renders whatever its depth. The recursive form
+        # raised RecursionError from 900 levels, below the codec's default decode depth
+        # of 1024. Building one list and joining it once also makes the cost linear.
+        #
+        # The output is exactly the recursive form's: a child whose __str__ is this
+        # method is expanded in place, and any other child (an Atom, or a subclass that
+        # overrides __str__) renders through str(), as it did before.
+        parts = ["Tuple("]
+        open_tuples = [iter(self._items)]
+        # Whether the innermost open tuple has written no child yet. A tuple that has
+        # just closed was a child of the one below it, so after a close this is False.
+        first = True
+        while open_tuples:
+            item = next(open_tuples[-1], _END)
+            if item is _END:
+                parts.append(")")
+                open_tuples.pop()
+                first = False
+                continue
+            if not first:
+                parts.append(", ")
+            if type(item).__str__ is _TUPLE_STR:
+                parts.append("Tuple(")
+                open_tuples.append(iter(item._items))
+                first = True
+            else:
+                parts.append(str(item))
+                first = False
+        return "".join(parts)
 
     def __repr__(self) -> str:
         return self.__str__()
+
+
+# Tuple.__str__ as defined above, kept so a later reassignment of the class attribute
+# is a different renderer to the walk, called like any override.
+_TUPLE_STR = Tuple.__str__
+# Marks an exhausted child iterator in Tuple.__str__; never a value.
+_END = object()
 
 
 def atom(data: Union[bytes, bytearray, Iterable[int]] = b"") -> Atom:

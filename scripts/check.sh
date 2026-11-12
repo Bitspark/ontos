@@ -195,14 +195,14 @@ do_conformance() {
   ts_build
   step "cli/ts in-process tests"; node --test cli/ts/test/*.test.ts
   step "cli/py in-process tests"; python3 cli/py/test/test_cli.py
-  step "conformance harness, 4 impls (decode + human + author->bytes + --from-json reading)"
+  step "conformance harness, 4 impls (decode + human + author->bytes + input reading)"
   node tools/conformance/run.mjs \
     --impl ontos-rs=./target/debug/ontos \
     --impl ontos-go=./ontos-go \
     --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
     --impl "ontos-py=python3 cli/py/main.py" \
     --vectors vectors/codec.json --vectors vectors/data.json \
-    --decode-roundtrip --human-roundtrip --from-json-roundtrip --from-json-reading
+    --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
 }
 
 do_fuzz() {

@@ -178,13 +178,13 @@ encoding *identically*. The mode is the harness
 runner's `--from-json-roundtrip`; CI runs it alongside the decode pass
 ([`tools/conformance/README.md`](../../tools/conformance/README.md)).
 
-### How a text is read is pinned too (`--from-json-reading`)
+### How a text is read is pinned too (`--input-reading`)
 
 The author→bytes pass feeds only well-formed authoring values, so it cannot see how
 an implementation *reads* a text: whitespace, what follows the value, escapes,
 repeated names, depth, bytes that are not UTF-8. A fourth pass,
-`--from-json-reading`, runs the texts in
-[`tools/conformance/from-json-reading.json`](../../tools/conformance/from-json-reading.json),
+`--input-reading`, runs the texts in
+[`tools/conformance/input-reading.json`](../../tools/conformance/input-reading.json),
 each with the outcome [`ontos-cli.md`](ontos-cli.md) "Reading the text" gives it,
 through argv and through stdin. Its judgment is an **oracle**: every implementation
 must give exactly the expected line and exit code, so a fault all four shared would

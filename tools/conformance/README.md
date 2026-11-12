@@ -42,7 +42,7 @@ flag, the **decode** mode runs alone — back-compatible):
 | `--decode-roundtrip` | **decode** (default) | for each `(hex, command)`: `hex → JSON Lines`, **differential** (all impls byte-identical) |
 | `--human-roundtrip` | **human** | for each `(hex, command)`: `hex → --format human` (same corpus), **differential** |
 | `--from-json-roundtrip` | **author→bytes** | for each vector encode case: `value → canonical bytes` via `canon --emit --from-json`, **differential** AND **oracle** |
-| `--from-json-reading` | **reading** | for each text in [`from-json-reading.json`](from-json-reading.json): the outcome [`ontos-cli.md`](../../docs/spec/ontos-cli.md) "Reading the text" gives it, through argv and stdin, **oracle** |
+| `--input-reading` | **reading** | for each text in [`input-reading.json`](input-reading.json): the outcome [`ontos-cli.md`](../../docs/spec/ontos-cli.md) "Reading the text" gives it, through argv and stdin, **oracle** |
 
 **Human mode (`--human-roundtrip`)** re-runs the same `(hex, command)` corpus as decode
 mode but with `--format human`, asserting all impls' stdout + exit code are byte-identical.
@@ -69,9 +69,9 @@ side started from. The modes are independent; a divergence in **any** fails the 
 (exit `1`). A divergent author→bytes case skips its oracle check (with no agreed bytes the
 "emitted hex" is ill-defined; the differential finding already names the case to fix).
 
-**Reading mode (`--from-json-reading`)** judges how each implementation *reads* an input
+**Reading mode (`--input-reading`)** judges how each implementation *reads* an input
 text, which the other modes cannot reach: they feed only canonical hex and well-formed
-authoring values. Its cases are in [`from-json-reading.json`](from-json-reading.json), one
+authoring values. Its cases are in [`input-reading.json`](input-reading.json), one
 per line: a text (or raw `bytes`, for input that is not UTF-8), what it is read as
 (`source`: a `--from-json` text by default, or `hex`), and the outcome the contract gives it
 (`expect`: the canonical hex, or an error code). Long texts are written as pieces, a string
@@ -136,17 +136,17 @@ node tools/conformance/run.mjs \
   --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
   --impl "ontos-py=python3 cli/py/main.py" \
   --vectors vectors/codec.json --vectors vectors/data.json \
-  --decode-roundtrip --human-roundtrip --from-json-roundtrip --from-json-reading
+  --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
 ```
 
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 41 hexes x 5 commands x 4 impls + human: 41 hexes x 12 commands x 4 impls + from-json: 41 encode cases x 4 impls (author->bytes) + reading: 67 texts, 129 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 67 texts, 129 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter
-`checked decode: 41 hexes x 5 commands x 4 impls … — all byte-identical`.)
+`checked decode: 44 hexes x 5 commands x 4 impls … — all byte-identical`.)
 
 On any divergence it prints one block per divergence (`DIVERGENCE [<command> <hex>]`
 followed by each impl's output) and a `FAIL` summary, exiting `1`.
@@ -161,7 +161,7 @@ node tools/conformance/run.mjs \
   --impl <name>=<command> [--impl <name>=<command> ...] \
   [--vectors <path> ...] [--commands "<csv>"] \
   [--decode-roundtrip] [--human-roundtrip] [--from-json-roundtrip] \
-  [--from-json-reading [--reading-cases <path>] [--verbose]]
+  [--input-reading [--reading-cases <path>] [--verbose]]
 ```
 
 - **`--impl NAME=COMMAND`** (repeatable, **≥1 required**) — an implementation to
@@ -184,11 +184,11 @@ node tools/conformance/run.mjs \
 - **`--from-json-roundtrip`** — run the **author→bytes** check mode: for each vector
   encode case, `canon --emit --from-json <value-json>` for each impl, asserting all impls
   agree byte-for-byte **and** the emitted hex equals the vector's pinned `.hex`.
-- **`--from-json-reading`** — run the **reading** check mode over the cases file: each text,
+- **`--input-reading`** — run the **reading** check mode over the cases file: each text,
   through argv and stdin, must give every impl exactly its expected line and exit code.
 - **`--reading-cases PATH`** — read the reading cases from `PATH` instead of
-  [`from-json-reading.json`](from-json-reading.json).
-- **`--verbose`** — with `--from-json-reading`, print each case's per-impl outcome.
+  [`input-reading.json`](input-reading.json).
+- **`--verbose`** — with `--input-reading`, print each case's per-impl outcome.
 
 **Assumption — no spaces in paths.** Because `--impl COMMAND` and each `--commands`
 entry are tokenized on whitespace, neither an impl's program path/flags nor a command
@@ -216,7 +216,7 @@ node tools/conformance/run.mjs \
   --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
   --impl "ontos-py=python3 cli/py/main.py" \
   --impl "ontos-new=/path/to/your/ontos" \
-  --decode-roundtrip --human-roundtrip --from-json-roundtrip --from-json-reading
+  --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
 ```
 
 If its `--format json` **and** `--format human` output agrees byte-for-byte with the

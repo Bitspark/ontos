@@ -210,7 +210,7 @@ function Invoke-Conformance {
   Invoke-TsBuild
   Step "cli/ts in-process tests"; Invoke-Checked { node --test cli/ts/test/*.test.ts }
   Step "cli/py in-process tests"; Invoke-Checked { python cli/py/test/test_cli.py }
-  Step "conformance harness, 4 impls (decode + human + author->bytes + --from-json reading)"
+  Step "conformance harness, 4 impls (decode + human + author->bytes + input reading)"
   Invoke-Checked {
     node tools/conformance/run.mjs `
       --impl ontos-rs=./target/debug/ontos.exe `
@@ -218,7 +218,7 @@ function Invoke-Conformance {
       --impl "ontos-ts=node ./cli/ts/dist/src/main.js" `
       --impl "ontos-py=python cli/py/main.py" `
       --vectors vectors/codec.json --vectors vectors/data.json `
-      --decode-roundtrip --human-roundtrip --from-json-roundtrip --from-json-reading
+      --decode-roundtrip --human-roundtrip --from-json-roundtrip --input-reading
   }
 }
 

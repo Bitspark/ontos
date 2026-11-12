@@ -40,12 +40,12 @@
  * `--format human` USED to carry "no determinism guarantee" (ontos-cli.md); ontos-internal#46
  * makes the recognized-line rendering canonical and tri-core-enforced, and this mode is
  * what enforces it — turning human output into a checked parity property, not a hope.
- * (stderr is still not compared.) A fourth, opt-in READING mode (--from-json-reading)
- * judges how each impl READS a --from-json text (ontos-cli.md "Value input"): it runs a
- * file of texts — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with the
+ * (stderr is still not compared.) A fourth, opt-in READING mode (--input-reading)
+ * judges how each impl READS an input text (ontos-cli.md "Value input"): it runs a file
+ * of texts — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with the
  * outcome the contract gives it, through argv and through stdin, and asserts every
  * impl's stdout + exit code equal that outcome. Pass --decode-roundtrip,
- * --from-json-roundtrip, --human-roundtrip and/or --from-json-reading to select modes;
+ * --from-json-roundtrip, --human-roundtrip and/or --input-reading to select modes;
  * with no mode flag the default decode mode runs (back-compatible). The passes are
  * independent and any divergence in any of them fails the run.
  *
@@ -61,7 +61,7 @@
  *     --impl <name>=<command> [--impl <name>=<command> ...] \
  *     [--vectors <path> ...] [--commands "<csv>"] \
  *     [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \
- *     [--from-json-reading [--reading-cases <path>] [--verbose]]
+ *     [--input-reading [--reading-cases <path>] [--verbose]]
  *
  *   --impl NAME=COMMAND   (repeatable, >=1 required) An implementation to drive.
  *                         COMMAND is whitespace-split into an argv array, e.g.
@@ -94,17 +94,18 @@
  *                         human rendering (ontos-internal#46) — purely differential, no oracle
  *                         (human output is a tri-core identity property, not pinned in the
  *                         vectors).
- *   --from-json-reading   Run the READING check mode over the cases file (default
- *                         tools/conformance/from-json-reading.json). Each case is a
- *                         --from-json text and its expected outcome: canonical hex, or an
- *                         error code. For each case, each impl runs `canon --emit --format
- *                         json --from-json <text>` through argv (when the text fits) and
- *                         `--from-json -` through stdin; stdout and the exit code must
- *                         equal the expected line and the contract's exit code. For an
- *                         accepted case, `decode` (json and human) of the text must also
- *                         equal `decode` of the expected hex, in each impl and across impls.
+ *   --input-reading       Run the READING check mode over the cases file (default
+ *                         tools/conformance/input-reading.json). Each case is an input
+ *                         text (a --from-json text, or with "source": "hex" the hex
+ *                         input) and its expected outcome: canonical hex, or an error
+ *                         code. For each case, each impl runs `canon --emit --format json`
+ *                         on the text through argv (when the text fits) and through stdin
+ *                         (`-`); stdout and the exit code must equal the expected line and
+ *                         the contract's exit code. For an accepted --from-json text,
+ *                         `decode` (json and human) of the text must also equal `decode`
+ *                         of the expected hex, in each impl and across impls.
  *   --reading-cases PATH  Read the READING cases from PATH instead.
- *   --verbose             With --from-json-reading: print each case's per-impl outcome.
+ *   --verbose             With --input-reading: print each case's per-impl outcome.
  *
  * ASSUMPTION — NO SPACES IN PATHS. Because both --impl COMMAND and each --commands
  * entry are tokenized by splitting on whitespace, neither an implementation's argv
@@ -143,7 +144,7 @@ const DEFAULT_VECTORS = [
 
 const DEFAULT_COMMANDS = ["decode", "inspect", "read --all", "canon --check", "canon --emit"];
 
-const DEFAULT_READING_CASES = join(HERE, "from-json-reading.json");
+const DEFAULT_READING_CASES = join(HERE, "input-reading.json");
 
 // The registered embedding labels, in the contract's fixed order (ontos-data.md §5).
 // The HUMAN mode additionally drives `read --kind <label>` for each so the per-kind
@@ -167,7 +168,7 @@ function parseArgs(argv) {
   let decodeRoundtrip = false;
   let fromJsonRoundtrip = false;
   let humanRoundtrip = false;
-  let fromJsonReading = false;
+  let inputReading = false;
   let readingCases = null;
   let verbose = false;
 
@@ -203,8 +204,8 @@ function parseArgs(argv) {
       fromJsonRoundtrip = true;
     } else if (arg === "--human-roundtrip") {
       humanRoundtrip = true;
-    } else if (arg === "--from-json-reading") {
-      fromJsonReading = true;
+    } else if (arg === "--input-reading") {
+      inputReading = true;
     } else if (arg === "--reading-cases") {
       readingCases = takeValue("--reading-cases");
     } else if (arg === "--verbose") {
@@ -222,7 +223,7 @@ function parseArgs(argv) {
   // Modes: each may be selected independently. With NO mode flag the default decode
   // mode runs (back-compatible). Naming --decode-roundtrip lets it run alongside the
   // other modes in one invocation.
-  const noModeFlag = !decodeRoundtrip && !fromJsonRoundtrip && !humanRoundtrip && !fromJsonReading;
+  const noModeFlag = !decodeRoundtrip && !fromJsonRoundtrip && !humanRoundtrip && !inputReading;
 
   return {
     impls,
@@ -231,7 +232,7 @@ function parseArgs(argv) {
     decodeRoundtrip: decodeRoundtrip || noModeFlag,
     fromJsonRoundtrip,
     humanRoundtrip,
-    fromJsonReading,
+    inputReading,
     readingCases: readingCases ?? DEFAULT_READING_CASES,
     verbose,
   };
@@ -243,7 +244,7 @@ function printUsage() {
       "         --impl <name>=<command> [--impl <name>=<command> ...] \\\n" +
       "         [--vectors <path> ...] [--commands \"<csv>\"] \\\n" +
       "         [--decode-roundtrip] [--from-json-roundtrip] [--human-roundtrip] \\\n" +
-      "         [--from-json-reading [--reading-cases <path>] [--verbose]]\n",
+      "         [--input-reading [--reading-cases <path>] [--verbose]]\n",
   );
 }
 
@@ -709,7 +710,7 @@ async function main() {
     throw err;
   }
 
-  const { impls, commands, decodeRoundtrip, fromJsonRoundtrip, humanRoundtrip, fromJsonReading } = config;
+  const { impls, commands, decodeRoundtrip, fromJsonRoundtrip, humanRoundtrip, inputReading } = config;
   const resolvedVectors = config.vectors.map((p) => resolve(p));
 
   const divergences = [];
@@ -750,7 +751,7 @@ async function main() {
     summaries.push(r.summary);
   }
 
-  if (fromJsonReading) {
+  if (inputReading) {
     let r;
     try {
       r = await runReadingMode(impls, collectReadingCases(resolve(config.readingCases)), config.verbose);
@@ -790,7 +791,7 @@ async function main() {
   process.stdout.write(
     `ontos-conformance: checked ${scope} (${implNames}) — all byte-identical` +
       (fromJsonRoundtrip ? " and every emit == pinned hex" : "") +
-      (fromJsonReading ? " and every input text read as the contract says" : "") +
+      (inputReading ? " and every input text read as the contract says" : "") +
       "\n",
   );
   process.exit(0);

@@ -11,6 +11,7 @@ Run: ``python3 cli/py/test/test_cli.py``
 """
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -130,6 +131,33 @@ class ErrorPathTests(unittest.TestCase):
         code, out, _ = _run(["decode", "--format", "json", "000"])
         self.assertEqual(code, 2)
         self.assertEqual(out, b'{"ok":false,"command":"decode","error":"invalid_hex"}\n')
+
+    def test_hex_input_strips_only_space_tab_lf_cr(self):
+        # ontos-cli.md "Synopsis": str.strip() with no argument also stripped
+        # U+001C-U+001F, NBSP and every Unicode space.
+        invalid = b'{"ok":false,"command":"canon","error":"invalid_hex"}\n'
+        for text in ["\ufeff000100", "000100\u00a0", "000100\f", "\v000100", "000100\x1c", "00 0100"]:
+            with self.subTest(text=text):
+                self.assertEqual(_run(["canon", "--emit", "--format", "json", text])[:2], (2, invalid))
+                self.assertEqual(_run(["canon", "--emit", "--format", "json"], stdin=text)[:2], (2, invalid))
+        for text in [" \t\r\n000100\r\n", "000100\n"]:
+            with self.subTest(text=text):
+                self.assertEqual(_run(["canon", "--emit", text])[:2], (0, b"000100\n"))
+                self.assertEqual(_run(["canon", "--emit"], stdin=text)[:2], (0, b"000100\n"))
+
+    def test_hex_input_that_is_not_utf8_is_invalid_hex(self):
+        # Strict stdin decoding, as under en_US.UTF-8, where reading stdin as text
+        # crashed with UnicodeDecodeError (C.UTF-8 masks it with surrogateescape).
+        invalid = b'{"ok":false,"command":"canon","error":"invalid_hex"}\n'
+        strict = {**os.environ, "PYTHONIOENCODING": "utf-8:strict"}
+        for raw in [b"\xff", b"000100\xff"]:
+            proc = subprocess.run(
+                [sys.executable, str(_MAIN), "canon", "--emit", "--format", "json"],
+                input=raw,
+                capture_output=True,
+                env=strict,
+            )
+            self.assertEqual((proc.returncode, proc.stdout), (2, invalid))
 
     def test_decode_errors_carry_the_stable_code_exit_1(self):
         for hex_str, expected in [

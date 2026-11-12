@@ -77,3 +77,27 @@ func TestArgParsingFlagForms(t *testing.T) {
 		}
 	}
 }
+
+// TestHexInputWhitespace pins the hex input's surrounding whitespace (ontos-cli.md
+// "Synopsis"): space, tab, LF and CR are stripped, and nothing else is — a BOM, NBSP,
+// form feed, vertical tab or U+001C makes the input invalid_hex. Bytes that are not
+// UTF-8 are invalid_hex too, with the JSON line.
+func TestHexInputWhitespace(t *testing.T) {
+	invalid := `{"ok":false,"command":"canon","error":"invalid_hex"}` + "\n"
+	for _, in := range []string{"\ufeff000100", "000100\u00a0", "000100\f", "\v000100", "000100\x1c", "00 0100", "\xff"} {
+		if code, stdout, _ := runCLI([]string{"canon", "--emit", "--format", "json", in}, ""); code != 2 || stdout != invalid {
+			t.Errorf("argument %q: exit=%d stdout=%q, want 2 %q", in, code, stdout, invalid)
+		}
+		if code, stdout, _ := runCLI([]string{"canon", "--emit", "--format", "json"}, in); code != 2 || stdout != invalid {
+			t.Errorf("stdin %q: exit=%d stdout=%q, want 2 %q", in, code, stdout, invalid)
+		}
+	}
+	for _, in := range []string{" \t\r\n000100\r\n", "000100\n"} {
+		if code, stdout, _ := runCLI([]string{"canon", "--emit", in}, ""); code != 0 || stdout != "000100\n" {
+			t.Errorf("argument %q: exit=%d stdout=%q, want 0 000100", in, code, stdout)
+		}
+		if code, stdout, _ := runCLI([]string{"canon", "--emit"}, in); code != 0 || stdout != "000100\n" {
+			t.Errorf("stdin %q: exit=%d stdout=%q, want 0 000100", in, code, stdout)
+		}
+	}
+}

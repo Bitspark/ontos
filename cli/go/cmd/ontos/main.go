@@ -322,17 +322,23 @@ func parseFormat(s string) (outputFormat, error) {
 }
 
 // readInput reads the hex input: the given argument when present and not "-",
-// otherwise the whole of stdin. Surrounding whitespace is stripped.
+// otherwise the whole of stdin. Surrounding space, tab, LF and CR are stripped, and
+// nothing else (ontos-cli.md "Synopsis"): not a form feed, NBSP or a BOM. Bytes that
+// are not UTF-8 are not hex, so they fail as invalid_hex like any other non-hex.
 func readInput(arg *string, stdin io.Reader) (string, error) {
 	if arg != nil && *arg != "-" {
-		return strings.TrimSpace(*arg), nil
+		return strings.Trim(*arg, hexInputSpace), nil
 	}
 	raw, err := io.ReadAll(stdin)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(raw)), nil
+	return strings.Trim(string(raw), hexInputSpace), nil
 }
+
+// hexInputSpace is the whitespace stripped around hex input: RFC 8259's set, the
+// same as --from-json allows.
+const hexInputSpace = " \t\n\r"
 
 // readJSONSource reads the --from-json text as given: the argument, or the whole of
 // stdin for "-". Nothing is trimmed; the reader allows only RFC 8259 whitespace.

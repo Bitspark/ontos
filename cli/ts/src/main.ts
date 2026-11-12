@@ -142,8 +142,9 @@ class JsonTooDeep extends Error {}
  *   2. authoringValue checks the JSON value against the authoring shape and builds
  *      the core Value, again without recursion.
  * Node decodes argv and the utf8 stdin read with U+FFFD for each sequence that is
- * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of a
- * member name, so such text is always refused. This reader is interim: a later task
+ * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of
+ * "atom" or "tuple", so such text is always refused (a member named with it fails
+ * the shape check). This reader is interim: a later task
  * moves the CLIs onto a library reader.
  */
 
@@ -575,10 +576,18 @@ function hexNibble(code: number): number {
 /** Resolve the hex input: positional arg, or stdin when absent or "-". */
 function resolveInput(positional: string | undefined): string {
   if (positional !== undefined && positional !== "-") {
-    return positional.trim();
+    return trimHexInput(positional);
   }
-  // Read synchronously and strip surrounding whitespace.
-  return readStdinText().trim();
+  return trimHexInput(readStdinText());
+}
+
+/**
+ * Strip the whitespace allowed around hex input: space, tab, LF and CR (RFC 8259's
+ * set, as `--from-json` allows), and nothing else (ontos-cli.md "Synopsis"). String
+ * trim() is not used: it also strips a BOM, NBSP and every other Unicode space.
+ */
+function trimHexInput(text: string): string {
+  return text.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, "");
 }
 
 /**

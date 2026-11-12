@@ -88,7 +88,10 @@ A case marked `chunked` writes its stdin 64 KiB at a time with a 2 ms pause betw
 so each impl outruns the pipe and meets it empty mid-input; the large cases (over 1 MB, on
 the hex path and through `--from-json`) are chunked, which is what caught ts failing on
 EAGAIN. Windows argv is UTF-16 and cannot hold a text that is not UTF-8, so there such
-texts run through stdin only. `--verbose` prints each case's per-impl outcome.
+texts run through stdin only. A text runs through argv only when its argument, as Windows
+would quote it, fits 16 KiB, so every platform runs the same set. The impls run with
+`PYTHONIOENCODING=utf-8:strict`: Python decodes stdin through the locale, leniently under
+C.UTF-8 and strictly under en_US.UTF-8, and the py lane must read bytes under either. `--verbose` prints each case's per-impl outcome.
 
 *Why a mode with a cases file.* The judgment is an **oracle**, not agreement: a fault all
 four impls shared would pass an agreement check, so each case carries its expected outcome. The cases are data, so a new rule is one more line
@@ -146,7 +149,7 @@ node tools/conformance/run.mjs \
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 68 texts, 130 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 78 texts, 152 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter

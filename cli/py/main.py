@@ -159,11 +159,11 @@ def _die_usage(message: str) -> int:
 # --- authoring notation ---------------------------------------------------------
 
 
-def _to_authoring_json(value: Value) -> str:
-    """Render a Value as the compact authoring notation, {"atom":"<hex>"} |
-    {"tuple":[...]}: the same text json.dumps gives for the nested dicts, built
-    with an explicit stack so a value of any depth renders (a recursive walk
-    exceeds Python's recursion limit near depth 1000)."""
+def _render(value: Value, atom_text, tuple_open: str, separator: str, tuple_close: str) -> str:
+    """Render a Value with an explicit stack, so a value of any depth renders (a
+    recursive walk exceeds Python's recursion limit near depth 1000). Each atom
+    becomes atom_text(atom); each tuple becomes tuple_open, its children joined by
+    separator, then tuple_close."""
     out: List[str] = []
     # Each entry is a value still to render, or the literal text to write next.
     pending: List[object] = [value]
@@ -172,39 +172,29 @@ def _to_authoring_json(value: Value) -> str:
         if isinstance(item, str):
             out.append(item)
         elif isinstance(item, Atom):
-            out.append('{"atom":"' + item.bytes().hex() + '"}')
+            out.append(atom_text(item))
         else:
-            out.append('{"tuple":[')
-            pending.append("]}")
+            out.append(tuple_open)
+            pending.append(tuple_close)
             children = item.items()
             for i in range(len(children) - 1, -1, -1):
                 pending.append(children[i])
                 if i:
-                    pending.append(",")
+                    pending.append(separator)
     return "".join(out)
+
+
+def _to_authoring_json(value: Value) -> str:
+    """The compact authoring notation, {"atom":"<hex>"} | {"tuple":[...]}: the same
+    text json.dumps gives for the nested dicts."""
+    return _render(value, lambda a: '{"atom":"' + a.bytes().hex() + '"}', '{"tuple":[', ",", "]}")
 
 
 def _human_value(value: Value) -> str:
-    """The core's display form, str(value) — Tuple(Atom(0x..), ...) — built with an
-    explicit stack, since core/py's recursive __str__ exceeds Python's recursion
-    limit on a 1024-deep value. The text is the same; only the walk differs."""
-    out: List[str] = []
-    pending: List[object] = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, str):
-            out.append(item)
-        elif isinstance(item, Atom):
-            out.append(str(item))
-        else:
-            out.append("Tuple(")
-            pending.append(")")
-            children = item.items()
-            for i in range(len(children) - 1, -1, -1):
-                pending.append(children[i])
-                if i:
-                    pending.append(", ")
-    return "".join(out)
+    """The core's display form, str(value) — Tuple(Atom(0x..), ...) — rendered here
+    because core/py's recursive __str__ exceeds Python's recursion limit on a
+    1024-deep value. The text is the same; only the walk differs."""
+    return _render(value, str, "Tuple(", ", ", ")")
 
 
 class _AuthoringError(Exception):
@@ -471,8 +461,8 @@ def _value_from_json_source(source: str) -> Value:
 
     Bytes that are not UTF-8 are read as U+FFFD, from stdin and from argv alike
     (Node reads argv that way before ts sees it; ontos-cli.md "Value input").
-    U+FFFD is never hex and never part of a member name, so such text is always
-    refused. os.fsencode recovers an argument's bytes from the surrogateescape
+    U+FFFD is never hex and never part of `atom` or `tuple`, so such text is
+    always refused. os.fsencode recovers an argument's bytes from the surrogateescape
     decoding Python applied to it.
     """
     if source == "-":
@@ -500,12 +490,22 @@ def _parse_hex(text: str) -> Optional[bytes]:
     return bytes.fromhex(text)
 
 
+# The whitespace stripped around hex input: space, tab, LF and CR (RFC 8259's set,
+# as --from-json allows), and nothing else (ontos-cli.md "Synopsis"). str.strip()
+# with no argument would also strip U+001C-U+001F, NBSP and every Unicode space.
+_HEX_INPUT_SPACE = " \t\n\r"
+
+
 def _read_input(arg: Optional[str]) -> str:
-    """The textual input (hex or json): the argument when present and not "-",
-    otherwise the whole of stdin. Surrounding whitespace stripped either way."""
+    """The hex input: the argument when present and not "-", otherwise the whole
+    of stdin, with surrounding space/tab/LF/CR stripped. Bytes that are not UTF-8
+    are read as U+FFFD (stdin as bytes, an argument through os.fsencode), so they
+    fail as invalid_hex like any other non-hex."""
     if arg is not None and arg != "-":
-        return arg.strip()
-    return sys.stdin.read().strip()
+        text = os.fsencode(arg).decode("utf-8", "replace")
+    else:
+        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+    return text.strip(_HEX_INPUT_SPACE)
 
 
 class _Resolved:

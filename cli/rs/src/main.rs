@@ -669,17 +669,26 @@ fn decode_hex_with_input(
 /// Surrounding whitespace is stripped.
 fn resolve_input(hex: Option<String>) -> Result<String, String> {
     match hex {
-        Some(ref s) if s != "-" => Ok(s.trim().to_string()),
+        Some(ref s) if s != "-" => Ok(trim_hex_input(s).to_string()),
         _ => read_stdin(),
     }
 }
 
+/// Read all of stdin as text. Bytes that are not UTF-8 are read as U+FFFD, like an
+/// argument (`main`), so they fail as `invalid_hex` with its JSON line.
 fn read_stdin() -> Result<String, String> {
-    let mut buf = String::new();
+    let mut buf = Vec::new();
     io::stdin()
-        .read_to_string(&mut buf)
+        .read_to_end(&mut buf)
         .map_err(|e| format!("failed to read stdin: {e}"))?;
-    Ok(buf.trim().to_string())
+    Ok(trim_hex_input(&String::from_utf8_lossy(&buf)).to_string())
+}
+
+/// Strip the whitespace allowed around hex input: space, tab, LF and CR (RFC 8259's
+/// set, as `--from-json` allows), and nothing else — not a form feed, NBSP or a BOM
+/// (docs/spec/ontos-cli.md "Synopsis").
+fn trim_hex_input(s: &str) -> &str {
+    s.trim_matches([' ', '\t', '\n', '\r'])
 }
 
 /// Resolve the `--from-json` source text: the literal argument, or stdin when it is
@@ -687,8 +696,8 @@ fn read_stdin() -> Result<String, String> {
 fn resolve_json_text(src: String) -> Result<String, String> {
     if src == "-" {
         // Bytes that are not UTF-8 are read as U+FFFD, like an argument (above):
-        // U+FFFD is never hex and never part of a member name, so such text is
-        // always refused.
+        // U+FFFD is never hex and never part of `atom` or `tuple`, so such text is
+        // always refused (a member named with it fails the shape check).
         let mut buf = Vec::new();
         io::stdin()
             .read_to_end(&mut buf)

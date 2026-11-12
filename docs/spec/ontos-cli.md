@@ -61,8 +61,10 @@ ontos <command> [options] [<hex>]
 ```
 
 - **Input** is canonical `ontos-codec-v1` bytes, given as a positional **hex
-  string**, or read from **stdin** when the argument is `-` or omitted (hex,
-  surrounding whitespace ignored).
+  string**, or read from **stdin** when the argument is `-` or omitted. Space, tab, LF
+  and CR around the hex are ignored, and nothing else is: a form feed, NBSP, a
+  byte-order mark or any other character makes the input `invalid_hex` (see
+  [Value input](#value-input)).
 - **`--from-json <json|->`** supplies the input value as the **authoring notation**
   instead of hex (see [Value input](#value-input)) — the CLI's
   only text→bytes path. Mutually exclusive with a positional `<hex>`.
@@ -89,7 +91,11 @@ A decoded `Value` is rendered two ways:
 Every command operates on one `Value`, obtained from exactly one source:
 
 - **canonical bytes** (default) — the positional `<hex>` or stdin, decoded via
-  `ontos-codec-v1`. A decode failure is the command's negative/error result.
+  `ontos-codec-v1`. A decode failure is the command's negative/error result. The hex
+  may have space, tab, LF and CR around it (RFC 8259's whitespace, as `--from-json`
+  allows), and no other character; whitespace inside it is not stripped. Bytes that
+  are not UTF-8 are read as U+FFFD, as for `--from-json` (below), so they fail as
+  `invalid_hex`.
 - **`--from-json <json|->`** — the value is **parsed** from the authoring notation
   (`{"atom":"<hex>"}` | `{"tuple":[ … ]}`), the exact inverse of the `--format json`
   value rendering. `-` reads the JSON from stdin. No bytes are decoded; the value is
@@ -147,9 +153,10 @@ All four implementations read a `--from-json` text the same way, in two stages.
   refused at its 2051st bracket.
 - **Bytes that are not UTF-8** are read as U+FFFD, from stdin and from an argument alike.
   The rule can't be stricter, because Node decodes argv that way before the `ts`
-  implementation sees it. U+FFFD is never hex and never part of a member name, so such
-  a text is always refused (`invalid_json`, or `limit_exceeded` when the cap comes
-  first), and the outcome never depends on how many U+FFFD a decoder produces.
+  implementation sees it. U+FFFD is never hex and never part of `atom` or `tuple` (a
+  member named with it fails the shape check), so such a text is always refused
+  (`invalid_json`, or `limit_exceeded` when the cap comes first), and the outcome never
+  depends on how many U+FFFD a decoder produces.
 
 The text is read from left to right, and its **first fault ends the reading**: a 2051st
 level is `limit_exceeded`, any other fault is `invalid_json`. So a plain array 3000 deep

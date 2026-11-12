@@ -26,7 +26,7 @@
 
 import { parseArgs } from "node:util";
 import process from "node:process";
-import { readSync } from "node:fs";
+import { readSync, writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { decode, encode, DecodeError } from "@bitspark/ontos-codec";
@@ -462,6 +462,36 @@ function valueFromJsonSource(source: string): Value {
   return authoringValue(readJson(text));
 }
 
+/** Sleeps the thread for a moment while a pipe is not ready (Atomics.wait does not spin). */
+const NAP = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Write `text` to fd 1 or 2 completely before returning. process.stdout.write is not
+ * used: on a pipe it may leave part of a large write pending, and the process.exit
+ * that ends every command then drops it (a 2 MB line arrived cut at 146176 bytes,
+ * with exit 0). A reader that has gone away (EPIPE) ends the writing quietly.
+ */
+function writeAll(fd: number, text: string): void {
+  const buf = Buffer.from(text, "utf8");
+  let off = 0;
+  while (off < buf.length) {
+    try {
+      off += writeSync(fd, buf, off, buf.length - off);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN") {
+        Atomics.wait(NAP, 0, 0, 5);
+        continue;
+      }
+      if (code === "EPIPE") return;
+      throw err;
+    }
+  }
+}
+
+const writeOut = (text: string): void => writeAll(1, text);
+const writeErr = (text: string): void => writeAll(2, text);
+
 /**
  * Read all of stdin as UTF-8 text, with U+FFFD for each sequence that is not UTF-8
  * (both input paths read stdin through here). readFileSync(0) is not used: it throws
@@ -472,7 +502,6 @@ function valueFromJsonSource(source: string): Value {
 function readStdinText(): string {
   const chunks: Buffer[] = [];
   const chunk = Buffer.alloc(1 << 16);
-  const nap = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
     let n: number;
     try {
@@ -480,7 +509,7 @@ function readStdinText(): string {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EAGAIN") {
-        Atomics.wait(nap, 0, 0, 5);
+        Atomics.wait(NAP, 0, 0, 5);
         continue;
       }
       if (code === "EOF") break; // how Windows reports the end of a pipe
@@ -494,11 +523,11 @@ function readStdinText(): string {
 
 /** Emit a compact JSON line (single line, "\n"-terminated) to stdout. */
 function emitLine(obj: unknown): void {
-  process.stdout.write(`${JSON.stringify(obj)}\n`);
+  writeOut(`${JSON.stringify(obj)}\n`);
 }
 
 function dieUsage(message: string): never {
-  process.stderr.write(`ontos: ${message}\n`);
+  writeErr(`ontos: ${message}\n`);
   process.exit(EXIT_USAGE);
 }
 
@@ -564,7 +593,7 @@ function resolveValue(
         if (format === "json") {
           emitLine({ ok: false, command, error: "limit_exceeded" });
         } else {
-          process.stderr.write(`ontos: json input too deep: ${err.message}\n`);
+          writeErr(`ontos: json input too deep: ${err.message}\n`);
         }
         process.exit(EXIT_NEGATIVE);
       }
@@ -572,7 +601,7 @@ function resolveValue(
         if (format === "json") {
           emitLine({ ok: false, command, error: "invalid_json" });
         } else {
-          process.stderr.write(`ontos: ${err.message}\n`);
+          writeErr(`ontos: ${err.message}\n`);
         }
         process.exit(EXIT_USAGE);
       }
@@ -588,7 +617,7 @@ function resolveValue(
     if (format === "json") {
       emitLine({ ok: false, command, error: "invalid_hex" });
     } else {
-      process.stderr.write("ontos: invalid hex input\n");
+      writeErr("ontos: invalid hex input\n");
     }
     process.exit(EXIT_USAGE);
   }
@@ -600,7 +629,7 @@ function resolveValue(
       if (format === "json") {
         emitLine({ ok: false, command, error: err.code });
       } else {
-        process.stderr.write(`ontos: ${err.message}\n`);
+        writeErr(`ontos: ${err.message}\n`);
       }
       process.exit(EXIT_NEGATIVE);
     }
@@ -619,7 +648,7 @@ function runDecode(
     // Construct the object key-by-key in the contract order: ok, command, codec, value.
     emitLine({ ok: true, command: "decode", codec: CODEC_ID, value: toAuthoring(value) });
   } else {
-    process.stdout.write(`${value.toString()}\n`);
+    writeOut(`${value.toString()}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -683,9 +712,9 @@ function runInspect(
       recognized,
     });
   } else {
-    process.stdout.write(`${value.toString()}\n`);
-    process.stdout.write(`canonical: ${canonical ? "yes" : "no"}\n`);
-    process.stdout.write(`recognized: ${humanLabels(recognized)}\n`);
+    writeOut(`${value.toString()}\n`);
+    writeOut(`canonical: ${canonical ? "yes" : "no"}\n`);
+    writeOut(`recognized: ${humanLabels(recognized)}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -717,7 +746,7 @@ function runRead(
     } else {
       // The "recognized: " prefix is present on BOTH inspect and read --all (the
       // tri-core human contract, ontos-internal#46) — TS previously omitted it here.
-      process.stdout.write(`recognized: ${humanLabels(recognized)}\n`);
+      writeOut(`recognized: ${humanLabels(recognized)}\n`);
     }
     process.exit(EXIT_OK);
   }
@@ -731,7 +760,7 @@ function runRead(
     // Canonical human form: `<kind>: yes|no` (docs/spec/ontos-cli.md "Human format")
     // — names the probed kind, matching go/rs byte-for-byte (TS previously printed a
     // bare yes|no).
-    process.stdout.write(`${k}: ${recognized ? "yes" : "no"}\n`);
+    writeOut(`${k}: ${recognized ? "yes" : "no"}\n`);
   }
   process.exit(recognized ? EXIT_OK : EXIT_NEGATIVE);
 }
@@ -755,7 +784,7 @@ function runCanon(
     if (format === "json") {
       emitLine({ ok: true, command: "canon", hex });
     } else {
-      process.stdout.write(`${hex}\n`);
+      writeOut(`${hex}\n`);
     }
     process.exit(EXIT_OK);
   }
@@ -765,7 +794,7 @@ function runCanon(
   if (format === "json") {
     emitLine({ ok: true, command: "canon", canonical });
   } else {
-    process.stdout.write(`canonical: ${canonical ? "yes" : "no"}\n`);
+    writeOut(`canonical: ${canonical ? "yes" : "no"}\n`);
   }
   process.exit(EXIT_OK);
 }
@@ -801,11 +830,11 @@ function main(argv: readonly string[]): never {
   const { values, positionals } = parsed;
 
   if (values.help) {
-    process.stdout.write(`${USAGE}\n`);
+    writeOut(`${USAGE}\n`);
     process.exit(EXIT_OK);
   }
   if (values.version) {
-    process.stdout.write(`${VERSION}\n`);
+    writeOut(`${VERSION}\n`);
     process.exit(EXIT_OK);
   }
 
@@ -842,7 +871,7 @@ function main(argv: readonly string[]): never {
       if (format === "json") {
         emitLine({ ok: false, command, error: "usage_error" });
       } else {
-        process.stderr.write("ontos: --from-json and a positional <hex> are mutually exclusive\n");
+        writeErr("ontos: --from-json and a positional <hex> are mutually exclusive\n");
       }
       process.exit(EXIT_USAGE);
     }

@@ -467,20 +467,39 @@ function runFromJsonMode(impls, cases) {
 }
 
 
-// --- reading mode: how each impl reads a --from-json text -------------------
+// --- reading mode: how each impl reads its input text ------------------------
 // The cases file (DEFAULT_READING_CASES) holds texts the authoring-value modes above
 // cannot express — malformed, oddly spaced, escaped, too deep, not UTF-8 — each with
-// the outcome ontos-cli.md "Value input" gives it. The judgment is an ORACLE: every
-// impl must give exactly the expected stdout line and the contract's exit code, so a
-// fault shared by all four impls still fails the run.
+// the outcome docs/spec/ontos-cli.md gives it ("Value input"). A case's text is a
+// --from-json text by default, or with "source": "hex" the hex input. Every impl runs
+// `canon --emit --format json` on it, and the judgment is an ORACLE: every impl must
+// give exactly the expected stdout line and the contract's exit code, so a fault
+// shared by all four impls still fails the run.
 
 // The contract's exit code for each outcome (ontos-cli.md "Exit codes"): success 0;
-// limit_exceeded 1, as for a decode limit; invalid_json 2, the usage class.
-const READING_EXIT = { ok: 0, limit_exceeded: 1, invalid_json: 2 };
+// a decode error, or limit_exceeded, 1; invalid_json and invalid_hex 2, the usage class.
+const READING_EXIT = {
+  ok: 0,
+  limit_exceeded: 1,
+  unexpected_eof: 1,
+  trailing_bytes: 1,
+  unknown_tag: 1,
+  non_canonical_uvarint: 1,
+  uvarint_overflow: 1,
+  invalid_json: 2,
+  invalid_hex: 2,
+};
 
 // A text longer than this (UTF-8 bytes) runs through stdin only. Windows caps a whole
 // command line at 32767 characters, and its quoting escapes every '"' in a JSON text.
 const ARGV_MAX = 16384;
+
+// Node passes arguments only as strings, so a text that is not UTF-8 reaches an impl's
+// argv through this trampoline: python3 decodes the hex arguments and execs the impl
+// with the raw bytes. POSIX only — Windows argv is UTF-16 and cannot hold such bytes.
+const ARGV_BYTES = process.platform !== "win32";
+const TRAMPOLINE = "import os, sys; a = [bytes.fromhex(x) for x in sys.argv[1:]]; os.execvp(a[0], a)";
+const PYTHON = process.env.PYTHON ?? "python3";
 
 // Expand a piece list: a string, or an array of strings and [string, count] pairs.
 function expandPieces(spec, where) {
@@ -510,23 +529,29 @@ function collectReadingCases(path) {
   return parsed.cases.map((c, i) => {
     const where = `${path}: cases[${i}]`;
     if (typeof c.name !== "string") throw new UsageError(`${where} has no string "name"`);
+    const source = c.source ?? "json";
+    if (source !== "json" && source !== "hex") throw new UsageError(`${where}.source must be "json" or "hex"`);
     if ((c.text === undefined) === (c.bytes === undefined)) {
       throw new UsageError(`${where} needs exactly one of "text" or "bytes"`);
     }
     let input;
-    let argv = null;
+    let text = null; // the argument as a string, when the input is one
     if (c.text !== undefined) {
-      const text = expandPieces(c.text, `${where}.text`);
+      text = expandPieces(c.text, `${where}.text`);
       input = Buffer.from(text, "utf8");
-      // A text with NUL cannot be an argument; a long one would not fit a command line.
-      if (!text.includes("\0") && input.length <= ARGV_MAX) argv = text;
     } else {
       if (typeof c.bytes !== "string" || !/^([0-9a-f]{2})*$/.test(c.bytes)) {
         throw new UsageError(`${where}.bytes must be lowercase hex`);
       }
-      // Not UTF-8, so stdin only: Node can pass only strings as arguments.
       input = Buffer.from(c.bytes, "hex");
     }
+    const via = c.via ?? ["argv", "stdin"];
+    if (!Array.isArray(via) || via.length === 0 || via.some((v) => v !== "argv" && v !== "stdin")) {
+      throw new UsageError(`${where}.via must list "argv" and/or "stdin"`);
+    }
+    // A text with NUL cannot be an argument; a long one would not fit a command line.
+    const argvFits = !input.includes(0) && input.length <= ARGV_MAX && (text !== null || ARGV_BYTES);
+    const sources = via.filter((v) => v === "stdin" || argvFits);
     const e = c.expect ?? {};
     let expect;
     if (e.hex !== undefined && e.error === undefined) {
@@ -534,20 +559,25 @@ function collectReadingCases(path) {
     } else if (e.error !== undefined && e.hex === undefined && e.error in READING_EXIT && e.error !== "ok") {
       expect = { error: e.error };
     } else {
-      throw new UsageError(`${where}.expect must be {"hex": …} or {"error": "invalid_json"|"limit_exceeded"}`);
+      throw new UsageError(`${where}.expect must be {"hex": …} or {"error": <a contract error code>}`);
     }
-    return { name: c.name, input, argv, expect };
+    return { name: c.name, source, input, text, sources, expect };
   });
 }
 
 // Long output is cut down for a divergence report.
 const shorten = (s) => (s.length > 200 ? `${s.slice(0, 200)}… (${s.length} chars)` : s);
 
-// Run one impl with `args` after its prefix, `input` on stdin; never through a shell.
+// Run one impl with `args` after its prefix and `input` on stdin, never through a
+// shell. An argument given as a Buffer goes through the bytes trampoline.
 function runAsync(impl, args, input) {
-  const [program, ...rest] = impl.argv;
+  let [program, ...argv] = [...impl.argv, ...args];
+  if (argv.some((a) => Buffer.isBuffer(a))) {
+    argv = ["-I", "-c", TRAMPOLINE, ...[program, ...argv].map((a) => Buffer.from(a).toString("hex"))];
+    program = PYTHON;
+  }
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(program, [...rest, ...args], { stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(program, argv, { stdio: ["pipe", "pipe", "ignore"] });
     const out = [];
     child.stdout.on("data", (d) => out.push(d));
     child.on("error", (err) =>
@@ -561,8 +591,8 @@ function runAsync(impl, args, input) {
   });
 }
 
-// One case: canon --emit through each source (oracle), then, for an accepted case,
-// decode through --from-json against decode of the expected hex.
+// One case: `canon --emit` through each source (oracle), then, for an accepted
+// --from-json text, decode of the text against decode of the expected hex.
 async function runReadingCase(impls, c) {
   const divergences = [];
   const report = [];
@@ -570,17 +600,17 @@ async function runReadingCase(impls, c) {
     ? `{"ok":true,"command":"canon","hex":"${c.expect.hex}"}\n`
     : `{"ok":false,"command":"canon","error":"${c.expect.error}"}\n`;
   const expectedExit = READING_EXIT[c.expect.hex !== undefined ? "ok" : c.expect.error];
-  const sources = [];
-  if (c.argv !== null) sources.push({ via: "argv", arg: c.argv, input: Buffer.alloc(0) });
-  sources.push({ via: "stdin", arg: "-", input: c.input });
+  const flag = c.source === "json" ? ["--from-json"] : [];
 
-  for (const src of sources) {
-    const args = ["canon", "--emit", "--format", "json", "--from-json", src.arg];
-    const perImpl = await Promise.all(impls.map(async (impl) => ({ impl, ...(await runAsync(impl, args, src.input)) })));
-    report.push({ via: src.via, perImpl });
+  for (const via of c.sources) {
+    const arg = via === "stdin" ? "-" : c.text ?? c.input;
+    const args = ["canon", "--emit", "--format", "json", ...flag, arg];
+    const input = via === "stdin" ? c.input : Buffer.alloc(0);
+    const perImpl = await Promise.all(impls.map(async (impl) => ({ impl, ...(await runAsync(impl, args, input)) })));
+    report.push({ via, perImpl });
     if (!perImpl.every((r) => r.stdout === expectedLine && r.status === expectedExit)) {
       divergences.push({
-        mode: `from-json reading (${src.via})`,
+        mode: `reading (${c.source} through ${via})`,
         label: c.name,
         oracle: { expected: `${shorten(expectedLine.replace(/\n$/, ""))} with exit ${expectedExit}`, got: "see below" },
         perImpl: perImpl.map((r) => ({ name: r.impl.name, stdout: shorten(r.stdout), status: r.status })),
@@ -588,7 +618,7 @@ async function runReadingCase(impls, c) {
     }
   }
 
-  if (c.expect.hex !== undefined) {
+  if (c.source === "json" && c.expect.hex !== undefined) {
     // The value read from the text is the value its canonical bytes decode to, in
     // each impl (so no impl accepts a value its own default decoder refuses), and
     // the impls render it identically.
@@ -608,7 +638,7 @@ async function runReadingCase(impls, c) {
       if (!agree) {
         const short = (s) => shorten(s.replace(/\n$/, ""));
         divergences.push({
-          mode: `from-json reading (decode --format ${format})`,
+          mode: `reading (decode --format ${format})`,
           label: c.name,
           perImpl: perImpl.map((r) => ({
             name: r.impl.name,
@@ -654,10 +684,14 @@ async function runReadingMode(impls, cases, verbose) {
       }
     }
   });
-  const viaArgv = cases.filter((c) => c.argv !== null).length;
+  const runs = cases.reduce((n, c) => n + c.sources.length, 0);
+  const unrun = cases.filter((c) => c.sources.length === 0).map((c) => c.name);
+  if (unrun.length > 0) {
+    // Only an argv-only text that is not UTF-8, on Windows (argv is UTF-16 there).
+    process.stdout.write(`reading: not run on this platform: ${unrun.join("; ")}\n`);
+  }
   const summary =
-    `from-json reading: ${cases.length} texts (${viaArgv} through argv and stdin, ` +
-    `${cases.length - viaArgv} through stdin) x ${impls.length} impls (outcome oracle)`;
+    `reading: ${cases.length} texts, ${runs} runs through argv or stdin, x ${impls.length} impls (outcome oracle)`;
   return { divergences, summary };
 }
 
@@ -756,7 +790,7 @@ async function main() {
   process.stdout.write(
     `ontos-conformance: checked ${scope} (${implNames}) — all byte-identical` +
       (fromJsonRoundtrip ? " and every emit == pinned hex" : "") +
-      (fromJsonReading ? " and every --from-json text read as the contract says" : "") +
+      (fromJsonReading ? " and every input text read as the contract says" : "") +
       "\n",
   );
   process.exit(0);

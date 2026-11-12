@@ -99,7 +99,7 @@ function Invoke-Test {
   # The codec on a 32-bit target (ontos-internal#352) runs in CI and in scripts/check.sh, not here:
   # WASI cannot preopen a Windows drive path, so the vector tests, which read files by
   # their absolute CARGO_MANIFEST_DIR path, cannot find them under wasmtime on Windows.
-  Step "rust codec on wasm32: SKIPPED on Windows (WASI cannot map a drive path; run scripts/check.sh on Linux, or see CI)"
+  Step "rust ground crates on wasm32: SKIPPED on Windows (WASI cannot map a drive path; run scripts/check.sh on Linux, or see CI)"
   Step "go (go test -cover ./...)";     Invoke-Checked { go test -cover ./... }
   # Executes the 32-bit build (ontos-internal#352); Windows runs i386 natively. CI can only compile
   # it until the fleet can exec i386 (bitagent-ci).

@@ -57,6 +57,10 @@ fn nested(depth: usize, byte: u8) -> Value {
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "wasi",
+    ignore = "wasm32-wasip1 has no threads to give a small stack; the 64-bit run covers it"
+)]
 fn returned_children_and_a_partly_consumed_iterator_drop_on_a_small_stack() {
     std::thread::Builder::new()
         .stack_size(64 * 1024)

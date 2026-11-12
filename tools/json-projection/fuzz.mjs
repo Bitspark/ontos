@@ -43,7 +43,11 @@ const MAX_LIMIT = 2 ** 31 - 1;
 const MAX_VALUE_DEPTH = 1024;
 /** Origins are pinned when their rows hold at most this many path segments in all. */
 const ORIGINS_CAP = 20000;
-/** Below this count per profile, a missing code or kind is reported, not fatal. */
+/**
+ * From this count per profile on, every refusal code and limit kind must be exercised: the
+ * generator draws further cases (count, count + 1, …) until they are, up to twice the count,
+ * and fails if any is still missing. Below it, a missing one is reported only.
+ */
 const COVERAGE_FLOOR = 1000;
 const DEFAULT_COUNT = 2000;
 
@@ -750,15 +754,18 @@ function duplicateMember(rng, all) {
 }
 
 function duplicateEntry(rng, all, kind) {
-  const lists = all.filter((x) => x.node.kind === kind && x.node.a.length);
+  // Entries and elements that still spell a known value (an earlier deviation may have
+  // replaced one with a node that spells none).
+  const known = (list) => list.a.flatMap((x, i) => (x.val ? [i] : []));
+  const lists = all.filter((x) => x.node.kind === kind && known(x.node).length);
   if (!lists.length) return duplicateMember(rng, all);
   const list = rng.pick(lists).node;
-  const i = rng.below(list.a.length);
+  const i = rng.pick(known(list));
   const original = list.a[i];
   // The same ground value again, spelled anew (another spelling, as often as not).
   const again =
     kind === "entries"
-      ? arr([spellReadable(original.val, rng, 0.3), spellReadable(genValue(rng, 1, { n: 2 }), rng)])
+      ? tagged(arr([spellReadable(original.val, rng, 0.3), spellReadable(genValue(rng, 1, { n: 2 }), rng)]), original.val)
       : spellReadable(original.val, rng, 0.3);
   list.a.splice(rng.between(i + 1, list.a.length), 0, again);
 }
@@ -986,16 +993,20 @@ function family(profile) {
       const ctx = rng.pick(R ? [`${n}`, `[${n}]`, `{"k":${n}}`, `[${n},`, `{"$ontos":["int",${n}]}`, `["${multiByte(rng)}",${n}]`] : [`${n}`, `{"atom":${n}}`, `{"tuple":[${n}]}`]);
       return { input: te.encode(ctx), note: `number ${n}` };
     }],
-    [R ? 5 : 0, "integers", (rng) => {
-      const big = () => (rng.chance(0.3) ? "-" : "") + digitString(rng, rng.weighted([[5, rng.between(1, 30)], [1, rng.between(4295, 4305)]]));
+    [R ? 6 : 0, "integers", (rng) => {
+      const big = () => (rng.chance(0.3) ? "-" : "") + digitString(rng, rng.weighted([[2, rng.between(1, 30)], [1, rng.between(4295, 4305)]]));
       const t = rng.chance(0.6) ? big() : rng.pick(BAD_INT_TEXT);
-      const ctx = rng.pick([
-        () => `{"$ontos":["int","${t}"]}`,
-        () => `{"$ontos":["decimal","${t}","${rng.chance(0.5) ? big() : "0"}"]}`,
-        () => `{"$ontos":["decimal","${rng.pick(["1", "-7", "25"])}","${t}"]}`,
-        () => `{"$ontos":["decimal",${rng.pick(BAD_DECIMALS).map((x) => JSON.stringify(x)).join(",")}]}`,
-        () => `[${rng.chance(0.5) ? "" : "-"}${MAX_SAFE + BigInt(rng.between(-2, 2))}]`,
-        () => `{"$ontos":["map",[[{"$ontos":["int","${t}"]},null]]]}`,
+      const ctx = rng.weighted([
+        [3, () => `{"$ontos":["int","${t}"]}`],
+        [2, () => `{"$ontos":["decimal","${t}","${rng.chance(0.5) ? big() : "0"}"]}`],
+        [1, () => `{"$ontos":["decimal","${rng.pick(["1", "-7", "25"])}","${t}"]}`],
+        // Canonical integers that are not the canonical pair: a mantissa ending in 0, or 0
+        // with an exponent.
+        [2, () => `{"$ontos":["decimal","${rng.chance(0.5) ? "-" : ""}${digitString(rng, rng.between(1, 6))}0","${rng.between(-9, 9)}"]}`],
+        [1, () => `{"$ontos":["decimal","0","${rng.chance(0.5) ? "-" : ""}${digitString(rng, rng.between(1, 4))}"]}`],
+        [1, () => `{"$ontos":["decimal",${rng.pick(BAD_DECIMALS).map((x) => JSON.stringify(x)).join(",")}]}`],
+        [2, () => `[${rng.chance(0.5) ? "" : "-"}${MAX_SAFE + BigInt(rng.between(-2, 2))}]`],
+        [1, () => `{"$ontos":["map",[[{"$ontos":["int","${t}"]},null]]]}`],
       ])();
       return { input: te.encode(ctx), note: "integer text" };
     }],
@@ -1015,6 +1026,7 @@ function family(profile) {
         () => `{"$ontos":["map",[["${name}",null],["a",1]]]}`,
         () => `{"a":{"${name}":[${tag},"5"]}}`,
         () => `{"${name}":${rng.pick(["[]", "{}", "1", '"int"', "[1]", "null"])}}`,
+        () => `{"${name}":[${JSON.stringify(rng.pick(BAD_TAGS))},"1"]}`,
       ])();
       return { input: te.encode(ctx), note: `the reserved name, spelled ${name}` };
     }],
@@ -1045,6 +1057,9 @@ function family(profile) {
               `{"$ontos":["map",[[1,null],[{"$ontos":["int","1"]},null]]]}`,
               `{"$ontos":["map",[["a",1],[{"$ontos":["raw",{"tuple":[{"atom":"7574662d38"},{"atom":"61"}]}]},2]]]}`,
               `{"$ontos":["map",[["a",1],[{"$ontos":["raw",{"tuple":[{"atom":"757466382d74657874"},{"atom":"61"}]}]},2]]]}`,
+              `{"$ontos":["map",[["${mb}",1],["x",0],["${mb}",2]]]}`,
+              `{"$ontos":["map",[[null,1],[{"$ontos":["raw",{"tuple":[{"atom":"6e756c6c"}]}]},2]]]}`,
+              `{"$ontos":["map",[[{"$ontos":["decimal","1","2"]},1],[{"$ontos":["decimal","1","2"]},2]]]}`,
               `{"$ontos":["set",[[],{"$ontos":["compound","list",[]]}]]}`,
               `{"$ontos":["set",["${mb}",1,"${mb}"]]}`,
               `{"$ontos":["set",[{"$ontos":["bytes","AA=="]},{"$ontos":["raw",{"atom":"00"}]}]]}`,
@@ -1061,7 +1076,7 @@ function family(profile) {
     [12, "value", (rng) => ({ value: genValue(rng, rng.between(0, 5), { n: rng.between(1, 60) }), note: "a value to write" })],
     [6, "near miss", (rng) => ({ value: rng.chance(0.5) ? nearMiss(rng, 2, { n: 6 }) : vList([nearMiss(rng, 2, { n: 6 }), genValue(rng, 2, { n: 6 })]), note: "a value close to a registered kind" })],
     [R ? 4 : 2, "integers to write", (rng) => {
-      const n = genInt(rng);
+      const n = rng.chance(R ? 0.25 : 0) ? sign(rng) * BigInt(digitString(rng, rng.between(4295, 4305))) : genInt(rng);
       return { value: rng.pick([vInt(n), genDecimal(rng), vList([vInt(n)]), vMap([[vInt(n), vNull()]])]), note: "integers" };
     }],
     [2, "deep value", (rng) => deepValue(rng)],
@@ -1077,26 +1092,53 @@ const BOUNDS = {
   readable: ["max_text_bytes", "max_json_depth", "max_value_depth", "max_atom_bytes", "max_tuple_arity", "max_integer_digits"],
 };
 
+/** The bounds stage 4 checks at each node (total §4.4, readable §4.9), in their order. */
+const VALUE_SIDE = ["max_value_depth", "max_tuple_arity", "max_integer_digits", "max_atom_bytes"];
+
 function chooseLimits(profile, rng, needs) {
-  const mode = rng.weighted([[50, "none"], [32, "one"], [18, "some"]]);
+  // "under" lowers two or more value-side bounds below their needs at once, so that one node
+  // exceeds several and the order of the checks decides the kind. A lowered stage 1-3 bound
+  // would refuse before stage 4, so "under" leaves those alone, and when it lowers
+  // max_value_depth it often raises max_json_depth past the text's depth, which the derived
+  // bound would otherwise refuse first.
+  const mode = rng.weighted([[46, "none"], [28, "one"], [14, "some"], [12, "under"]]);
   if (mode === "none") return undefined;
-  const names = rng.shuffle([...BOUNDS[profile]]).slice(0, mode === "one" ? 1 : rng.between(2, BOUNDS[profile].length));
+  const need = (name) => needs[name] ?? rng.between(0, 8);
   const out = {};
+  if (mode === "under") {
+    const side = VALUE_SIDE.filter((n) => BOUNDS[profile].includes(n));
+    const lowered = rng.shuffle([...side]).slice(0, rng.between(2, side.length));
+    for (const name of BOUNDS[profile]) {
+      if (!lowered.includes(name)) continue;
+      const n = need(name);
+      out[name] = Math.max(0, n - rng.weighted([[6, 1], [2, 2], [1, n]]));
+    }
+    if (lowered.includes("max_value_depth") && rng.chance(0.7)) {
+      out.max_json_depth = rng.chance(0.8) ? need("max_json_depth") + rng.between(0, 2) : MAX_LIMIT;
+    }
+    return out;
+  }
+  const names = rng.shuffle([...BOUNDS[profile]]).slice(0, mode === "one" ? 1 : rng.between(2, BOUNDS[profile].length));
   for (const name of BOUNDS[profile]) {
     if (!names.includes(name)) continue;
-    const need = needs[name] ?? rng.between(0, 8);
+    const n = need(name);
     let v = rng.weighted([
-      [5, need],
-      [5, need - 1],
-      [2, need + 1],
+      [5, n],
+      [5, n - 1],
+      [2, n + 1],
       [1, 0],
-      [2, rng.between(0, 2 * need + 2)],
+      [2, rng.between(0, 2 * n + 2)],
       [1, rng.between(0, 64)],
       [1, MAX_LIMIT],
     ]);
     v = Math.max(0, Math.min(v, MAX_LIMIT));
     if (name === "max_value_depth") v = Math.min(v, MAX_VALUE_DEPTH);
     out[name] = v;
+  }
+  // A lowered value depth bound with the derived JSON depth bound refuses in stage 3
+  // (json_depth) first; an explicit JSON depth bound lets stage 4 decide (decode_depth).
+  if (out.max_value_depth !== undefined && out.max_json_depth === undefined && rng.chance(0.35)) {
+    out.max_json_depth = rng.chance(0.8) ? need("max_json_depth") + rng.between(0, 2) : MAX_LIMIT;
   }
   return out;
 }
@@ -1247,9 +1289,18 @@ function run(cfg) {
   let shortfall = 0;
   for (const profile of ["total", "readable"]) {
     const cases = [];
-    for (let i = 0; i < cfg.count; i++) cases.push(makeCase(profile, i, cfg.seed, pool));
+    let i = 0;
+    for (; i < cfg.count; i++) cases.push(makeCase(profile, i, cfg.seed, pool));
+    let { t, missing } = tally(profile, cases);
+    const before = missing;
+    while (missing.length && cfg.count >= COVERAGE_FLOOR && i < 2 * cfg.count) {
+      for (const end = Math.min(i + 100, 2 * cfg.count); i < end; i++) cases.push(makeCase(profile, i, cfg.seed, pool));
+      ({ t, missing } = tally(profile, cases));
+    }
+    if (cases.length > cfg.count) {
+      console.log(`json-projection fuzz: ${profile}: ${cases.length - cfg.count} more cases drawn to exercise ${before.join(", ")}`);
+    }
     writeFileSync(join(cfg.out, `${profile}.json`), corpusText(profile, cfg, cases));
-    const { t, missing } = tally(profile, cases);
     console.log(
       `json-projection fuzz: ${profile}.json: ${t.cases} cases: ${t.refusals} read refusals, ${t.accepted} accepted reads, ` +
         `${t.writeOnly} values to write, ${t.renderRefusals} write refusals, ${t.origins} with origins, ${t.withLimits} with limits`,

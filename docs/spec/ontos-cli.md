@@ -106,6 +106,19 @@ or JSON that is not the authoring shape — not exactly one of `atom`/`tuple`, a
 accepts is `limit_exceeded` (exit `1`). [Reading the text](#reading-the-text) says exactly
 which texts are which.
 
+The intended use is **author → canonical bytes**:
+
+```text
+ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'
+# → 01020003696e74000100    (hex: decode it, then hash: | xxd -r -p | sha256sum)
+```
+
+`--from-json` works with every command (it is simply the other input source):
+`inspect`/`read` recognize the embeddings of an authored value, and
+`canon --check --from-json` is **always** canonical (the value was built, not
+decoded). It is **authoring/debugging only** — the JSON text is not a value to
+store, sign, or exchange; only the emitted bytes are.
+
 ### Reading the text
 
 All four implementations read a `--from-json` text the same way, in two stages.
@@ -121,7 +134,8 @@ All four implementations read a `--from-json` text the same way, in two stages.
   a fault.
 - **A member name occurs once** in its object, compared after escapes are decoded:
   `{"atom":"00","\u0061tom":"00"}` repeats `atom` and is `invalid_json`. This is the
-  total form's rule ([consultation 0001](../consults/0001-total-form-and-p-inverse.md)).
+  total form's rule ([design record 0010](../design/0010-json-projections.md) row 13,
+  after [consultation 0001](../consults/0001-reversible-json-projection.md)).
 - **Number tokens are read for grammar only**, so a number of any length is read: no
   number is ever part of a value. `NaN` and `Infinity` are not JSON.
 - **Nesting is capped at 2050** open arrays and objects. The deepest value the codec's
@@ -149,19 +163,6 @@ every object has exactly one member, `atom` (an even-length lowercase-hex string
 The conformance harness's reading mode
 ([tools/conformance/README.md](../../tools/conformance/README.md)) holds each rule above
 to cases, in all four implementations, through argv and through stdin.
-
-The intended use is **author → canonical bytes**:
-
-```text
-ontos canon --emit --from-json '{"tuple":[{"atom":"696e74"},{"atom":"00"}]}'
-# → 01020003696e74000100    (hex: decode it, then hash: | xxd -r -p | sha256sum)
-```
-
-`--from-json` works with every command (it is simply the other input source):
-`inspect`/`read` recognize the embeddings of an authored value, and
-`canon --check --from-json` is **always** canonical (the value was built, not
-decoded). It is **authoring/debugging only** — the JSON text is not a value to
-store, sign, or exchange; only the emitted bytes are.
 
 ## Commands (v1)
 

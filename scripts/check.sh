@@ -27,7 +27,7 @@ usage() {
 usage: scripts/check.sh {test|lint|conformance|producer|fuzz|vectors|all}
   test         rust + go (incl. nested modules) + ts + py unit/vector tests
   lint         check.sh/.ps1 parity, project-name spelling, gofmt+vet (incl. nested modules), cargo fmt+clippy, tsc --noEmit (discovered)
-  conformance  build the CLIs fresh, run the differential harness over all 4 impls (all 3 modes)
+  conformance  build the CLIs fresh, run the conformance harness over all 4 impls (all 4 modes)
   producer     producer-conformance: a HOST value -> L2, all 4 languages (ontos-data.md 4.1)
   fuzz         go native FuzzDecode + FuzzData (FUZZTIME=, default 25s) + the 4-CLI differential bout + limit-policy tests on a fresh seed
   vectors      regenerate the map/set vectors and the limit-policy corpus and assert no drift
@@ -195,14 +195,14 @@ do_conformance() {
   ts_build
   step "cli/ts in-process tests"; node --test cli/ts/test/*.test.ts
   step "cli/py in-process tests"; python3 cli/py/test/test_cli.py
-  step "differential conformance harness, 4 impls (decode + human + author->bytes)"
+  step "conformance harness, 4 impls (decode + human + author->bytes + --from-json reading)"
   node tools/conformance/run.mjs \
     --impl ontos-rs=./target/debug/ontos \
     --impl ontos-go=./ontos-go \
     --impl "ontos-ts=node ./cli/ts/dist/src/main.js" \
     --impl "ontos-py=python3 cli/py/main.py" \
     --vectors vectors/codec.json --vectors vectors/data.json \
-    --decode-roundtrip --human-roundtrip --from-json-roundtrip
+    --decode-roundtrip --human-roundtrip --from-json-roundtrip --from-json-reading
 }
 
 do_fuzz() {

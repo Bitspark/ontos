@@ -1,20 +1,17 @@
 [package]
 name = "bitspark-ontos-json"
-version = "0.17.1"
+version = "0.18.0"
 description = "ontos-total-json/1 and ontos-readable-json/1: the total and the readable JSON projection of ontos ground values, with a strict byte reader, deterministic writers, typed refusals with paths and UTF-8 spans, operational limits and origins. Depends on ontos-core, ontos-codec and ontos-data."
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-# Not on crates.io yet: release.yml classifies the projection packages in a later change
-# (design 0010 §4, task 471fe591). Until then the crate is a workspace member only.
-publish = false
 
 [lib]
 name = "ontos_json"
 path = "src/lib.rs"
 
 [dependencies]
-ontos-core = { package = "bitspark-ontos-core", version = "0.17.1", path = "../../../core/rs" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.17.1", path = "../../../codec/rs" }
-ontos-data = { package = "bitspark-ontos-data", version = "0.17.1", path = "../../../data/rs" }
+ontos-core = { package = "bitspark-ontos-core", version = "0.18.0", path = "../../../core/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.18.0", path = "../../../codec/rs" }
+ontos-data = { package = "bitspark-ontos-data", version = "0.18.0", path = "../../../data/rs" }

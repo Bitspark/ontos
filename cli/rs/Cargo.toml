@@ -18,7 +18,7 @@ path = "src/main.rs"
 # hand-rolled, mirroring how the cores and their tests avoid clap/serde. JSON values are
 # read and written by the projection crate (bitspark-ontos-json).
 [dependencies]
-ontos-core = { package = "bitspark-ontos-core", version = "0.17.1", path = "../../core/rs" }
-ontos-codec = { package = "bitspark-ontos-codec", version = "0.17.1", path = "../../codec/rs" }
-ontos-data = { package = "bitspark-ontos-data", version = "0.17.1", path = "../../data/rs" }
-ontos-json = { package = "bitspark-ontos-json", version = "0.17.1", path = "../../projection/json/rs" }
+ontos-core = { package = "bitspark-ontos-core", version = "0.18.0", path = "../../core/rs" }
+ontos-codec = { package = "bitspark-ontos-codec", version = "0.18.0", path = "../../codec/rs" }
+ontos-data = { package = "bitspark-ontos-data", version = "0.18.0", path = "../../data/rs" }
+ontos-json = { package = "bitspark-ontos-json", version = "0.18.0", path = "../../projection/json/rs" }

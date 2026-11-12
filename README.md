@@ -117,7 +117,7 @@ TypeScript from npmjs, Rust from crates.io, Go from the module proxy. No credent
 ```sh
 npm install @bitspark/ontos-core @bitspark/ontos-codec @bitspark/ontos-data
 cargo add bitspark-ontos-core bitspark-ontos-codec bitspark-ontos-data
-go get github.com/bitspark/ontos@v0.17.1
+go get github.com/bitspark/ontos@v0.18.0
 ```
 
 The Rust crates keep their library names, so the code reads `use ontos_core::`. The TypeScript

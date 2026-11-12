@@ -456,6 +456,14 @@
       "also-in-this-release",
       "upgrade"
     ],
+    "docs/releases/v0.18.0.md": [
+      "ontos-v0180",
+      "two-json-projections-of-ground-values",
+      "the-command-line",
+      "deep-values-rendering-equality-and-hashing",
+      "also-in-this-release",
+      "upgrade"
+    ],
     "docs/spec/ontos-cli.md": [
       "ontos-cli--the-ontos-cli-contract",
       "tri-core-no-favored-language",

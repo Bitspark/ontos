@@ -24,6 +24,9 @@ func TestArgParsingUsageErrors(t *testing.T) {
 		{"missing_from_json_arg", []string{"decode", "--from-json"}},
 		{"from_json_twice", []string{"decode", "--from-json", `{"atom":""}`, "--from-json", `{"atom":""}`}},
 		{"two_positionals", []string{"decode", "00", "01"}},
+		{"missing_json_profile_arg", []string{"decode", "--json-profile"}},
+		{"bad_json_profile_value", []string{"decode", "--json-profile", "pretty", "00"}},
+		{"bad_json_profile_inline", []string{"decode", "--json-profile=Total", "00"}},
 		// read-specific:
 		{"read_neither_all_nor_kind", []string{"read", "00"}},
 		{"read_both_all_and_kind", []string{"read", "--all", "--kind", "int", "00"}},

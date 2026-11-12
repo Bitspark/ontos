@@ -109,7 +109,7 @@ jobs:
       # the cargo test harness. check.sh runs that leg when wasmtime is on PATH and the
       # target is installed, so this step provides both. wasmtime is fetched at a pinned
       # version and checked against a pinned sha256 rather than installed by an action.
-      - name: wasmtime and the wasm32-wasip1 target (the codec's 32-bit Rust leg)
+      - name: wasmtime and the wasm32-wasip1 target (the Rust ground crates' 32-bit leg)
         env:
           WASMTIME_VERSION: v49.0.2
           WASMTIME_SHA256: a4d6e9e3a5a60f527cf7793d674c48930c80c2e8977995b8a275cad3254b9322

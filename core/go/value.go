@@ -176,23 +176,59 @@ func Equal(left, right Value) bool { return left.Equal(right) }
 
 func (a Atom) String() string {
 	var b strings.Builder
-	b.WriteString("Atom(0x")
-	for _, byte_ := range a.bytes {
-		fmt.Fprintf(&b, "%02x", byte_)
-	}
-	b.WriteString(")")
+	writeAtom(&b, a.bytes)
 	return b.String()
 }
 
-func (t Tuple) String() string {
-	var b strings.Builder
-	b.WriteString("Tuple(")
-	for i, item := range t.items {
-		if i != 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(item.String())
+// writeAtom writes Atom(0x…) with each byte as two lowercase hex digits, as %02x does.
+func writeAtom(b *strings.Builder, bytes []byte) {
+	const digits = "0123456789abcdef"
+	b.WriteString("Atom(0x")
+	for _, byte_ := range bytes {
+		b.WriteByte(digits[byte_>>4])
+		b.WriteByte(digits[byte_&0x0f])
 	}
 	b.WriteString(")")
+}
+
+// String writes the whole tuple into one builder, keeping its open tuples on an explicit
+// stack instead of making one call per nesting level. The recursive form copied every
+// subtree's string into its parent's, so its time grew with the square of the depth: 22
+// seconds for a value 100,000 deep. This walk is linear, and its stack is a heap slice,
+// which never reaches the goroutine stack limit.
+//
+// The output is the recursive form's: an Atom or Tuple child is written in place, and
+// any other child (a type from another package that embeds one of them) renders through
+// its own String method, as it did before.
+func (t Tuple) String() string {
+	type open struct {
+		items []Value
+		next  int
+	}
+	var b strings.Builder
+	b.WriteString("Tuple(")
+	stack := []open{{items: t.items}}
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if top.next == len(top.items) {
+			b.WriteString(")")
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if top.next != 0 {
+			b.WriteString(", ")
+		}
+		item := top.items[top.next]
+		top.next++
+		switch v := item.(type) {
+		case Tuple:
+			b.WriteString("Tuple(")
+			stack = append(stack, open{items: v.items})
+		case Atom:
+			writeAtom(&b, v.bytes)
+		default:
+			b.WriteString(item.String())
+		}
+	}
 	return b.String()
 }

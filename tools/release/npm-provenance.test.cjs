@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { subjectFor, contextFor, statementFor } = require('./npm-provenance.cjs');
+const { subjectFor, contextFor, statementFor, isTlogConflict, attestWithRetry } = require('./npm-provenance.cjs');
 
 const bytes = Buffer.from('qualified archive');
 const candidate = { name: '@bitspark/ontos-wire', version: '0.16.0', integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}` };
@@ -41,4 +41,26 @@ test('an identical checkout needs only the certificate-matching dependency', () 
   assert.deepEqual(statement.predicate.buildDefinition.resolvedDependencies, [
     { uri: 'git+https://github.com/Bitspark/ontos@refs/heads/main', digest: { gitCommit: sha } },
   ]);
+});
+
+const conflict = () => Object.assign(new Error('error creating tlog entry - (409) an equivalent entry already exists'), { code: 'TLOG_CREATE_ENTRY_ERROR', cause: { statusCode: 409 } });
+const noPause = async () => {};
+
+test('a Rekor 409 conflict is retried with a fresh signature, then succeeds', async () => {
+  let calls = 0;
+  const attest = async () => { calls += 1; if (calls < 3) throw conflict(); return { ok: calls }; };
+  assert.deepEqual(await attestWithRetry(attest, Buffer.from('p'), 3, noPause), { ok: 3 });
+  assert.equal(calls, 3);
+});
+
+test('a 409 that persists past the attempts, and every other error, still fail the run', async () => {
+  let calls = 0;
+  await assert.rejects(attestWithRetry(async () => { calls += 1; throw conflict(); }, Buffer.from('p'), 3, noPause), /409/);
+  assert.equal(calls, 3);
+  calls = 0;
+  const other = Object.assign(new Error('fulcio unavailable'), { code: 'CA_CREATE_SIGNING_CERTIFICATE_ERROR' });
+  await assert.rejects(attestWithRetry(async () => { calls += 1; throw other; }, Buffer.from('p'), 3, noPause), /fulcio/);
+  assert.equal(calls, 1);
+  assert.equal(isTlogConflict(conflict()), true);
+  assert.equal(isTlogConflict(Object.assign(new Error('x'), { code: 'TLOG_CREATE_ENTRY_ERROR', cause: { statusCode: 500 } })), false);
 });

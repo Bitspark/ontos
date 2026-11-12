@@ -73,6 +73,28 @@ function statementFor(subject, context) {
   };
 }
 
+// Rekor answers 409 "an equivalent entry already exists" when sigstore's own HTTP retry
+// re-sends an upload whose first attempt was recorded but whose response was lost (seen
+// twice on 12 November 2026 while Rekor was slow). sigstore@5.0.0 does not recover from
+// that. Signing again uses a fresh key and certificate, so it is a new entry, and the
+// bundle is verified below as before; the lost first entry stays in the log, unused.
+// Only that conflict is retried: every other failure still stops the run.
+function isTlogConflict(error) {
+  return error?.code === 'TLOG_CREATE_ENTRY_ERROR' && (error.cause?.statusCode === 409 || / \(409\) /.test(String(error.message)));
+}
+
+async function attestWithRetry(attest, payload, attempts = 3, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await attest(payload, 'application/vnd.in-toto+json');
+    } catch (error) {
+      if (!isTlogConflict(error) || attempt >= attempts) throw error;
+      console.log(`Rekor reported an existing entry (409) on attempt ${attempt}; signing again with a fresh certificate`);
+      await pause(2000 * attempt);
+    }
+  }
+}
+
 async function main() {
   const checkout = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
@@ -91,7 +113,7 @@ async function main() {
     const archive = join(work, 'npm', candidate.filename);
     const subject = subjectFor(candidate, readFileSync(archive));
     const payload = Buffer.from(JSON.stringify(statementFor(subject, context)));
-    const bundle = await attest(payload, 'application/vnd.in-toto+json');
+    const bundle = await attestWithRetry(attest, payload);
     assert.deepEqual(Buffer.from(bundle.dsseEnvelope.payload, 'base64'), payload);
     await verify(bundle, { certificateIssuer: 'https://token.actions.githubusercontent.com', certificateIdentityURI: identityPattern });
     writeFileSync(`${archive}.sigstore.json`, `${JSON.stringify(bundle)}\n`);
@@ -99,5 +121,5 @@ async function main() {
   }
 }
 
-module.exports = { subjectFor, contextFor, statementFor };
+module.exports = { subjectFor, contextFor, statementFor, isTlogConflict, attestWithRetry };
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

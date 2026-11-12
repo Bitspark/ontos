@@ -11,9 +11,10 @@
 use ontos_codec::encode as codec_encode;
 use ontos_core::Value;
 use ontos_data::{
-    encode_bool, encode_decimal, encode_int, encode_list, encode_map, encode_null, encode_set,
-    encode_text, read_bool, read_decimal, read_int, read_list, read_map, read_null, read_set,
-    read_text, recognize_decimal, recognize_int, recognize_null, DataError,
+    encode_bool, encode_decimal, encode_decimal_bytes, encode_int, encode_list, encode_map,
+    encode_null, encode_set, encode_text, read_bool, read_decimal, read_decimal_bytes, read_int,
+    read_int_bytes, read_list, read_map, read_null, read_set, read_text, recognize_decimal,
+    recognize_int, recognize_null, DataError,
 };
 
 // ----- tiny JSON parser (test-only; just enough for the vector files) -----
@@ -384,6 +385,32 @@ fn data_vectors() {
                 // structurally — but read_decimal reports the int-layer resource limit
                 // (IntOutOfRange), exactly as int_2pow128 does (ontos-data.md §5.9). The
                 // full byte chain is asserted below for every case regardless.
+                //
+                // The byte-level pair has no host-width limit: it reads EVERY decimal
+                // vector, its parts are the children's int payloads (sign byte, then the
+                // magnitude), and they rebuild V exactly.
+                let kids = children_after_label(&value);
+                let (m_payload, e_payload) = (
+                    scalar_payload_bytes(&kids[0]),
+                    scalar_payload_bytes(&kids[1]),
+                );
+                let (m_parts, e_parts) = read_decimal_bytes(&value)
+                    .unwrap_or_else(|e| panic!("read_decimal_bytes {name:?}: {e:?}"));
+                assert_eq!(
+                    m_parts,
+                    (m_payload[0] == 0x01, &m_payload[1..]),
+                    "decimal bytes mantissa {name:?}"
+                );
+                assert_eq!(
+                    e_parts,
+                    (e_payload[0] == 0x01, &e_payload[1..]),
+                    "decimal bytes exponent {name:?}"
+                );
+                assert_eq!(
+                    encode_decimal_bytes(m_parts, e_parts).unwrap(),
+                    value,
+                    "round-trip decimal bytes {name:?}"
+                );
                 match read_decimal(&value) {
                     Ok((mantissa, exponent)) => {
                         // The vector is already canonical, so encoding the read pair
@@ -392,6 +419,16 @@ fn data_vectors() {
                             encode_decimal(mantissa, exponent).unwrap(),
                             value,
                             "round-trip decimal {name:?}"
+                        );
+                        // In range, the byte parts are encode_int's parts of that pair.
+                        let (m_int, e_int) = (encode_int(mantissa), encode_int(exponent));
+                        assert_eq!(
+                            (m_parts, e_parts),
+                            (
+                                read_int_bytes(&m_int).unwrap(),
+                                read_int_bytes(&e_int).unwrap()
+                            ),
+                            "decimal bytes agree with read_decimal {name:?}"
                         );
                     }
                     Err(DataError::IntOutOfRange) => {
@@ -447,7 +484,7 @@ fn data_reject_vectors() {
             "list" => read_list(&value).is_err(),
             "map" => read_map(&value).is_err(),
             "set" => read_set(&value).is_err(),
-            "decimal" => read_decimal(&value).is_err(),
+            "decimal" => read_decimal(&value).is_err() && read_decimal_bytes(&value).is_err(),
             "null" => read_null(&value).is_err(),
             other => panic!("reject case {name:?}: unknown kind {other:?} — update this test"),
         };
@@ -456,6 +493,60 @@ fn data_reject_vectors() {
             "reject case {name:?} (kind {kind}) was not rejected"
         );
     }
+}
+
+/// The `(negative, magnitude)` parts an `int`-shaped value spells, read straight off its
+/// payload with no canonicality check: `Tuple(Atom("int"), Atom(sign ‖ magnitude))` with a
+/// sign byte of `0x00` or `0x01`. `None` for anything not of that shape.
+fn raw_int_parts(v: &Value) -> Option<(bool, Vec<u8>)> {
+    let items = v.as_tuple()?.items();
+    let [label, payload] = items else {
+        return None;
+    };
+    if label.as_atom()?.bytes() != b"int" {
+        return None;
+    }
+    match payload.as_atom()?.bytes().split_first()? {
+        (&0x00, magnitude) => Some((false, magnitude.to_vec())),
+        (&0x01, magnitude) => Some((true, magnitude.to_vec())),
+        _ => None,
+    }
+}
+
+/// The byte-level decimal encoder refuses what recognition rejects: for every `decimal`
+/// reject vector whose children are both `int`-shaped (the trailing-zero mantissa, the
+/// zero with a non-zero exponent, the non-minimal mantissa), handing those raw parts to
+/// `encode_decimal_bytes` is refused, so it can never mint the rejected value.
+#[test]
+fn encode_decimal_bytes_refuses_the_decimal_reject_vectors() {
+    let doc = read_vectors("data.json");
+    let mut refused = 0;
+    for case in doc.get("reject").expect("reject array").arr() {
+        if case.get("kind").unwrap().str() != "decimal" {
+            continue;
+        }
+        let name = case.get("name").unwrap().str();
+        let value = value_from_json(case.get("value").unwrap());
+        let Some(items) = value.as_tuple().map(|t| t.items()) else {
+            continue;
+        };
+        let [_, m, e] = items else {
+            continue;
+        };
+        let (Some(m), Some(e)) = (raw_int_parts(m), raw_int_parts(e)) else {
+            continue;
+        };
+        assert_eq!(
+            encode_decimal_bytes((m.0, &m.1), (e.0, &e.1)),
+            Err(DataError::NonCanonicalPayload { kind: "decimal" }),
+            "encode_decimal_bytes must refuse the parts of reject case {name:?}"
+        );
+        refused += 1;
+    }
+    assert_eq!(
+        refused, 3,
+        "int-shaped decimal reject vectors (update if data.json grows)"
+    );
 }
 
 // ----- (B) local recognition (negative) tests, authored here -----

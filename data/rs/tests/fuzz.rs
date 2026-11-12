@@ -32,9 +32,10 @@
 use ontos_codec::encode as codec_encode;
 use ontos_core::Value;
 use ontos_data::{
-    encode_bool, encode_decimal, encode_int, encode_list, encode_map, encode_null, encode_set,
-    encode_text, read_bool, read_decimal, read_int, read_list, read_map, read_null, read_set,
-    read_text, recognize_decimal, recognize_int, recognize_null, DataError,
+    encode_bool, encode_decimal, encode_decimal_bytes, encode_int, encode_list, encode_map,
+    encode_null, encode_set, encode_text, read_bool, read_decimal, read_decimal_bytes, read_int,
+    read_int_bytes, read_list, read_map, read_null, read_set, read_text, recognize_decimal,
+    recognize_int, recognize_null, DataError,
 };
 
 // ----- hand-rolled deterministic PRNG (64-bit LCG, MMIX constants) -----
@@ -325,6 +326,34 @@ fn check_recognizers(v: &Value) -> u32 {
         recognized_dec, dec_read_or_limit,
         "D4: recognize_decimal disagrees with read_decimal (incl IntOutOfRange) for {v}"
     );
+    // decimal at byte level — D4: read_decimal_bytes recognizes exactly what
+    // recognize_decimal does, with no resource limit. D2: its parts rebuild v through
+    // encode_decimal_bytes. In range, the parts are read_decimal's pair at byte level.
+    let read_dec_bytes = read_decimal_bytes(v);
+    assert_eq!(
+        read_dec_bytes.is_ok(),
+        recognized_dec,
+        "D4: read_decimal_bytes disagrees with recognize_decimal for {v}"
+    );
+    if let Ok((m_parts, e_parts)) = read_dec_bytes {
+        assert_eq!(
+            encode_decimal_bytes(m_parts, e_parts)
+                .expect("D2: re-encoding read_decimal_bytes output must not error"),
+            *v,
+            "D2: encode_decimal_bytes(read_decimal_bytes(v)) != v for {v}"
+        );
+        if let Ok((mantissa, exponent)) = read_dec {
+            let (m_int, e_int) = (encode_int(mantissa), encode_int(exponent));
+            assert_eq!(
+                (m_parts, e_parts),
+                (
+                    read_int_bytes(&m_int).unwrap(),
+                    read_int_bytes(&e_int).unwrap()
+                ),
+                "read_decimal_bytes disagrees with read_decimal in range for {v}"
+            );
+        }
+    }
     // null — D2 (encode_null() == v) and D4 (recognize iff read). null carries no payload,
     // so recognize and read coincide; a recognized null re-encodes to the single inhabitant.
     let read_null_ok = read_null(v).is_ok();
@@ -521,4 +550,184 @@ fn produced_data_round_trips() {
         assert_eq!(encode_null(), v, "D3 null");
     }
     eprintln!("produced_data_round_trips: {ITERATIONS} iterations across all eight kinds");
+}
+
+// ----- the byte-level decimal pair (design 0010 step 2) -----
+
+/// The `(negative, magnitude)` parts `encode_int` derives for an in-range integer.
+fn int_parts(n: i128) -> (bool, Vec<u8>) {
+    let v = encode_int(n);
+    let (negative, magnitude) = read_int_bytes(&v).unwrap();
+    (negative, magnitude.to_vec())
+}
+
+/// A random `i128` biased toward the shapes the decimal rules care about: zero, the
+/// extremes, small values, a random value times a power of ten (a trailing-zero mantissa,
+/// up to 10^38), and the full range.
+fn decimal_component(rng: &mut Lcg) -> i128 {
+    match rng.below(6) {
+        0 => 0,
+        1 => [i128::MIN, i128::MAX, i128::MIN + 1, i128::MAX - 1, 1, -1][rng.below(6) as usize],
+        2 => (rng.below(2001) as i128) - 1000,
+        3 => {
+            let tens = 10i128.pow(1 + rng.below(38));
+            // A factor in 1..=i128::MAX / tens, so the product stays in range.
+            let bound = (i128::MAX / tens) as u128;
+            let factor = 1 + (rng.next_i128().unsigned_abs() % bound) as i128;
+            if rng.bool() {
+                factor * tens
+            } else {
+                -(factor * tens)
+            }
+        }
+        _ => rng.next_i128(),
+    }
+}
+
+/// **In-range agreement.** For many random `(mantissa, exponent)` `i128` pairs, the
+/// byte-level pair agrees byte for byte with `encode_decimal` / `read_decimal`:
+/// - on every value `encode_decimal` produces, `read_decimal_bytes` returns exactly
+///   `encode_int`'s parts of the pair `read_decimal` returns, and those parts rebuild the
+///   value through `encode_decimal_bytes`;
+/// - handed a pair's own parts, `encode_decimal_bytes` builds what `encode_decimal`
+///   builds when the pair is canonical, and refuses it when it is not (`encode_decimal`
+///   normalizes such a pair; the byte path takes canonical parts only).
+#[test]
+fn decimal_bytes_agree_with_the_i128_pair() {
+    const ITERATIONS: usize = 20_000;
+    let mut rng = Lcg::new(0xDA7A_F022_5EED_0004);
+    let (mut canonical, mut refused, mut host_edge) = (0usize, 0usize, 0usize);
+
+    for _ in 0..ITERATIONS {
+        let m = decimal_component(&mut rng);
+        let e = if rng.bool() {
+            decimal_component(&mut rng)
+        } else {
+            random_small_exponent(&mut rng)
+        };
+
+        let built = encode_decimal(m, e);
+        match &built {
+            Ok(v) => {
+                let (m_parts, e_parts) = read_decimal_bytes(v).unwrap();
+                let (want_m, want_e) = read_decimal(v).unwrap();
+                let (want_m, want_e) = (int_parts(want_m), int_parts(want_e));
+                assert_eq!(
+                    m_parts,
+                    (want_m.0, want_m.1.as_slice()),
+                    "mantissa of ({m},{e})"
+                );
+                assert_eq!(
+                    e_parts,
+                    (want_e.0, want_e.1.as_slice()),
+                    "exponent of ({m},{e})"
+                );
+                assert_eq!(encode_decimal_bytes(m_parts, e_parts).as_ref(), Ok(v));
+            }
+            // Normalizing pushed the exponent past i128::MAX: encode_decimal's host edge.
+            Err(err) => {
+                assert_eq!(*err, DataError::IntOutOfRange, "encode_decimal({m},{e})");
+                host_edge += 1;
+            }
+        }
+
+        let is_canonical = if m == 0 { e == 0 } else { m % 10 != 0 };
+        let (m_raw, e_raw) = (int_parts(m), int_parts(e));
+        let direct = encode_decimal_bytes((m_raw.0, &m_raw.1), (e_raw.0, &e_raw.1));
+        if is_canonical {
+            assert_eq!(direct, built, "canonical ({m},{e}) through the byte path");
+            canonical += 1;
+        } else {
+            assert_eq!(
+                direct,
+                Err(DataError::NonCanonicalPayload { kind: "decimal" }),
+                "non-canonical ({m},{e}) must be refused"
+            );
+            refused += 1;
+        }
+    }
+    assert!(
+        canonical > 0 && refused > 0 && host_edge > 0,
+        "a branch was never reached"
+    );
+    eprintln!(
+        "decimal_bytes_agree_with_the_i128_pair: {ITERATIONS} pairs, {canonical} canonical, \
+         {refused} refused, {host_edge} at encode_decimal's exponent edge"
+    );
+}
+
+/// A random `(negative, magnitude)` part with no canonicality guarantee: empty a quarter
+/// of the time, otherwise 1..=24 bytes (beyond i128 past 16) whose first byte is `0x00`
+/// a quarter of the time (non-minimal). The sign is random, so negative zero occurs.
+fn raw_part(rng: &mut Lcg) -> (bool, Vec<u8>) {
+    let negative = rng.bool();
+    if rng.below(4) == 0 {
+        return (negative, Vec::new());
+    }
+    let len = 1 + rng.below(24) as usize;
+    let mut magnitude: Vec<u8> = (0..len).map(|_| rng.next_byte()).collect();
+    if rng.below(4) == 0 {
+        magnitude[0] = 0x00;
+    } else if magnitude[0] == 0x00 {
+        magnitude[0] = 0x01;
+    }
+    (negative, magnitude)
+}
+
+/// The `int`-shaped value a raw part spells, with no checks: `Tuple(Atom("int"),
+/// Atom(sign ‖ magnitude))`.
+fn raw_int(part: &(bool, Vec<u8>)) -> Value {
+    let mut payload = vec![u8::from(part.0)];
+    payload.extend_from_slice(&part.1);
+    Value::tuple(vec![Value::atom(b"int".to_vec()), Value::atom(payload)])
+}
+
+/// **The encoder mints nothing non-canonical, at any width.** For random raw parts (any
+/// sign, any length to 24 bytes, minimal or not), `encode_decimal_bytes` succeeds exactly
+/// when `recognize_decimal` accepts the value those parts spell, and then returns that
+/// very value, which `read_decimal_bytes` reads back to the same parts. Every value is
+/// also run through the shared recognizer checker (D1, D2, D4, D5).
+#[test]
+fn encode_decimal_bytes_accepts_exactly_what_recognition_accepts() {
+    const ITERATIONS: usize = 20_000;
+    let mut rng = Lcg::new(0xDA7A_F022_5EED_0005);
+    let (mut accepted, mut refused, mut beyond_i128) = (0usize, 0usize, 0usize);
+
+    for _ in 0..ITERATIONS {
+        let (m, e) = (raw_part(&mut rng), raw_part(&mut rng));
+        let spelled = Value::tuple(vec![
+            Value::atom(b"decimal".to_vec()),
+            raw_int(&m),
+            raw_int(&e),
+        ]);
+        check_recognizers(&spelled);
+
+        match encode_decimal_bytes((m.0, &m.1), (e.0, &e.1)) {
+            Ok(v) => {
+                assert_eq!(recognize_decimal(&spelled), Ok(()), "accepted {spelled}");
+                assert_eq!(v, spelled, "encode_decimal_bytes built a different value");
+                assert_eq!(
+                    read_decimal_bytes(&v).unwrap(),
+                    ((m.0, m.1.as_slice()), (e.0, e.1.as_slice()))
+                );
+                accepted += 1;
+                if read_decimal(&v) == Err(DataError::IntOutOfRange) {
+                    beyond_i128 += 1;
+                }
+            }
+            Err(err) => {
+                assert_eq!(err, DataError::NonCanonicalPayload { kind: "decimal" });
+                assert!(recognize_decimal(&spelled).is_err(), "refused {spelled}");
+                refused += 1;
+            }
+        }
+    }
+    assert!(
+        accepted > 0 && refused > 0 && beyond_i128 > 0,
+        "a branch was never reached"
+    );
+    eprintln!(
+        "encode_decimal_bytes_accepts_exactly_what_recognition_accepts: {ITERATIONS} pairs, \
+         {accepted} accepted ({beyond_i128} beyond i128), {refused} refused"
+    );
 }

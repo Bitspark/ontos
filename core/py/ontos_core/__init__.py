@@ -174,7 +174,7 @@ class Tuple(Value):
         # Tuple(xs) = Tuple(ys) iff same arity and xs[i] = ys[i] recursively;
         # Tuple != Atom always (ontos-core §3).
         if isinstance(other, Tuple):
-            return self._items == other._items
+            return _tuples_equal(self, other)
         if isinstance(other, Atom):
             return False
         return NotImplemented
@@ -186,7 +186,7 @@ class Tuple(Value):
         return not result
 
     def __hash__(self) -> int:
-        return hash(("tuple", self._items))
+        return _tuple_hash(self)
 
     def __str__(self) -> str:
         # Walks with an explicit stack of open tuples, never one Python frame per
@@ -229,6 +229,101 @@ class Tuple(Value):
 _TUPLE_STR = Tuple.__str__
 # Marks an exhausted child iterator in Tuple.__str__; never a value.
 _END = object()
+# Tuple.__eq__ and Tuple.__hash__ as defined above, kept for the same reason.
+_TUPLE_EQ = Tuple.__eq__
+_TUPLE_HASH = Tuple.__hash__
+
+
+def _tuples_equal(left: Tuple, right: Tuple) -> bool:
+    """``left._items == right._items``, decided as the builtin tuple comparison decides it,
+    with an explicit stack in place of its recursion through each child's ``__eq__``.
+
+    The recursive form raised RecursionError from 1000 levels, below the codec's default
+    decode depth of 1024. The builtin compares child pairs left to right and stops at the
+    first pair that differs; only after the shorter tuple's last child does arity decide. A
+    pair is equal if it is one object, or else if ``x == y`` is true. This walk asks the
+    same questions in the same order, except that a pair of tuples that both compare
+    through Tuple.__eq__ is opened in place instead of being called. When Python would have
+    asked the right one first (its class is a proper subclass of the left one's), the pair
+    is opened right to left, as that call would have compared it.
+    """
+    # Each open pair of tuples: an iterator over its child pairs, and whether the two
+    # arities match.
+    open_pairs = [(zip(left._items, right._items), len(left._items) == len(right._items))]
+    while open_pairs:
+        pairs, same_arity = open_pairs[-1]
+        pair = next(pairs, None)
+        if pair is None:
+            if not same_arity:
+                return False
+            open_pairs.pop()
+            continue
+        x, y = pair
+        if x is y:
+            continue
+        if (
+            type(x).__eq__ is _TUPLE_EQ
+            and type(y).__eq__ is _TUPLE_EQ
+            and isinstance(x, Tuple)
+            and isinstance(y, Tuple)
+        ):
+            if type(x) is not type(y) and issubclass(type(y), type(x)):
+                x, y = y, x
+            open_pairs.append((zip(x._items, y._items), len(x._items) == len(y._items)))
+        elif not x == y:
+            return False
+    return True
+
+
+class _Lane:
+    """Stands in for a child tuple whose hash is already known: the builtin tuple hash asks
+    it for that number, as it would have asked the tuple itself."""
+
+    __slots__ = ("_hash",)
+
+    def __init__(self, hash_: int) -> None:
+        self._hash = hash_
+
+    def __hash__(self) -> int:
+        return self._hash
+
+
+def _tuple_hash(root: Tuple) -> int:
+    """``hash(("tuple", root._items))``, the same number the recursive form computed, with an
+    explicit stack in place of its recursion through each child's ``__hash__``.
+
+    The recursive form raised RecursionError from 1000 levels, so a decoded 1024-deep value
+    could not be a dict key. The walk hashes each tuple after its children. A child tuple
+    whose ``__hash__`` is Tuple's own goes into its parent's builtin tuple as a ``_Lane``
+    carrying its hash, so the builtin tuple hash combines exactly the numbers it combined
+    before, and existing dicts and sets keep agreeing. Any other child (an Atom, or a subclass
+    with its own ``__hash__``) goes in as itself and is hashed by the builtin, as before. A
+    tuple reached twice is hashed once.
+    """
+    # id(tuple) -> its hash, for every tuple walked. Each one is alive under root while the
+    # walk runs, so no other object shares its id, and only a walked child is found here.
+    hashes = {}
+    pending = [(root, False)]
+    while pending:
+        node, children_hashed = pending.pop()
+        if children_hashed:
+            lanes = tuple(
+                _Lane(hashes[id(child)]) if id(child) in hashes else child
+                for child in node._items
+            )
+            hashes[id(node)] = hash(("tuple", lanes))
+            continue
+        if id(node) in hashes:
+            continue
+        pending.append((node, True))
+        for child in reversed(node._items):
+            if (
+                type(child).__hash__ is _TUPLE_HASH
+                and isinstance(child, Tuple)
+                and id(child) not in hashes
+            ):
+                pending.append((child, False))
+    return hashes[id(root)]
 
 
 def atom(data: Union[bytes, bytearray, Iterable[int]] = b"") -> Atom:

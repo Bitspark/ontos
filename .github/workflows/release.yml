@@ -244,7 +244,9 @@ jobs:
             # from the provenance statements instead. So a verify of v0.13.0 itself would now see
             # different content: from v0.13.1 on, every version carries it.
             ( cd "$d" && npm pkg set gitHead="$RELEASE_SHA" )
-            ( cd "$d" && npm pack --pack-destination "$WORK/npm" --json > "$WORK/npm/$(basename "$(dirname "$d")")-$(basename "$d").pack.json" )
+            # One metadata file per package directory, named after the whole path: two directories
+            # with the same last two components (data/json/ts, projection/json/ts) must not share one.
+            ( cd "$d" && npm pack --pack-destination "$WORK/npm" --json > "$WORK/npm/$(printf '%s' "$d" | tr '/' '_').pack.json" )
           done
           args=(); for c in $CRATES_PUBLISHED; do args+=(-p "$c"); done
           cargo package --locked --allow-dirty "${args[@]}"
@@ -265,6 +267,28 @@ jobs:
             }
             fs.writeFileSync(path.join(w, "candidate.json"), JSON.stringify(out, null, 2) + "\n");
             console.log(JSON.stringify(out, null, 2));
+            // The candidate must hold exactly the published packages, each once: a lost or doubled
+            // entry would make the compare and publish steps skip a package without saying so.
+            const dirs = process.env.NPM_PUBLISHED.split(" ").filter(Boolean);
+            const wantNpm = dirs.map((d) => JSON.parse(fs.readFileSync(path.join(d, "package.json"), "utf8")).name).sort();
+            const gotNpm = out.npm.map((p) => p.name).sort();
+            const wantCrates = process.env.CRATES_PUBLISHED.split(" ").filter(Boolean).sort();
+            const gotCrates = out.crates.map((c) => c.name).sort();
+            const packs = fs.readdirSync(path.join(w, "npm")).filter((f) => f.endsWith(".pack.json")).length;
+            let bad = false;
+            if (JSON.stringify(gotNpm) !== JSON.stringify(wantNpm)) {
+              console.log("::error::candidate npm packages [" + gotNpm.join(", ") + "] differ from the NPM_PUBLISHED names [" + wantNpm.join(", ") + "]");
+              bad = true;
+            }
+            if (packs !== dirs.length) {
+              console.log("::error::" + packs + " npm pack records for " + dirs.length + " published directories");
+              bad = true;
+            }
+            if (JSON.stringify(gotCrates) !== JSON.stringify(wantCrates)) {
+              console.log("::error::candidate crates [" + gotCrates.join(", ") + "] differ from the CRATES_PUBLISHED names [" + wantCrates.join(", ") + "]");
+              bad = true;
+            }
+            if (bad) process.exit(1);
           '
 
       - name: Save verified provenance for first-package bootstrap

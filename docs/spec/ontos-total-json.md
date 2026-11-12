@@ -95,7 +95,7 @@ lc-hex        = DIGIT / %x61-66        ; 0-9 a-f, lowercase only
 **Decoded content.** A prose value of the form `<a string whose decoded content …>` (RFC 5234
 §4) stands for any RFC 8259 `string` whose content matches. A string's *decoded content* is
 the sequence of Unicode scalar values between its quotation marks after each escape is replaced
-by what it denotes (RFC 8259 §7): `"atom"` and `"atom"` have the same decoded content.
+by what it denotes (RFC 8259 §7): `"\u0061tom"` and `"atom"` have the same decoded content.
 
 RFC 8259's `ws` is exactly space, horizontal tab, line feed and carriage return. Every other
 character outside a string, including U+00A0, U+2028 and U+FEFF, is outside the language.
@@ -181,8 +181,8 @@ required.
      token is the span from its opening to its closing quotation mark.
   2. If an earlier member of this object has the same decoded name, refuse with
      `duplicate_member`, path `P + [m]`, span of the second name's token. Names are compared
-     after escape decoding and without Unicode normalization: `"a"` and `"a"` are the
-     same name, while `"é"` (U+00E9) and `"é"` are two names.
+     after escape decoding and without Unicode normalization: `"a"` and `"\u0061"` are the
+     same name, while `"é"` (U+00E9) and `"e\u0301"` are two names.
   3. After whitespace, the next byte must be `:`, else refuse with `invalid_json`, path
      `P + [m]`, and the character's span, or `[n, n)`.
   4. After whitespace, read a value at path `P + [m]`, enclosed by `k + 1`.
@@ -291,7 +291,7 @@ here. Every other distinction is refused. Nothing is collapsed silently.
 | space, tab, line feed and carriage return between tokens | accepted, never emitted | normalization `json-whitespace` |
 | any other whitespace, such as U+00A0, U+2028 or a form feed, outside strings | refused | `invalid_json` |
 | a byte order mark at the start | refused | `byte_order_mark` |
-| a member name or hex string spelled with escapes (`"atom"`, `"00"`) | accepted, emitted without escapes | normalization `string-escapes` |
+| a member name or hex string spelled with escapes (`"\u0061tom"`, `"\u0030\u0030"`) | accepted, emitted without escapes | normalization `string-escapes` |
 | uppercase or odd-length hex | refused | `invalid_hex` |
 | a repeated member name, compared after escape decoding | refused | `duplicate_member` |
 | comments, a second value, or anything after the value | refused | `trailing_data` (after a complete value) or `invalid_json` |

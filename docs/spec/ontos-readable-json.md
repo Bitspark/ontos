@@ -257,7 +257,7 @@ source order.
 
 The member name `$ontos` is reserved, and only it: `$bytes`, `$undefined` and every other name
 that starts with `$` are ordinary keys. Names are compared after escape decoding, so
-`"$ontos"` is the reserved name. An object that contains the reserved name is an envelope
+`"\u0024ontos"` is the reserved name. An object that contains the reserved name is an envelope
 and nothing else. A malformed envelope is refused. It never falls back to being read as a map.
 
 An object `x` at value depth `d` and path `P` that has a member named `$ontos` is checked:

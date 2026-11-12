@@ -575,10 +575,18 @@ function hexNibble(code: number): number {
 /** Resolve the hex input: positional arg, or stdin when absent or "-". */
 function resolveInput(positional: string | undefined): string {
   if (positional !== undefined && positional !== "-") {
-    return positional.trim();
+    return trimHexInput(positional);
   }
-  // Read synchronously and strip surrounding whitespace.
-  return readStdinText().trim();
+  return trimHexInput(readStdinText());
+}
+
+/**
+ * Strip the whitespace allowed around hex input: space, tab, LF and CR (RFC 8259's
+ * set, as `--from-json` allows), and nothing else (ontos-cli.md "Synopsis"). String
+ * trim() is not used: it also strips a BOM, NBSP and every other Unicode space.
+ */
+function trimHexInput(text: string): string {
+  return text.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, "");
 }
 
 /**

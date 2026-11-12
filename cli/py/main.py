@@ -500,12 +500,22 @@ def _parse_hex(text: str) -> Optional[bytes]:
     return bytes.fromhex(text)
 
 
+# The whitespace stripped around hex input: space, tab, LF and CR (RFC 8259's set,
+# as --from-json allows), and nothing else (ontos-cli.md "Synopsis"). str.strip()
+# with no argument would also strip U+001C-U+001F, NBSP and every Unicode space.
+_HEX_INPUT_SPACE = " \t\n\r"
+
+
 def _read_input(arg: Optional[str]) -> str:
-    """The textual input (hex or json): the argument when present and not "-",
-    otherwise the whole of stdin. Surrounding whitespace stripped either way."""
+    """The hex input: the argument when present and not "-", otherwise the whole
+    of stdin, with surrounding space/tab/LF/CR stripped. Bytes that are not UTF-8
+    are read as U+FFFD (stdin as bytes, an argument through os.fsencode), so they
+    fail as invalid_hex like any other non-hex."""
     if arg is not None and arg != "-":
-        return arg.strip()
-    return sys.stdin.read().strip()
+        text = os.fsencode(arg).decode("utf-8", "replace")
+    else:
+        text = sys.stdin.buffer.read().decode("utf-8", "replace")
+    return text.strip(_HEX_INPUT_SPACE)
 
 
 class _Resolved:

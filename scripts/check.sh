@@ -82,16 +82,17 @@ ts_build() {
 
 do_test() {
   step "rust (cargo test --workspace)"; cargo test --workspace --locked
-  # The Rust ground crates on a 32-bit target (ontos-internal#352): core, codec, data and
-  # data-json, whose length, magnitude and native-width arithmetic all meet a 32-bit usize
-  # here and nowhere else. CI fetches a pinned wasmtime; locally this runs only when wasmtime
-  # and the wasm32-wasip1 target are already installed, and says so when they are not.
-  # Mirrors .github/workflows/ci.yml.
+  # The Rust ground crates on a 32-bit target (ontos-internal#352): core, codec, data,
+  # data-json and the JSON projections (bitspark-ontos-json), whose length, magnitude, span and
+  # native-width arithmetic all meet a 32-bit usize here and nowhere else. CI fetches a pinned
+  # wasmtime; locally this runs only when wasmtime and the wasm32-wasip1 target are already
+  # installed, and says so when they are not. Mirrors .github/workflows/ci.yml.
   if command -v wasmtime >/dev/null 2>&1 && rustup target list --installed | grep -qx wasm32-wasip1; then
-    step "rust core + codec + data + data-json on wasm32 (32-bit usize) under wasmtime"
+    step "rust core + codec + data + data-json + json on wasm32 (32-bit usize) under wasmtime"
     CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir=$PWD::$PWD" \
       cargo test --no-fail-fast -p bitspark-ontos-core -p bitspark-ontos-codec \
-        -p bitspark-ontos-data -p bitspark-ontos-data-json --target wasm32-wasip1 --locked
+        -p bitspark-ontos-data -p bitspark-ontos-data-json -p bitspark-ontos-json \
+        --target wasm32-wasip1 --locked
   else
     step "rust ground crates on wasm32: SKIPPED here (needs wasmtime on PATH and \`rustup target add wasm32-wasip1\`; CI runs it)"
   fi

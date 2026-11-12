@@ -53,6 +53,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitspark-ontos-json"
+version = "0.17.1"
+dependencies = [
+ "bitspark-ontos-codec",
+ "bitspark-ontos-core",
+ "bitspark-ontos-data",
+]
+
+[[package]]
 name = "ontos-cli"
 version = "0.1.0"
 dependencies = [

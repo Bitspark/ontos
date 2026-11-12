@@ -538,3 +538,82 @@ impl<'v> Writer<'v> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ontos_data::{read_list, read_map, read_set, read_text};
+
+    /// Candidates for every label, canonical and not: the recognizer must take exactly what
+    /// ontos-data's own readers take.
+    fn candidates() -> Vec<Value> {
+        let a = |b: &[u8]| Value::atom(b.to_vec());
+        let t = |items: Vec<Value>| Value::tuple(items);
+        let text = |s: &[u8]| t(vec![a(b"utf8-text"), a(s)]);
+        let mut out = vec![
+            a(b""),
+            t(vec![]),
+            t(vec![t(vec![])]),
+            text(b"ok"),
+            text(b"\xff"),
+            text(b""),
+            t(vec![a(b"utf8-text")]),
+            t(vec![a(b"utf8-text"), a(b"x"), a(b"y")]),
+            t(vec![a(b"utf8-text"), t(vec![])]),
+        ];
+        let keys = [text(b"b"), text(b"aa"), a(b""), t(vec![]), text(b"b")];
+        for label in [&b"list"[..], b"map", b"set"] {
+            out.push(t(vec![a(label)]));
+            for i in 0..keys.len() {
+                for j in 0..keys.len() {
+                    let pair = |k: &Value| t(vec![k.clone(), a(b"v")]);
+                    out.push(t(vec![a(label), keys[i].clone(), keys[j].clone()]));
+                    out.push(t(vec![a(label), pair(&keys[i]), pair(&keys[j])]));
+                    out.push(t(vec![a(label), pair(&keys[i]), keys[j].clone()]));
+                    out.push(t(vec![a(label), t(vec![keys[i].clone()]), pair(&keys[j])]));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn recognition_agrees_with_ontos_data() {
+        for v in candidates() {
+            let kind = recognize(&v);
+            assert_eq!(
+                matches!(kind, Some(Kind::Text(_))),
+                read_text(&v).is_ok(),
+                "{v}"
+            );
+            if let Some(Kind::Text(s)) = kind {
+                assert_eq!(s, read_text(&v).unwrap());
+            }
+            assert_eq!(
+                matches!(kind, Some(Kind::List(_))),
+                read_list(&v).is_ok(),
+                "{v}"
+            );
+            assert_eq!(
+                matches!(kind, Some(Kind::Map(_))),
+                read_map(&v).is_ok(),
+                "{v}"
+            );
+            assert_eq!(
+                matches!(kind, Some(Kind::Set(_))),
+                read_set(&v).is_ok(),
+                "{v}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_strings_escape_exactly_the_fixed_set() {
+        let mut out = Vec::new();
+        push_json_string(&mut out, "\"\\/\u{8}\t\n\u{c}\r\u{0}\u{1f}\u{7f}\u{2028}é");
+        assert_eq!(
+            out,
+            "\"\\\"\\\\/\\b\\t\\n\\f\\r\\u0000\\u001f\u{7f}\u{2028}é\"".as_bytes()
+        );
+    }
+}

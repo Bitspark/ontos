@@ -470,3 +470,145 @@ fn from_json_works_with_other_commands() {
     let read = run(&["read", "--kind", "int", "--from-json", value]);
     assert_eq!(read.code, 0, "read exit {}", read.code);
 }
+
+/// Run the binary with `input` on stdin, returning its exit code and stdout.
+fn run_stdin(args: &[&str], input: &[u8]) -> Run {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = ontos()
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn ontos binary");
+    let mut stdin = child.stdin.take().expect("stdin piped");
+    // The binary may exit before reading all of it; a broken pipe is not a failure here.
+    let _ = stdin.write_all(input);
+    drop(stdin);
+    let output = child.wait_with_output().expect("failed to wait for ontos");
+    Run {
+        code: output.status.code().expect("process killed by signal"),
+        stdout: String::from_utf8(output.stdout).expect("stdout not utf-8"),
+    }
+}
+
+/// One `json_profiles` case: name, argv, stdin, the exit code and stdout it must give.
+type ProfileCase<'a> = (&'a str, Vec<&'a str>, Vec<u8>, i32, String);
+
+/// `--json-profile` (docs/spec/ontos-cli.md "JSON profiles"): readable input from stdin
+/// only, as exact bytes; readable output; library refusals mapped onto `invalid_json` and
+/// `limit_exceeded`; total (the default) unchanged.
+#[test]
+fn json_profiles() {
+    let line = |command: &str, code: &str| {
+        format!("{{\"ok\":false,\"command\":\"{command}\",\"error\":\"{code}\"}}\n")
+    };
+    let big_int = format!("01020003696e7400fb0d00{}", "ff".repeat(1786));
+    let deep = format!("{}{}", "[".repeat(1025), "]".repeat(1025));
+    let cases: Vec<ProfileCase> = vec![
+        (
+            "readable from stdin",
+            vec!["canon", "--emit", "--json-profile", "readable", "--from-json", "-"],
+            br#"{"$ontos":["int","5"]}"#.to_vec(),
+            0,
+            "01020003696e7400020005\n".into(),
+        ),
+        (
+            "readable inline flag form",
+            vec!["canon", "--emit", "--json-profile=readable", "--from-json=-"],
+            b"257".to_vec(),
+            0,
+            "01020003696e740003000101\n".into(),
+        ),
+        (
+            "readable from an argument is usage_error",
+            vec!["canon", "--emit", "--format", "json", "--json-profile", "readable", "--from-json", "5"],
+            vec![],
+            2,
+            line("canon", "usage_error"),
+        ),
+        (
+            "readable bytes that are not UTF-8 are refused",
+            vec!["canon", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+            b"\"\xff\"".to_vec(),
+            2,
+            line("canon", "invalid_json"),
+        ),
+        (
+            "readable refusal: invalid_number",
+            vec!["read", "--all", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+            b"1.5".to_vec(),
+            2,
+            line("read", "invalid_json"),
+        ),
+        (
+            "readable limit: decode_depth",
+            vec!["decode", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+            deep.clone().into_bytes(),
+            1,
+            line("decode", "limit_exceeded"),
+        ),
+        (
+            "readable output",
+            vec!["decode", "--format", "json", "--json-profile", "readable", "01020003696e740003000101"],
+            vec![],
+            0,
+            "{\"ok\":true,\"command\":\"decode\",\"codec\":\"ontos-codec-v1\",\"value\":257}\n".into(),
+        ),
+        (
+            "readable output keeps <, >, & and U+2028",
+            vec!["inspect", "--format", "json", "--json-profile", "readable", "--from-json", "-"],
+            b"\"<&>\\u2028\"".to_vec(),
+            0,
+            "{\"ok\":true,\"command\":\"inspect\",\"codec\":\"ontos-codec-v1\",\"canonical\":true,\"value\":\"<&>\u{2028}\",\"recognized\":[\"utf8-text\"]}\n".into(),
+        ),
+        (
+            "the readable writer refuses more than 4300 digits",
+            vec!["decode", "--format", "json", "--json-profile", "readable"],
+            big_int.clone().into_bytes(),
+            1,
+            line("decode", "limit_exceeded"),
+        ),
+        (
+            "the total writer writes it",
+            vec!["decode", "--format", "json", "--json-profile", "total"],
+            big_int.clone().into_bytes(),
+            0,
+            format!(
+                "{{\"ok\":true,\"command\":\"decode\",\"codec\":\"ontos-codec-v1\",\"value\":{{\"tuple\":[{{\"atom\":\"696e74\"}},{{\"atom\":\"00{}\"}}]}}}}\n",
+                "ff".repeat(1786)
+            ),
+        ),
+        (
+            "total is the default, given explicitly",
+            vec!["canon", "--emit", "--json-profile", "total", "--from-json", r#"{"atom":"00"}"#],
+            vec![],
+            0,
+            "000100\n".into(),
+        ),
+        (
+            "a total text that begins with '-' is the argument",
+            vec!["canon", "--format", "json", "--from-json", "-1"],
+            vec![],
+            2,
+            line("canon", "invalid_json"),
+        ),
+    ];
+    for (name, args, input, code, stdout) in cases {
+        let out = run_stdin(&args, &input);
+        assert_eq!(
+            (out.code, out.stdout.as_str()),
+            (code, stdout.as_str()),
+            "{name}"
+        );
+    }
+    for bad in [
+        &["decode", "--json-profile"][..],
+        &["decode", "--json-profile", "pretty", "00"],
+        &["decode", "--json-profile=Total", "00"],
+    ] {
+        let out = run(bad);
+        assert_eq!((out.code, out.stdout.as_str()), (2, ""), "{bad:?}");
+    }
+}

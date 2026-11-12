@@ -101,9 +101,9 @@
  *                         code. For each case, each impl runs `canon --emit --format json`
  *                         on the text through argv (when the text fits) and through stdin
  *                         (`-`); stdout and the exit code must equal the expected line and
- *                         the contract's exit code. For an accepted --from-json text,
- *                         `decode` (json and human) of the text must also equal `decode`
- *                         of the expected hex, in each impl and across impls.
+ *                         the contract's exit code. For an accepted text, `decode` (json
+ *                         and human) of the text must also equal `decode` of the expected
+ *                         hex, whole and byte for byte, in each impl and across impls.
  *   --reading-cases PATH  Read the READING cases from PATH instead.
  *   --verbose             With --input-reading: print each case's per-impl outcome.
  *
@@ -612,7 +612,7 @@ function runAsync(impl, args, input, chunked = false) {
 }
 
 // One case: `canon --emit` through each source (oracle), then, for an accepted
-// --from-json text, decode of the text against decode of the expected hex.
+// text, decode of the text against decode of the expected hex.
 async function runReadingCase(impls, c) {
   const divergences = [];
   const report = [];
@@ -641,14 +641,15 @@ async function runReadingCase(impls, c) {
     }
   }
 
-  if (c.source === "json" && c.expect.hex !== undefined) {
+  if (c.expect.hex !== undefined) {
     // The value read from the text is the value its canonical bytes decode to, in
     // each impl (so no impl accepts a value its own default decoder refuses), and
-    // the impls render it identically.
+    // every impl prints all of it, byte for byte the same: a large value's output
+    // must arrive whole (ts once cut a 2 MB line short with exit 0).
     for (const format of ["json", "human"]) {
       const perImpl = await Promise.all(
         impls.map(async (impl) => {
-          const viaJson = await runAsync(impl, ["decode", "--format", format, "--from-json", "-"], c.input, c.chunked);
+          const viaJson = await runAsync(impl, ["decode", "--format", format, ...flag, "-"], c.input, c.chunked);
           const viaHex = await runAsync(impl, ["decode", "--format", format], Buffer.from(c.expect.hex), c.chunked);
           return { impl, viaJson, viaHex };
         }),
@@ -665,7 +666,7 @@ async function runReadingCase(impls, c) {
           label: c.name,
           perImpl: perImpl.map((r) => ({
             name: r.impl.name,
-            stdout: `--from-json: ${short(r.viaJson.stdout)} | hex (exit ${r.viaHex.status}): ${short(r.viaHex.stdout)}`,
+            stdout: `the text: ${short(r.viaJson.stdout)} | its hex (exit ${r.viaHex.status}): ${short(r.viaHex.stdout)}`,
             status: r.viaJson.status,
           })),
         });

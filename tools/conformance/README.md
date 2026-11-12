@@ -79,9 +79,10 @@ or a `[string, count]` pair to repeat, so a text 10^5 levels deep is one line. F
 every impl runs `canon --emit --format json` on the text, through argv (when the text fits a
 command line, 16 KiB) and through stdin (`-`), and must print exactly the expected line with
 the contract's exit code (`0`; `1` for `limit_exceeded` and decode errors; `2` for
-`invalid_json` and `invalid_hex`). For an accepted `--from-json` text, `decode` of the text
-must also equal `decode` of the expected hex, in each impl and across impls, in both formats:
-the value read is the value its bytes decode to. Node passes arguments only as strings, so
+`invalid_json` and `invalid_hex`). For an accepted text, `decode` of the text must also
+equal `decode` of the expected hex, whole and byte for byte, in each impl and across impls,
+in both formats: the value read is the value its bytes decode to, and a large value's output
+arrives complete (the 1 MiB atom's 2 MB lines, on both paths). Node passes arguments only as strings, so
 on POSIX a text that is not UTF-8 reaches argv through a `python3 -I` exec trampoline.
 A case marked `chunked` writes its stdin 64 KiB at a time with a 2 ms pause between chunks,
 so each impl outruns the pipe and meets it empty mid-input; the large cases (over 1 MB, on

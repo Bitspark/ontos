@@ -2,7 +2,7 @@
   "name": "@bitspark/ontos-cli",
   "version": "0.1.0",
   "license": "Apache-2.0",
-  "description": "ontos CLI (ts) — the `ontos` byte-first inspector (decode/inspect/read/canon) over @bitspark/ontos-{core,codec,data}. Implements docs/spec/ontos-cli.md. Repo-local developer tool — NOT published (private); one of three peer implementations (go/rs/ts), machine output byte-identical across them.",
+  "description": "ontos CLI (ts) — the `ontos` byte-first inspector (decode/inspect/read/canon) over @bitspark/ontos-{core,codec,data,json}. Implements docs/spec/ontos-cli.md. Repo-local developer tool — NOT published (private); one of three peer implementations (go/rs/ts), machine output byte-identical across them.",
   "private": true,
   "type": "module",
   "repository": {
@@ -18,7 +18,8 @@
   "dependencies": {
     "@bitspark/ontos-codec": "^0.17.1",
     "@bitspark/ontos-core": "^0.17.1",
-    "@bitspark/ontos-data": "^0.17.1"
+    "@bitspark/ontos-data": "^0.17.1",
+    "@bitspark/ontos-json": "^0.17.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6"

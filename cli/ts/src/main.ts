@@ -2,15 +2,18 @@
 /*
  * ontos CLI (ts) — the `ontos` byte-first inspector (docs/spec/ontos-cli.md).
  *
- *   ontos <command> [--format human|json] [<hex>]
+ *   ontos <command> [--format human|json] [--from-json <json|->]
+ *                   [--json-profile total|readable] [<hex>]
  *
  * Bytes in, evidence out: input is canonical ontos-codec-v1 bytes given as a hex
- * string (positional, or `-`/omitted to read hex from stdin), OR the authoring
- * notation via `--from-json <json|->` (the inverse of `--format json` value
- * rendering) — the one text→bytes path, mutually exclusive with a positional
- * `<hex>`. The from-json value is built directly with the core constructors, so it
- * is canonical by construction (no bytes are decoded). All four commands
- * (decode/inspect/read/canon) accept either input source.
+ * string (positional, or `-`/omitted to read hex from stdin), OR JSON text via
+ * `--from-json <json|->` — the one text→bytes path, mutually exclusive with a
+ * positional `<hex>`. `--json-profile` selects the JSON profile of that input and of
+ * the `--format json` value rendering: ontos-total-json/1 by default
+ * (`{"atom":"<hex>"}` | `{"tuple":[…]}`), or ontos-readable-json/1, read from stdin
+ * only. @bitspark/ontos-json reads and writes it; the value is built, not decoded,
+ * so it is canonical by construction. All four commands (decode/inspect/read/canon)
+ * accept either input source.
  *
  * This is one of three peer implementations (go/rs/ts), each built over its own
  * core. The contract — not any one binary — is the source of truth, and the
@@ -19,9 +22,10 @@
  * carrying only the stable fields. That is what the differential harness (ontos-internal#15) diffs.
  *
  * Node stdlib only (node:util parseArgs, node:process, node:fs), mirroring the
- * dependency-free cores. The model/codec come from @bitspark/ontos-core and
- * @bitspark/ontos-codec; in the monorepo those names resolve to core/ts and codec/ts
- * via npm workspaces, so source and published build carry identical imports.
+ * dependency-free cores. The model/codec/data and the JSON projections come from
+ * @bitspark/ontos-{core,codec,data,json}; in the monorepo those names resolve to
+ * core/ts, codec/ts, data/ts and projection/json/ts via npm workspaces, so source and
+ * published build carry identical imports.
  */
 
 import { parseArgs } from "node:util";
@@ -30,7 +34,7 @@ import { readSync, writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { decode, encode, DecodeError } from "@bitspark/ontos-codec";
-import { Atom, Tuple, type Value } from "@bitspark/ontos-core";
+import { type Value } from "@bitspark/ontos-core";
 import {
   recognizeInt,
   readText,
@@ -42,11 +46,14 @@ import {
   readNull,
   DataError,
 } from "@bitspark/ontos-data";
+import * as total from "@bitspark/ontos-json/total";
+import * as readable from "@bitspark/ontos-json/readable";
 
 const CODEC_ID = "ontos-codec-v1";
 const VERSION = "ontos 0.1.0";
 
-const USAGE = `usage: ontos <command> [--format human|json] [--from-json <json|->] [<hex>]
+const USAGE = `usage: ontos <command> [--format human|json] [--from-json <json|->]
+                     [--json-profile total|readable] [<hex>]
 
 commands:
   decode [<hex>]                       decode ontos-codec-v1 bytes -> the L0 value tree
@@ -56,15 +63,20 @@ commands:
 
 options:
   -f, --format <human|json>   output format (default: human)
-  --from-json <json|->        value as authoring notation ({"atom":"hex"}|{"tuple":[...]})
-                              instead of <hex>; "-" reads JSON from stdin
+  --from-json <json|->        value as json text instead of <hex>; "-" reads JSON
+                              from stdin
+  --json-profile <total|readable>
+                              the json profile of --from-json and of json value
+                              output (default total: {"atom":"hex"}|{"tuple":[...]});
+                              readable input only from stdin
   -h, --help                  print this help and exit
   -V, --version               print version and exit
 
-input: hex string positional, or read from stdin when omitted or "-"; or the
-authoring notation via --from-json (mutually exclusive with <hex>).`;
+input: hex string positional, or read from stdin when omitted or "-"; or json
+text via --from-json (mutually exclusive with <hex>).`;
 
 type Format = "human" | "json";
+type Profile = "total" | "readable";
 
 /**
  * The registered embedding labels, in the fixed order the contract pins for the
@@ -104,363 +116,72 @@ function lowerHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The authoring notation already used by vectors/: {atom:hex} | {tuple:[...]}. */
-type Authoring = { atom: string } | { tuple: Authoring[] };
-
-function toAuthoring(value: Value): Authoring {
-  if (value instanceof Atom) {
-    return { atom: lowerHex(value.bytes()) };
-  }
-  if (value instanceof Tuple) {
-    return { tuple: value.items().map(toAuthoring) };
-  }
-  // Unreachable: Value is Atom | Tuple. Present so the function is total.
-  throw new TypeError("expected an ontos Value");
-}
-
-/**
- * A malformed `--from-json` input: a fault in the JSON text, or JSON that is not
- * the {atom:hex}|{tuple:[…]} authoring shape. Both are the single stable
- * `invalid_json` error code (ontos-cli.md "Value input").
- */
-class AuthoringError extends Error {}
-
-/**
- * A `--from-json` text with more than JSON_NESTING_CAP nested arrays and objects:
- * the stable `limit_exceeded` code, exit 1, as a decode limit.
- */
-class JsonTooDeep extends Error {}
-
 /*
- * Reading --from-json, in two stages, the same way in all four CLIs
- * (ontos-cli.md "Value input"):
- *   1. readJson reads the text as RFC 8259 JSON, left to right and without
- *      recursion: only space/tab/LF/CR as whitespace, nothing after the value,
- *      escapes decoded, lone-surrogate escapes and repeated member names refused,
- *      and at most JSON_NESTING_CAP open arrays and objects. The first fault ends the
- *      reading: a 2051st level is JsonTooDeep, anything else AuthoringError.
- *   2. authoringValue checks the JSON value against the authoring shape and builds
- *      the core Value, again without recursion.
- * Node decodes argv and the utf8 stdin read with U+FFFD for each sequence that is
- * not UTF-8, which is the contract's rule; U+FFFD is never hex and never part of
- * "atom" or "tuple", so such text is always refused (a member named with it fails
- * the shape check). This reader is interim: a later task
- * moves the CLIs onto a library reader.
+ * JSON values through @bitspark/ontos-json. --json-profile selects the profile, the
+ * same way in all four CLIs (ontos-cli.md "Value input" and "JSON profiles"):
+ *   - total (the default) is ontos-total-json/1, through ./total. The --from-json
+ *     text comes from an argument or from stdin. Bytes that are not UTF-8 are read as
+ *     U+FFFD before the library sees them (totalText): that step is the CLI's total
+ *     transport, because Node decodes argv that way before this code sees it. The
+ *     library's reader is strict and never repairs text.
+ *   - readable is ontos-readable-json/1, through ./readable. Its input is read from
+ *     stdin only, as the exact bytes, with no lossy step: a replaced byte inside a
+ *     string would read as a different value (ontos-readable-json.md §10.1).
+ * A library refusal maps onto the CLI's codes: a limit is limit_exceeded (exit 1), and
+ * any other refusal is invalid_json (exit 2). The same profile renders the value of
+ * --format json output.
  */
 
 /**
- * The most arrays and objects the text may have open at once: 2·1024 + 2. The
- * deepest value the codec's default decoder accepts is nested 1024 deep (root at
- * depth 0, ontos-codec.md §4.1); when that deepest value is an empty tuple, its 1025
- * tuples take two levels each (`{"tuple":[`). Anything deeper in an authoring text
- * is a value the decoder would refuse.
+ * The total transport: a string (argv, or stdin decoded with U+FFFD) as UTF-8 bytes.
+ * Buffer.from writes a lone surrogate as U+FFFD too, so the bytes are well-formed.
+ * U+FFFD is never hex and never part of "atom" or "tuple", so such a text is always
+ * refused, and the outcome never depends on how many U+FFFD replace a bad sequence.
  */
-const JSON_NESTING_CAP = 2 * 1024 + 2;
-
-/**
- * A value of the generic JSON tree stage 1 builds. Numbers, true, false and null
- * are only ever refused by the shape check, so they share one kind. An object keeps
- * one value per member name (a name occurs once).
- */
-type JsonNode =
-  | { kind: "scalar" }
-  | { kind: "string"; text: string }
-  | { kind: "array"; items: JsonNode[] }
-  | { kind: "object"; members: Map<string, JsonNode> };
-
-/** An open array or object; `key` is the member name the next value belongs to. */
-type OpenContainer =
-  | { kind: "array"; node: { kind: "array"; items: JsonNode[] } }
-  | { kind: "object"; node: { kind: "object"; members: Map<string, JsonNode> }; key: string };
-
-/** Stage 1: read the whole text as one JSON value. */
-function readJson(text: string): JsonNode {
-  let pos = 0;
-  const fault = (what: string): never => {
-    throw new AuthoringError(`malformed JSON at offset ${pos}: ${what}`);
-  };
-  const peek = (): number => (pos < text.length ? text.charCodeAt(pos) : -1);
-  // RFC 8259 whitespace: space, tab, LF and CR, nothing else.
-  const ws = (): void => {
-    for (;;) {
-      const c = peek();
-      if (c !== 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) return;
-      pos += 1;
-    }
-  };
-  const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39;
-  const digits = (): void => {
-    while (isDigit(peek())) pos += 1;
-  };
-  const literal = (word: string): JsonNode => {
-    if (!text.startsWith(word, pos)) fault(`expected ${word}`);
-    pos += word.length;
-    return { kind: "scalar" };
-  };
-  // The RFC 8259 number grammar; the value is never used, so any length is fine.
-  const number = (): JsonNode => {
-    if (peek() === 0x2d) pos += 1; // -
-    if (peek() === 0x30) {
-      pos += 1;
-    } else if (peek() >= 0x31 && peek() <= 0x39) {
-      digits();
-    } else {
-      fault("expected a digit");
-    }
-    if (peek() === 0x2e) {
-      pos += 1; // .
-      if (!isDigit(peek())) fault("expected a digit after '.'");
-      digits();
-    }
-    if (peek() === 0x65 || peek() === 0x45) {
-      pos += 1; // e E
-      if (peek() === 0x2b || peek() === 0x2d) pos += 1; // + -
-      if (!isDigit(peek())) fault("expected a digit in the exponent");
-      digits();
-    }
-    return { kind: "scalar" };
-  };
-  const hex4 = (): number => {
-    let v = 0;
-    for (let i = 0; i < 4; i += 1) {
-      const c = peek();
-      let d: number;
-      if (c >= 0x30 && c <= 0x39) d = c - 0x30;
-      else if (c >= 0x61 && c <= 0x66) d = c - 0x61 + 10;
-      else if (c >= 0x41 && c <= 0x46) d = c - 0x41 + 10;
-      else return fault("expected four hex digits");
-      v = v * 16 + d;
-      pos += 1;
-    }
-    return v;
-  };
-  // A string (the cursor is on its opening quote), decoded. A control character
-  // must be escaped; a \u escape of a surrogate must be a high one followed at once
-  // by an escaped low one.
-  const string = (): string => {
-    pos += 1;
-    let out = "";
-    for (;;) {
-      const start = pos;
-      for (;;) {
-        const c = peek();
-        if (c < 0x20 || c === 0x22 || c === 0x5c) break; // also the end (-1)
-        pos += 1;
-      }
-      out += text.slice(start, pos);
-      const c = peek();
-      if (c === 0x22) {
-        pos += 1;
-        return out;
-      }
-      if (c !== 0x5c) return fault(c < 0 ? "unterminated string" : "unescaped control character");
-      pos += 1;
-      const e = peek();
-      pos += 1;
-      switch (e) {
-        case 0x22: out += '"'; break;
-        case 0x5c: out += "\\"; break;
-        case 0x2f: out += "/"; break;
-        case 0x62: out += "\b"; break;
-        case 0x66: out += "\f"; break;
-        case 0x6e: out += "\n"; break;
-        case 0x72: out += "\r"; break;
-        case 0x74: out += "\t"; break;
-        case 0x75: {
-          const first = hex4();
-          if (first >= 0xd800 && first <= 0xdbff) {
-            if (!text.startsWith("\\u", pos)) fault("lone high surrogate");
-            pos += 2;
-            const second = hex4();
-            if (second < 0xdc00 || second > 0xdfff) fault("lone high surrogate");
-            out += String.fromCharCode(first, second);
-          } else if (first >= 0xdc00 && first <= 0xdfff) {
-            fault("lone low surrogate");
-          } else {
-            out += String.fromCharCode(first);
-          }
-          break;
-        }
-        default:
-          pos -= 1;
-          fault("unknown escape");
-      }
-    }
-  };
-  const memberName = (): string => {
-    ws();
-    if (peek() !== 0x22) fault("expected a member name");
-    const name = string();
-    ws();
-    if (peek() !== 0x3a) fault("expected ':'");
-    pos += 1;
-    return name;
-  };
-
-  const stack: OpenContainer[] = [];
-  ws();
-  for (;;) {
-    // A value starts at the cursor.
-    let value: JsonNode;
-    const c = peek();
-    if (c === 0x7b || c === 0x5b) {
-      if (stack.length === JSON_NESTING_CAP) throw new JsonTooDeep("more than 2050 nested arrays and objects");
-      pos += 1;
-      ws();
-      if (c === 0x5b) {
-        const node = { kind: "array" as const, items: [] as JsonNode[] };
-        if (peek() === 0x5d) {
-          pos += 1;
-          value = node;
-        } else {
-          stack.push({ kind: "array", node });
-          ws();
-          continue;
-        }
-      } else {
-        const node = { kind: "object" as const, members: new Map<string, JsonNode>() };
-        if (peek() === 0x7d) {
-          pos += 1;
-          value = node;
-        } else {
-          stack.push({ kind: "object", node, key: memberName() });
-          ws();
-          continue;
-        }
-      }
-    } else if (c === 0x22) {
-      value = { kind: "string", text: string() };
-    } else if (c === 0x74) {
-      value = literal("true");
-    } else if (c === 0x66) {
-      value = literal("false");
-    } else if (c === 0x6e) {
-      value = literal("null");
-    } else if (c === 0x2d || isDigit(c)) {
-      value = number();
-    } else {
-      return fault("expected a value");
-    }
-
-    // `value` is complete: hand it to the innermost open container, closing each
-    // container whose end follows.
-    for (;;) {
-      const top = stack[stack.length - 1];
-      if (top === undefined) {
-        ws();
-        if (pos !== text.length) fault("data after the value");
-        return value;
-      }
-      if (top.kind === "array") top.node.items.push(value);
-      else top.node.members.set(top.key, value);
-      ws();
-      const d = peek();
-      if (d === 0x2c) {
-        pos += 1;
-        if (top.kind === "object") {
-          const name = memberName();
-          if (top.node.members.has(name)) fault(`member name ${JSON.stringify(name)} repeated`);
-          top.key = name;
-        }
-        ws();
-        break;
-      }
-      if ((top.kind === "array" && d === 0x5d) || (top.kind === "object" && d === 0x7d)) {
-        pos += 1;
-        value = top.node;
-        stack.pop();
-        continue;
-      }
-      return fault("expected ',' or the container's end");
-    }
-  }
+function totalText(text: string): Uint8Array {
+  return Buffer.from(text, "utf8");
 }
 
 /**
- * Stage 2: check a JSON value against the authoring notation — the exact inverse of
- * toAuthoring (and of the `--format json` value rendering) — and build the core
- * Value, walking the tree with an explicit stack. A value is a JSON object with
- * EXACTLY ONE member (stage 1 has already refused a repeated name): "atom" (even-length
- * lowercase hex, "" = empty atom) or "tuple" (a JSON array of values). Anything else
- * throws AuthoringError → `invalid_json`.
+ * Read the `--from-json` text under the profile; `-` reads it from stdin. Nothing is
+ * trimmed: the reader allows only RFC 8259 whitespace. A refusal throws
+ * ProjectionError. (Readable text from an argument is refused before this.)
  */
-function authoringValue(root: JsonNode): Value {
-  const first = authoringNode(root);
-  if (!Array.isArray(first)) return first;
-  // Each open tuple: its children, the next one to check, and those built so far.
-  const stack: { items: JsonNode[]; next: number; built: Value[] }[] = [
-    { items: first, next: 0, built: [] },
-  ];
-  for (;;) {
-    const top = stack[stack.length - 1]!;
-    const child = top.items[top.next];
-    if (child === undefined) {
-      const tuple = new Tuple(top.built);
-      stack.pop();
-      const parent = stack[stack.length - 1];
-      if (parent === undefined) return tuple;
-      parent.built.push(tuple);
-      continue;
-    }
-    top.next += 1;
-    const node = authoringNode(child);
-    if (Array.isArray(node)) stack.push({ items: node, next: 0, built: [] });
-    else top.built.push(node);
+function valueFromJsonSource(source: string, profile: Profile): Value {
+  if (profile === "readable") {
+    return readable.parseUtf8(readStdinBytes());
   }
-}
-
-/** Check one authoring node: an atom comes back as its Value, a tuple as its children. */
-function authoringNode(node: JsonNode): Value | JsonNode[] {
-  if (node.kind !== "object") {
-    throw new AuthoringError("value must be an object");
-  }
-  if (node.members.size !== 1) {
-    throw new AuthoringError('value must have exactly one member, "atom" or "tuple"');
-  }
-  const atomPayload = node.members.get("atom");
-  if (atomPayload !== undefined) {
-    if (atomPayload.kind !== "string") throw new AuthoringError('"atom" must be a string');
-    return new Atom(atomBytes(atomPayload.text));
-  }
-  const tuplePayload = node.members.get("tuple");
-  if (tuplePayload === undefined) {
-    throw new AuthoringError('value must have exactly one member, "atom" or "tuple"');
-  }
-  if (tuplePayload.kind !== "array") throw new AuthoringError('"tuple" must be an array');
-  return tuplePayload.items;
-}
-
-/** Decode an authoring atom string: must be even-length LOWERCASE hex ("" allowed). */
-function atomBytes(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) {
-    throw new AuthoringError('"atom" must be even-length hex');
-  }
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i += 1) {
-    const hi = lowerHexNibble(hex.charCodeAt(i * 2));
-    const lo = lowerHexNibble(hex.charCodeAt(i * 2 + 1));
-    if (hi < 0 || lo < 0) {
-      throw new AuthoringError('"atom" must be lowercase hex');
-    }
-    out[i] = (hi << 4) | lo;
-  }
-  return out;
-}
-
-/** Hex nibble for an authoring atom: 0-9 and LOWERCASE a-f only (uppercase rejected). */
-function lowerHexNibble(code: number): number {
-  if (code >= 0x30 && code <= 0x39) return code - 0x30; // 0-9
-  if (code >= 0x61 && code <= 0x66) return code - 0x61 + 10; // a-f
-  return -1;
+  return total.parseUtf8(totalText(source === "-" ? readStdinText() : source));
 }
 
 /**
- * Build a Value from the `--from-json` source: stage 1, then stage 2. `-` reads the
- * JSON from stdin. Nothing is trimmed: the reader allows only RFC 8259 whitespace.
+ * Map a library refusal onto the CLI's codes: a limit is limit_exceeded, exit 1, as a
+ * decode limit; anything else is invalid_json, exit 2.
  */
-function valueFromJsonSource(source: string): Value {
-  const text = source === "-" ? readStdinText() : source;
-  return authoringValue(readJson(text));
+function jsonFailure(err: total.ProjectionError): { error: string; exit: number } {
+  return err.code === "limit_exceeded"
+    ? { error: "limit_exceeded", exit: EXIT_NEGATIVE }
+    : { error: "invalid_json", exit: EXIT_USAGE };
+}
+
+/**
+ * The value of a `--format json` result, in the profile's preferred spelling. Under
+ * the defaults the total writer accepts every value the CLI can hold (none is deeper
+ * than 1024), and the readable writer refuses only an integer of more than 4300
+ * digits: that refusal is emitted as the command's error line (limit_exceeded, exit 1).
+ */
+function renderValue(command: string, value: Value, profile: Profile): string {
+  try {
+    return profile === "readable" ? readable.renderString(value) : total.renderString(value);
+  } catch (err) {
+    if (err instanceof total.ProjectionError) {
+      const { error, exit } = jsonFailure(err);
+      emitLine({ ok: false, command, error });
+      writeErr(`ontos: cannot render the value: ${err.message}\n`);
+      process.exit(exit);
+    }
+    throw err;
+  }
 }
 
 /** Sleeps the thread while a pipe is not ready (Atomics.wait does not spin). */
@@ -513,13 +234,13 @@ const writeOut = (text: string): void => writeAll(1, text);
 const writeErr = (text: string): void => writeAll(2, text);
 
 /**
- * Read all of stdin as UTF-8 text, with U+FFFD for each sequence that is not UTF-8
- * (both input paths read stdin through here). readFileSync(0) is not used: it throws
- * EAGAIN when stdin is a non-blocking pipe whose writer is slower than this reader
- * and the input is larger than the pipe's buffer. This loop waits for the data
- * instead, with backoff; Atomics.wait sleeps the thread, so the wait does not spin.
+ * Read all of stdin as bytes (every input path reads stdin through here).
+ * readFileSync(0) is not used: it throws EAGAIN when stdin is a non-blocking pipe
+ * whose writer is slower than this reader and the input is larger than the pipe's
+ * buffer. This loop waits for the data instead, with backoff; Atomics.wait sleeps the
+ * thread, so the wait does not spin.
  */
-function readStdinText(): string {
+function readStdinBytes(): Buffer {
   const chunks: Buffer[] = [];
   const chunk = Buffer.alloc(1 << 16);
   const pause = backoff();
@@ -540,7 +261,12 @@ function readStdinText(): string {
     if (n === 0) break;
     chunks.push(Buffer.from(chunk.subarray(0, n)));
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+/** All of stdin as UTF-8 text, with U+FFFD for each sequence that is not UTF-8. */
+function readStdinText(): string {
+  return readStdinBytes().toString("utf8");
 }
 
 /** Emit a compact JSON line (single line, "\n"-terminated) to stdout. */
@@ -594,12 +320,12 @@ function trimHexInput(text: string): string {
  * Resolve the command's one Value from exactly one input source, emitting the
  * command's error object and exiting on failure (so the return is the success path).
  *
- * - `--from-json` (fromJson !== undefined): read the text and check the authoring
- *   shape, building the Value directly. It is canonical by construction, so its
- *   bytes are simply `encode(value)`. A text nested deeper than JSON_NESTING_CAP is
- *   `limit_exceeded` (exit 1); any other fault or non-authoring shape is
- *   `invalid_json` (exit 2). Mutual exclusion with `<hex>` is enforced earlier
- *   (usage_error).
+ * - `--from-json` (fromJson !== undefined): read the text in the selected profile
+ *   with @bitspark/ontos-json, building the Value directly. It is canonical by
+ *   construction, so its bytes are simply `encode(value)`. A limit refusal is
+ *   `limit_exceeded` (exit 1); any other refusal is `invalid_json` (exit 2). Readable
+ *   text from an argument is `usage_error` (exit 2). Mutual exclusion with `<hex>` is
+ *   enforced earlier (usage_error).
  * - otherwise: the positional `<hex>` or stdin, hex-decoded then codec-decoded.
  *   Invalid hex => `invalid_hex` (usage error, exit 2); a DecodeError => the codec's
  *   stable code (negative result, exit 1).
@@ -611,29 +337,34 @@ function resolveValue(
   format: Format,
   fromJson: string | undefined,
   positional: string | undefined,
+  profile: Profile,
 ): { value: Value; bytes: Uint8Array } {
   if (fromJson !== undefined) {
+    // Readable input is read from stdin only: Node has already decoded an argument
+    // lossily, and a replaced byte inside a string would read as another value
+    // (ontos-readable-json.md §10.1).
+    if (profile === "readable" && fromJson !== "-") {
+      if (format === "json") {
+        emitLine({ ok: false, command, error: "usage_error" });
+      } else {
+        writeErr("ontos: --json-profile readable reads --from-json from stdin only (--from-json -)\n");
+      }
+      process.exit(EXIT_USAGE);
+    }
     let value: Value;
     try {
-      value = valueFromJsonSource(fromJson);
+      value = valueFromJsonSource(fromJson, profile);
     } catch (err) {
-      if (err instanceof JsonTooDeep) {
-        // Deeper than any value the default decoder accepts: limit_exceeded, exit 1,
-        // exactly as a decode limit (ontos-cli.md "Value input").
+      if (err instanceof total.ProjectionError) {
+        // A limit is limit_exceeded (exit 1), exactly as a decode limit; any other
+        // refusal is the stable invalid_json usage error (exit 2).
+        const { error, exit } = jsonFailure(err);
         if (format === "json") {
-          emitLine({ ok: false, command, error: "limit_exceeded" });
+          emitLine({ ok: false, command, error });
         } else {
-          writeErr(`ontos: json input too deep: ${err.message}\n`);
+          writeErr(`ontos: json input: ${err.message}\n`);
         }
-        process.exit(EXIT_NEGATIVE);
-      }
-      if (err instanceof AuthoringError) {
-        if (format === "json") {
-          emitLine({ ok: false, command, error: "invalid_json" });
-        } else {
-          writeErr(`ontos: ${err.message}\n`);
-        }
-        process.exit(EXIT_USAGE);
+        process.exit(exit);
       }
       throw err;
     }
@@ -671,12 +402,15 @@ function runDecode(
   format: Format,
   fromJson: string | undefined,
   positional: string | undefined,
+  profile: Profile,
 ): never {
-  const { value } = resolveValue("decode", format, fromJson, positional);
+  const { value } = resolveValue("decode", format, fromJson, positional, profile);
 
   if (format === "json") {
-    // Construct the object key-by-key in the contract order: ok, command, codec, value.
-    emitLine({ ok: true, command: "decode", codec: CODEC_ID, value: toAuthoring(value) });
+    // The contract order: ok, command, codec, value. The value is spliced in as the
+    // library wrote it (JSON.stringify of a parsed copy would not keep it byte for byte).
+    const rendered = renderValue("decode", value, profile);
+    writeOut(`{"ok":true,"command":"decode","codec":"${CODEC_ID}","value":${rendered}}\n`);
   } else {
     writeOut(`${value.toString()}\n`);
   }
@@ -726,21 +460,20 @@ function runInspect(
   format: Format,
   fromJson: string | undefined,
   positional: string | undefined,
+  profile: Profile,
 ): never {
-  const { value, bytes } = resolveValue("inspect", format, fromJson, positional);
+  const { value, bytes } = resolveValue("inspect", format, fromJson, positional, profile);
   const canonical = isCanonical(value, bytes);
   const recognized = recognizedKinds(value);
 
   if (format === "json") {
-    // Contract key order: ok, command, codec, canonical, value, recognized.
-    emitLine({
-      ok: true,
-      command: "inspect",
-      codec: CODEC_ID,
-      canonical,
-      value: toAuthoring(value),
-      recognized,
-    });
+    // Contract key order: ok, command, codec, canonical, value, recognized. The value
+    // is spliced in as the library wrote it.
+    const rendered = renderValue("inspect", value, profile);
+    writeOut(
+      `{"ok":true,"command":"inspect","codec":"${CODEC_ID}","canonical":${canonical},` +
+        `"value":${rendered},"recognized":${JSON.stringify(recognized)}}\n`,
+    );
   } else {
     writeOut(`${value.toString()}\n`);
     writeOut(`canonical: ${canonical ? "yes" : "no"}\n`);
@@ -756,6 +489,7 @@ function runRead(
   positional: string | undefined,
   all: boolean,
   kind: string | undefined,
+  profile: Profile,
 ): never {
   if (all && kind !== undefined) {
     dieUsage("read takes at most one of --all or --kind");
@@ -767,7 +501,7 @@ function runRead(
     dieUsage(`unknown --kind ${kind} (expected int|utf8-text|bool|list|map|set|decimal|null)`);
   }
 
-  const { value } = resolveValue("read", format, fromJson, positional);
+  const { value } = resolveValue("read", format, fromJson, positional, profile);
 
   if (all) {
     const recognized = recognizedKinds(value);
@@ -802,12 +536,13 @@ function runCanon(
   positional: string | undefined,
   check: boolean,
   emit: boolean,
+  profile: Profile,
 ): never {
   if (check && emit) {
     dieUsage("canon takes at most one of --check or --emit");
   }
 
-  const { value, bytes } = resolveValue("canon", format, fromJson, positional);
+  const { value, bytes } = resolveValue("canon", format, fromJson, positional, profile);
 
   if (emit) {
     const hex = lowerHex(encode(value));
@@ -846,6 +581,8 @@ function main(argv: readonly string[]): never {
         version: { type: "boolean", short: "V" },
         // The alternative text→bytes input source (mutually exclusive with <hex>).
         "from-json": { type: "string" },
+        // The JSON profile of --from-json and of the --format json value.
+        "json-profile": { type: "string" },
         // Command-specific flags (validated per command in the runners).
         all: { type: "boolean" },
         kind: { type: "string" },
@@ -881,6 +618,15 @@ function main(argv: readonly string[]): never {
     format = values.format;
   }
 
+  let profile: Profile = "total";
+  const jsonProfile = values["json-profile"];
+  if (jsonProfile !== undefined) {
+    if (jsonProfile !== "total" && jsonProfile !== "readable") {
+      dieUsage(`invalid --json-profile ${jsonProfile} (expected total|readable)`);
+    }
+    profile = jsonProfile;
+  }
+
   const rest = positionals.slice(1);
   if (rest.length > 1) {
     dieUsage(`unexpected extra arguments after <hex>`);
@@ -909,16 +655,16 @@ function main(argv: readonly string[]): never {
   }
 
   if (command === "decode") {
-    runDecode(format, fromJson, positionalHex);
+    runDecode(format, fromJson, positionalHex, profile);
   }
   if (command === "inspect") {
-    runInspect(format, fromJson, positionalHex);
+    runInspect(format, fromJson, positionalHex, profile);
   }
   if (command === "read") {
-    runRead(format, fromJson, positionalHex, values.all === true, values.kind);
+    runRead(format, fromJson, positionalHex, values.all === true, values.kind, profile);
   }
   if (command === "canon") {
-    runCanon(format, fromJson, positionalHex, values.check === true, values.emit === true);
+    runCanon(format, fromJson, positionalHex, values.check === true, values.emit === true, profile);
   }
 
   dieUsage(`unknown command: ${command}\n${USAGE}`);

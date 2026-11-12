@@ -146,7 +146,7 @@ node tools/conformance/run.mjs \
 On success it prints a single summary line and exits `0`:
 
 ```text
-ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 68 texts, 130 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
+ontos-conformance: checked decode: 44 hexes x 5 commands x 4 impls + human: 44 hexes x 13 commands x 4 impls + from-json: 44 encode cases x 4 impls (author->bytes) + reading: 78 texts, 152 runs through argv or stdin, x 4 impls (outcome oracle) (ontos-rs, ontos-go, ontos-ts, ontos-py) — all byte-identical and every emit == pinned hex and every input text read as the contract says
 ```
 
 (With no mode flag — `--decode-roundtrip` implied — it prints the shorter

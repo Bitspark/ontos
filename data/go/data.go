@@ -458,6 +458,47 @@ func ReadMap(v core.Value) ([][2]core.Value, error) {
 	return entries, nil
 }
 
+// TextMapEntry is a native string key paired with an arbitrary L0 value.
+// A slice of entries retains duplicate intent instead of choosing a winner.
+type TextMapEntry struct {
+	Key   string
+	Value core.Value
+}
+
+// EncodeTextMap builds an ordinary canonical map with utf8-text keys (§5.7.1).
+// EncodeText rejects invalid UTF-8; EncodeMap owns codec ordering and duplicate
+// rejection. Child values pass through unchanged, without recursive conversion.
+func EncodeTextMap(entries []TextMapEntry) (core.Value, error) {
+	pairs := make([][2]core.Value, len(entries))
+	for i, entry := range entries {
+		key, err := EncodeText(entry.Key)
+		if err != nil {
+			return nil, err
+		}
+		pairs[i] = [2]core.Value{key, entry.Value}
+	}
+	return EncodeMap(pairs)
+}
+
+// ReadTextMap reads a canonical map whose every key is canonical utf8-text
+// (§5.7.1). It returns codec-ordered entries, retaining each arbitrary child
+// value. A malformed map or non-text key is rejected, never repaired.
+func ReadTextMap(value core.Value) ([]TextMapEntry, error) {
+	pairs, err := ReadMap(value)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]TextMapEntry, len(pairs))
+	for i, pair := range pairs {
+		key, err := ReadText(pair[0])
+		if err != nil {
+			return nil, err
+		}
+		entries[i] = TextMapEntry{Key: key, Value: pair[1]}
+	}
+	return entries, nil
+}
+
 // EncodeSet builds the canonical set embedding of elems (spec §5.8): the "set"
 // label followed by the elements, SORTED strictly ascending by the
 // ontos-codec-v1 byte order on the WHOLE element (tuple arity len+1). It is

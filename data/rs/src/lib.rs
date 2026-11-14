@@ -620,6 +620,27 @@ pub fn read_map(v: &Value) -> Result<Vec<(Value, Value)>, DataError> {
     Ok(entries)
 }
 
+/// Build an ordinary canonical map with utf8-text keys (§5.7.1).
+/// Entry pairs retain duplicate intent; [`encode_map`] owns codec ordering and
+/// duplicate rejection. Child values retain their L0 identity without conversion.
+pub fn encode_text_map(entries: &[(String, Value)]) -> Result<Value, DataError> {
+    let pairs: Vec<_> = entries
+        .iter()
+        .map(|(key, value)| (encode_text(key), value.clone()))
+        .collect();
+    encode_map(&pairs)
+}
+
+/// Read a canonical map whose every key is canonical utf8-text (§5.7.1).
+/// Entries remain in codec key order and child values retain their L0 identity.
+/// Malformed maps and non-text keys are rejected, never repaired or coerced.
+pub fn read_text_map(value: &Value) -> Result<Vec<(String, Value)>, DataError> {
+    read_map(value)?
+        .into_iter()
+        .map(|(key, item)| Ok((read_text(&key)?, item)))
+        .collect()
+}
+
 // ----- set (spec 5.8) -----
 
 /// Build the canonical `set` value:

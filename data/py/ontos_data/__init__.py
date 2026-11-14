@@ -40,7 +40,7 @@ across all four (ontos-data.md §5.1).
 
 from __future__ import annotations
 
-from typing import List, Tuple as PyTuple
+from typing import List, Sequence, Tuple as PyTuple
 
 from ontos_core import Atom, Tuple, Value, atom, tuple_
 from ontos_codec import encode
@@ -59,6 +59,8 @@ __all__ = [
     "read_list",
     "encode_map",
     "read_map",
+    "encode_text_map",
+    "read_text_map",
     "encode_set",
     "read_set",
     "encode_decimal",
@@ -365,6 +367,32 @@ def read_map(v: Value) -> List[PyTuple[Value, Value]]:
         entries.append((key, value))
         prev_key_bytes = key_bytes
     return entries
+
+
+def encode_text_map(entries: Sequence[PyTuple[str, Value]]) -> Value:
+    """Build an ordinary canonical map with utf8-text keys (§5.7.1).
+
+    Entry pairs retain duplicate intent. Keys must be native strings without
+    coercion; encode_text owns scalar fidelity, encode_map owns codec ordering
+    and duplicate rejection. Arbitrary child Values pass through unchanged.
+    """
+    if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes, bytearray)):
+        raise DataError("malformed_entry", "text map entries must be a sequence of pairs")
+    pairs: List[PyTuple[Value, Value]] = []
+    for entry in entries:
+        if not isinstance(entry, (tuple, list)) or len(entry) != 2 or not isinstance(entry[0], str):
+            raise DataError("malformed_entry", "text map entry must be a string and Value pair")
+        pairs.append((encode_text(entry[0]), entry[1]))
+    return encode_map(pairs)
+
+
+def read_text_map(value: Value) -> List[PyTuple[str, Value]]:
+    """Read a canonical map with canonical utf8-text keys (§5.7.1).
+
+    Return codec-ordered entries, preserving arbitrary child Values. Reject
+    malformed maps and non-text keys; never coerce, normalize or repair.
+    """
+    return [(read_text(key), item) for key, item in read_map(value)]
 
 
 # --- set (ontos-data.md §5.8) -------------------------------------------------

@@ -583,6 +583,68 @@ key (accepted — no recursion), and the reject set: unsorted entries, a duplica
 key, an arity-3 entry, the flat form, the unlabeled form, the empty tuple, and a
 cross-kind read.
 
+#### 5.7.1 Native text-key map construction and reading
+
+The data libraries provide a convenience API for an ordinary §5.7 `map` whose
+keys are all §5.2 `utf8-text`. This is neither a new embedding nor a new equality
+or encoding. The key is text because the caller explicitly selects this API;
+the remaining values are arbitrary L0 values, with no recursive interpretation.
+
+The producer accepts a sequence of `(native string, Value)` pairs. A sequence
+preserves duplicate intent; a native dictionary that has already discarded a
+duplicate cannot recover it. Each key is produced by the existing text producer,
+then the existing map producer constructs the map. The producer rejects duplicate
+keys rather than selecting a winner. It preserves Unicode scalar sequences
+without normalization; ill-formed host text is rejected through the existing
+text error channel. Native keys are not coerced to strings.
+
+The reader first recognizes the entire canonical map and then recognizes every
+key as canonical text. It rejects a malformed or unsorted map, duplicate keys,
+non-text keys and malformed text keys. It returns no partial result on failure.
+The returned entry order is codec key order, which can differ from host string
+order (for example, `"b"` precedes `"aa"`). Child values preserve L0 identity,
+including children that do not satisfy an embedding whose label they carry.
+Empty maps are admitted. The API does not construct host objects or assign
+special behavior to keys such as `__proto__` or `constructor`.
+
+The implemented library surfaces are:
+
+```ts
+// TypeScript: @bitspark/ontos-data
+encodeTextMap(entries: ReadonlyArray<readonly [string, Value]>): Value;
+readTextMap(value: Value): Array<[string, Value]>;
+```
+
+```go
+// Go: github.com/bitspark/ontos/data/go
+type TextMapEntry struct { Key string; Value core.Value }
+func EncodeTextMap(entries []TextMapEntry) (core.Value, error)
+func ReadTextMap(value core.Value) ([]TextMapEntry, error)
+```
+
+```rust
+// Rust: bitspark-ontos-data (crate ontos_data)
+pub fn encode_text_map(entries: &[(String, Value)]) -> Result<Value, DataError>;
+pub fn read_text_map(value: &Value) -> Result<Vec<(String, Value)>, DataError>;
+```
+
+```python
+# Python: ontos_data
+def encode_text_map(entries: Sequence[tuple[str, Value]]) -> Value: ...
+def read_text_map(value: Value) -> list[tuple[str, Value]]: ...
+```
+
+TypeScript requires an array and Python a non-text sequence; malformed entry
+pairs or non-string native keys are rejected with `DataError("malformed_entry")`.
+Their child values retain the ordinary core construction precondition: each must
+already be a `Value`. Go and Rust express entry shape and string-key type in their
+signatures. Rust strings already exclude ill-formed Unicode. All bindings retain
+the existing map/text failure channels and frozen canonical bytes.
+
+ontos supplies this reusable spelling mechanism. Consumers choose their fields,
+child encodings, requiredness and policy; this API supplies none of those meanings.
+See [the ownership case](../architecture/cases/0001-text-map-construction.md).
+
 ### 5.8 `set` — finite set  *(byte form FROZEN, added 2026-06-01)*
 
 A **finite set** of distinct values — an unordered collection with no duplicates.

@@ -13,6 +13,12 @@
       "history",
       "license"
     ],
+    "docs/architecture/cases/0001-text-map-construction.md": [
+      "ontos-acx-001-text-key-map-construction-belongs-to-ontos-data",
+      "ownership-failure",
+      "selected-contract",
+      "correction-and-qualification"
+    ],
     "docs/conformance-vector-provenance.md": [
       "conformance-vector-provenance-class-a-oracle-vs-class-b-derived",
       "the-principle",
@@ -572,6 +578,7 @@
       "55-list--ordered-sequence--byte-form-frozen-v1",
       "56-map--the-deferral-historical-now-resolved",
       "57-map--finite-association--byte-form-frozen-added-2026-06-01",
+      "571-native-text-key-map-construction-and-reading",
       "58-set--finite-set--byte-form-frozen-added-2026-06-01",
       "59-decimal--exact-decimal-value--byte-form-frozen-added-2026-06-06",
       "510-null--the-single-no-value--byte-form-frozen-added-2026-06-13",

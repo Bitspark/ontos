@@ -389,6 +389,35 @@ export function readMap(v: Value): Array<[Value, Value]> {
   return entries;
 }
 
+/**
+ * Builds an ordinary canonical map with utf8-text keys (§5.7.1). Entry pairs
+ * retain duplicate intent; native keys must be strings, without coercion.
+ * Child values pass through unchanged. Ordering and duplicate rejection belong
+ * to encodeMap, and scalar fidelity belongs to encodeText.
+ */
+export function encodeTextMap(entries: ReadonlyArray<readonly [string, Value]>): Value {
+  if (!Array.isArray(entries)) {
+    throw new DataError("malformed_entry", "text map entries must be an array of pairs");
+  }
+  const pairs: Array<[Value, Value]> = [];
+  for (const entry of entries) {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") {
+      throw new DataError("malformed_entry", "text map entry must be a string and Value pair");
+    }
+    pairs.push([encodeText(entry[0]), entry[1]]);
+  }
+  return encodeMap(pairs);
+}
+
+/**
+ * Reads a canonical map whose every key is canonical utf8-text (§5.7.1).
+ * Returns entries in codec key order, preserving each child Value unchanged.
+ * Rejects a malformed map or non-text key; never coerces, normalizes or repairs.
+ */
+export function readTextMap(value: Value): Array<[string, Value]> {
+  return readMap(value).map(([key, item]) => [readText(key), item]);
+}
+
 // --- set (ontos-data.md §5.8) -------------------------------------------------
 
 /**
